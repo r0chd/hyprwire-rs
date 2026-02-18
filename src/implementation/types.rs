@@ -1,3 +1,5 @@
+use crate::message::MessageError;
+
 #[repr(u8)]
 #[derive(Copy, Clone)]
 pub enum MessageMagic {
@@ -24,4 +26,24 @@ pub enum MessageMagic {
     /// Special types
     /// FD has size 0. It's passed via control.
     TypeFd = 0x40,
+}
+
+impl TryFrom<u8> for MessageMagic {
+    type Error = MessageError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(Self::End),
+            0x10 => Ok(Self::TypeUint),
+            0x11 => Ok(Self::TypeInt),
+            0x12 => Ok(Self::TypeF32),
+            0x13 => Ok(Self::TypeSeq),
+            0x14 => Ok(Self::TypeObjectId),
+            0x20 => Ok(Self::TypeVarchar),
+            0x21 => Ok(Self::TypeArray),
+            0x22 => Ok(Self::TypeObject),
+            0x40 => Ok(Self::TypeFd),
+            _ => Err(MessageError::MalformedMessage),
+        }
+    }
 }
