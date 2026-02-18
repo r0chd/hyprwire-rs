@@ -1,0 +1,39 @@
+name: Rust Tests
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+jobs:
+  test:
+    name: Test and Lint
+    runs-on: docker
+    container:
+      image: nixos/nix:2.22.1
+    steps:
+      - name: Install Node.js for Actions
+        run: |
+          nix-channel --update
+          nix-env -iA nixpkgs.nodejs
+          
+      - name: Checkout code
+        uses: https://code.forgejo.org/actions/checkout@v4
+        
+      - name: Enable flakes
+        run: |
+          mkdir -p /etc/nix
+          echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+            
+      - name: Run tests and linting in Nix shell
+        run: |
+          nix profile install nixpkgs#cargo-llvm-cov
+          nix develop --command bash -c "
+            # Run tests
+            cargo test
+            
+            # Check formatting
+            cargo fmt -- --check
+            
+            # Run clippy
+            # cargo clippy --all-targets -- -D warnings
+          "

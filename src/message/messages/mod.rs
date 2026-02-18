@@ -243,11 +243,20 @@ mod tests {
         let bytes: &[u8] = &[
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeSeq as u8,
-            0x01, 0x00, 0x00, 0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
             MessageMagic::TypeInt as u8,
-            0x01, 0x00, 0x00, 0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
             MessageMagic::TypeF32 as u8,
-            0x01, 0x00, 0x00, 0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
             MessageMagic::End as u8,
         ];
         let msg = TestMessage {
