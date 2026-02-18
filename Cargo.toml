@@ -1,0 +1,8 @@
+[package]
+name = "hyprwire"
+version = "0.0.0"
+edition = "2024"
+description = "A fast and consistent wire protocol for IPC"
+license = "BSD-3-Clause"
+
+[dependencies]
