@@ -1,44 +1,34 @@
-use super::{Message, MessageType};
+use super::{Message, MessageError, MessageType};
 use crate::implementation::types::MessageMagic;
-use crate::message::MessageError;
 
 #[derive(Debug)]
 pub struct NewObject {
     id: u32,
     seq: u32,
-    data: Vec<u8>,
-    message_type: MessageType,
+    data: [u8; 12],
 }
 
 impl NewObject {
     pub fn new(seq: u32, id: u32) -> Self {
-        let mut data: Vec<u8> = Vec::new();
+        let mut data = [0u8; 12];
 
-        data.push(MessageType::NewObject as u8);
-        data.push(MessageMagic::TypeUint as u8);
-        data.append(&mut id.to_be_bytes().to_vec());
-        data.push(MessageMagic::TypeUint as u8);
-        data.append(&mut seq.to_be_bytes().to_vec());
-        data.push(MessageMagic::End as u8);
+        data[0] = MessageType::NewObject as u8;
+        data[1] = MessageMagic::TypeUint as u8;
+        data[2..2 + 4].copy_from_slice(&id.to_le_bytes());
+        data[7] = MessageMagic::TypeUint as u8;
+        data[8..8 + 4].copy_from_slice(&seq.to_le_bytes());
+        data[11] = MessageMagic::End as u8;
 
-        Self {
-            id,
-            seq,
-            data,
-            message_type: MessageType::NewObject,
-        }
+        Self { id, seq, data }
     }
 
     pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
-        if offset + 12 > data.len() {
-            return Err(MessageError::UnexpectedEof);
-        }
-
-        if data[offset] != MessageType::NewObject as u8 {
+        if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::NewObject as u8 {
             return Err(MessageError::InvalidMessageType);
         }
 
-        if data[offset + 1] != MessageMagic::TypeUint as u8 {
+        if *data.get(offset + 1).ok_or(MessageError::UnexpectedEof)? != MessageMagic::TypeUint as u8
+        {
             return Err(MessageError::InvalidFieldType);
         }
 
@@ -47,9 +37,10 @@ impl NewObject {
             .ok_or(MessageError::UnexpectedEof)?
             .try_into()
             .unwrap();
-        let id = u32::from_be_bytes(bytes);
+        let id = u32::from_le_bytes(bytes);
 
-        if data[offset + 6] != MessageMagic::TypeUint as u8 {
+        if *data.get(offset + 6).ok_or(MessageError::UnexpectedEof)? != MessageMagic::TypeUint as u8
+        {
             return Err(MessageError::InvalidFieldType);
         }
 
@@ -58,17 +49,86 @@ impl NewObject {
             .ok_or(MessageError::UnexpectedEof)?
             .try_into()
             .unwrap();
-        let seq = u32::from_be_bytes(bytes);
+        let seq = u32::from_le_bytes(bytes);
 
-        if data[offset + 11] != MessageMagic::End as u8 {
+        if *data.get(offset + 11).ok_or(MessageError::UnexpectedEof)? != MessageMagic::End as u8 {
             return Err(MessageError::MalformedMessage);
         }
 
         Ok(Self {
             id,
             seq,
-            data: data[offset..12].to_vec(),
-            message_type: MessageType::NewObject,
+            data: data[offset..offset + 12].try_into().unwrap(),
         })
+    }
+}
+
+impl Message for NewObject {
+    fn get_data(&self) -> &[u8] {
+        &self.data
+    }
+
+    fn get_message_type(&self) -> MessageType {
+        MessageType::NewObject
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_object_new() {
+        let msg = NewObject::new(3, 2);
+        let parsed = msg.parse_data().unwrap();
+        assert_eq!(parsed, "NewObject ( 2, 3 ) ");
+    }
+
+    #[test]
+    fn new_object_from_bytes() {
+        let bytes: &[u8] = &[
+            MessageType::NewObject as u8,
+            MessageMagic::TypeUint as u8,
+            0x02,
+            0x00,
+            0x00,
+            0x00,
+            MessageMagic::TypeUint as u8,
+            0x03,
+            0x00,
+            0x00,
+            0x00,
+            MessageMagic::End as u8,
+        ];
+        let msg = NewObject::from_bytes(bytes, 0).unwrap();
+        let parsed = msg.parse_data().unwrap();
+        assert_eq!(parsed, "NewObject ( 2, 3 ) ");
+    }
+
+    #[test]
+    fn new_object_from_bytes_unexpected_eof() {
+        let bytes: &[u8] = &[MessageType::NewObject as u8, MessageMagic::TypeUint as u8];
+        let err = NewObject::from_bytes(bytes, 0).unwrap_err();
+        assert!(matches!(err, MessageError::UnexpectedEof));
+    }
+
+    #[test]
+    fn new_object_from_bytes_malformed() {
+        let bytes: &[u8] = &[
+            MessageType::NewObject as u8,
+            MessageMagic::TypeUint as u8,
+            0x02,
+            0x00,
+            0x00,
+            0x00,
+            MessageMagic::TypeUint as u8,
+            0x03,
+            0x00,
+            0x00,
+            0x00,
+            MessageMagic::TypeUint as u8,
+        ];
+        let err = NewObject::from_bytes(bytes, 0).unwrap_err();
+        assert!(matches!(err, MessageError::MalformedMessage));
     }
 }

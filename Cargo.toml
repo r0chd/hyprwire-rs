@@ -6,3 +6,5 @@ description = "A fast and consistent wire protocol for IPC"
 license = "BSD-3-Clause"
 
 [dependencies]
+env_logger = "0.11.9"
+log = "0.4.29"

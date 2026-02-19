@@ -45,6 +45,26 @@ pub enum MessageType {
     GenericProtocolMessage = 100,
 }
 
+impl fmt::Display for MessageType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            MessageType::Sup => "Sup",
+            MessageType::Invalid => "Invalid",
+            MessageType::HandshakeBegin => "HandshakeBegin",
+            MessageType::HandshakeAck => "HandshakeAck",
+            MessageType::HandshakeProtocols => "HandshakeProtocols",
+            MessageType::BindProtocol => "BindProtocol",
+            MessageType::NewObject => "NewObject",
+            MessageType::FatalProtocolError => "FatalProtocolError",
+            MessageType::RoundtripRequest => "RoundtripRequest",
+            MessageType::RoundtripDone => "RoundtripDone",
+            MessageType::GenericProtocolMessage => "GenericProtocolMessage",
+        };
+
+        write!(f, "{str}")
+    }
+}
+
 impl TryFrom<u8> for MessageType {
     type Error = MessageError;
 
@@ -64,6 +84,23 @@ impl TryFrom<u8> for MessageType {
             _ => Err(MessageError::InvalidMessageType),
         }
     }
+}
+
+pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
+    let mut n = num;
+    let mut i = 0;
+
+    loop {
+        let chunk = (n & 0x7F) as u8;
+        n >>= 7;
+        buffer[i] = if n == 0 { chunk } else { chunk | 0x80 };
+        i += 1;
+        if n == 0 {
+            break;
+        }
+    }
+
+    &buffer[..i]
 }
 
 pub fn parse_var_int(data: &[u8], offset: usize) -> (usize, usize) {

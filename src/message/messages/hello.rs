@@ -1,16 +1,14 @@
-use super::{Message, MessageType};
+use super::{Message, MessageError, MessageType};
 use crate::implementation::types::MessageMagic;
-use crate::message::MessageError;
 
 #[derive(Debug)]
-pub struct Hello<'a> {
-    data: &'a [u8],
-    message_type: MessageType,
+pub struct Hello {
+    data: [u8; 7],
 }
 
-impl<'a> Hello<'a> {
+impl Hello {
     pub fn new() -> Self {
-        let data: &[u8] = &[
+        let data: [u8; 7] = [
             MessageType::Sup as u8,
             MessageMagic::TypeVarchar as u8,
             0x03,
@@ -20,17 +18,10 @@ impl<'a> Hello<'a> {
             MessageMagic::End as u8,
         ];
 
-        Self {
-            data,
-            message_type: MessageType::Sup,
-        }
+        Self { data }
     }
 
-    pub fn from_bytes(data: &'a [u8], offset: usize) -> Result<Self, MessageError> {
-        if offset + 7 > data.len() {
-            return Err(MessageError::UnexpectedEof);
-        }
-
+    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
         let expected: &[u8] = &[
             MessageType::Sup as u8,
             MessageMagic::TypeVarchar as u8,
@@ -41,24 +32,27 @@ impl<'a> Hello<'a> {
             MessageMagic::End as u8,
         ];
 
-        if data != expected {
+        let msg_data = data
+            .get(offset..offset + 7)
+            .ok_or(MessageError::UnexpectedEof)?;
+
+        if msg_data != expected {
             return Err(MessageError::MalformedMessage);
         }
 
         Ok(Self {
-            data,
-            message_type: MessageType::Sup,
+            data: msg_data.try_into().unwrap(),
         })
     }
 }
 
-impl<'a> Message for Hello<'a> {
+impl Message for Hello {
     fn get_data(&self) -> &[u8] {
-        self.data
+        &self.data
     }
 
     fn get_message_type(&self) -> MessageType {
-        self.message_type
+        MessageType::Sup
     }
 }
 
@@ -69,8 +63,8 @@ mod tests {
     #[test]
     fn hello_new() {
         let msg = Hello::new();
-        let data = msg.parseData().unwrap();
-        assert_eq!(data, "\"VAX\" ) ");
+        let data = msg.parse_data().unwrap();
+        assert_eq!(data, "Sup ( \"VAX\" ) ");
     }
 
     #[test]
@@ -85,8 +79,8 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let msg = Hello::from_bytes(bytes, 0).unwrap();
-        let data = msg.parseData().unwrap();
-        assert_eq!(data, "\"VAX\" ) ");
+        let data = msg.parse_data().unwrap();
+        assert_eq!(data, "Sup ( \"VAX\" ) ");
     }
 
     #[test]

@@ -1,5 +1,13 @@
+mod bind_protocol;
+mod fatal_protocol_error;
+mod generic_protocol_message;
+mod handshake_ack;
+mod handshake_begin;
+mod handshake_protocols;
 mod hello;
 mod new_object;
+mod roundtrip_done;
+mod roundtrip_request;
 
 use super::{MessageError, MessageType};
 use crate::implementation::types::MessageMagic;
@@ -14,17 +22,15 @@ pub trait Message {
         &[]
     }
 
-    fn parseData(&self) -> Result<String, MessageError> {
+    fn parse_data(&self) -> Result<String, MessageError> {
         let mut result = String::new();
         let data = self.get_data();
+
+        result.push_str(&format!("{} ( ", self.get_message_type()));
 
         let mut first = true;
         let mut needle: usize = 1;
         while needle < data.len() {
-            if needle >= data.len() {
-                return Err(MessageError::UnexpectedEof);
-            }
-
             let magic = MessageMagic::try_from(data[needle])?;
             needle += 1;
 
@@ -263,9 +269,12 @@ mod tests {
             data: bytes,
             message_type: MessageType::GenericProtocolMessage,
         };
-        let data = msg.parseData().unwrap();
+        let data = msg.parse_data().unwrap();
         let expected_f32 = f32::from_le_bytes([0x01, 0x00, 0x00, 0x00]);
-        assert_eq!(data, format!("seq: 1, 1, {expected_f32} ) "));
+        assert_eq!(
+            data,
+            format!("GenericProtocolMessage ( seq: 1, 1, {expected_f32} ) ")
+        );
     }
 
     #[test]
@@ -280,7 +289,7 @@ mod tests {
             data: bytes,
             message_type: MessageType::GenericProtocolMessage,
         };
-        let data = msg.parseData().unwrap();
-        assert_eq!(data, "\"\" ) ");
+        let data = msg.parse_data().unwrap();
+        assert_eq!(data, "GenericProtocolMessage ( \"\" ) ");
     }
 }
