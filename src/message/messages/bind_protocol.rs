@@ -1,4 +1,4 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
 
@@ -37,7 +37,7 @@ impl<'a> BindProtocol<'a> {
         }
     }
 
-    pub fn from_bytes(data: &'a [u8], offset: usize) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &'a [u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::BindProtocol as u8
         {
             return Err(MessageError::InvalidMessageType);
@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn bind_protocol_new() {
         let msg = BindProtocol::new("test@1", 5, 1);
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "BindProtocol ( 5, \"test@1\", 1 ) ");
     }
 
@@ -152,7 +152,7 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let msg = BindProtocol::from_bytes(bytes, 0).unwrap();
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "BindProtocol ( 5, \"test@1\", 1 ) ");
     }
 

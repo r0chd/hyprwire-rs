@@ -1,6 +1,5 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
-use crate::message;
 
 #[derive(Debug)]
 pub struct HandshakeAck {
@@ -20,7 +19,7 @@ impl HandshakeAck {
         Self { version, data }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::HandshakeAck as u8
         {
             return Err(MessageError::InvalidMessageType);
@@ -74,7 +73,7 @@ mod tests {
     #[test]
     fn handshake_ack_new() {
         let msg = HandshakeAck::new(1);
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "HandshakeAck ( 1 ) ");
     }
 
@@ -90,7 +89,7 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let msg = HandshakeAck::from_bytes(bytes, 0).unwrap();
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "HandshakeAck ( 1 ) ");
     }
 

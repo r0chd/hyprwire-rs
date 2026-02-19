@@ -1,4 +1,4 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ impl RoundtripDone {
         Self { seq, data }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::RoundtripDone as u8
         {
             return Err(MessageError::InvalidMessageType);
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn roundtrip_request_new() {
         let msg = RoundtripDone::new(2);
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "RoundtripDone ( 2 ) ");
     }
 
@@ -81,7 +81,7 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let msg = RoundtripDone::from_bytes(bytes, 0).unwrap();
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "RoundtripDone ( 42 ) ");
     }
 

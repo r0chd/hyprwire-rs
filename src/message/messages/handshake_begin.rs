@@ -1,4 +1,4 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
 
@@ -34,7 +34,7 @@ impl HandshakeBegin {
         }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::HandshakeBegin as u8
         {
@@ -67,7 +67,7 @@ impl HandshakeBegin {
                     .unwrap();
                 Ok(u32::from_le_bytes(bytes))
             })
-            .collect::<Result<Vec<_>, MessageError>>()?;
+            .collect::<Result<Vec<_>>>()?;
 
         needle += arr_len * 4;
 
@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn handshake_begin_new() {
         let msg = HandshakeBegin::new(&[1, 2]);
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "HandshakeBegin ( { 1, 2 } ) ");
     }
 
@@ -124,7 +124,7 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let msg = HandshakeBegin::from_bytes(bytes, 0).unwrap();
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "HandshakeBegin ( { 1, 2 } ) ");
     }
 

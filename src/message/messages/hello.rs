@@ -1,4 +1,4 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 
 #[derive(Debug)]
@@ -21,7 +21,7 @@ impl Hello {
         Self { data }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         let expected: &[u8] = &[
             MessageType::Sup as u8,
             MessageMagic::TypeVarchar as u8,
@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn hello_new() {
         let msg = Hello::new();
-        let data = msg.parse_data().unwrap();
+        let data = msg.parse_data();
         assert_eq!(data, "Sup ( \"VAX\" ) ");
     }
 
@@ -79,7 +79,7 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let msg = Hello::from_bytes(bytes, 0).unwrap();
-        let data = msg.parse_data().unwrap();
+        let data = msg.parse_data();
         assert_eq!(data, "Sup ( \"VAX\" ) ");
     }
 

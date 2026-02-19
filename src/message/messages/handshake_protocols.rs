@@ -1,4 +1,4 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
 
@@ -35,7 +35,7 @@ impl HandshakeProtocols {
         }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::HandshakeProtocols as u8
         {
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn handshake_protocols_new() {
         let msg = HandshakeProtocols::new(&[b"test@1", b"test@2"]);
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "HandshakeProtocols ( { \"test@1\", \"test@2\" } ) ");
     }
 

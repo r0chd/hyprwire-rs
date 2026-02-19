@@ -1,6 +1,6 @@
-use std::sync::OnceLock;
+use std::sync;
 
-static IS_TRACE: OnceLock<bool> = OnceLock::new();
+static IS_TRACE: sync::OnceLock<bool> = sync::OnceLock::new();
 
 pub fn is_trace() -> bool {
     *IS_TRACE.get_or_init(|| {

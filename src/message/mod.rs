@@ -1,5 +1,17 @@
 mod messages;
 
+pub(crate) use messages::bind_protocol::BindProtocol;
+pub(crate) use messages::fatal_protocol_error::FatalProtocolError;
+pub(crate) use messages::generic_protocol_message::GenericProtocolMessage;
+pub(crate) use messages::handshake_ack::HandshakeAck;
+pub(crate) use messages::handshake_begin::HandshakeBegin;
+pub(crate) use messages::handshake_protocols::HandshakeProtocols;
+pub(crate) use messages::hello::Hello;
+pub(crate) use messages::new_object::NewObject;
+pub(crate) use messages::roundtrip_done::RoundtripDone;
+pub(crate) use messages::roundtrip_request::RoundtripRequest;
+pub(crate) use messages::Message;
+
 use std::fmt;
 
 #[derive(Debug)]
@@ -85,6 +97,12 @@ impl TryFrom<u8> for MessageType {
         }
     }
 }
+
+// TODO
+pub fn handleMessage() {}
+
+// TODO
+pub fn parseSingleMessage() {}
 
 pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
     let mut n = num;

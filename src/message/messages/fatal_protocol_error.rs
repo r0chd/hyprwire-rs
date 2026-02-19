@@ -1,4 +1,4 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
 
@@ -35,7 +35,7 @@ impl FatalProtocolError {
         }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::FatalProtocolError as u8
         {
@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn fatal_protocol_error_new() {
         let msg = FatalProtocolError::new(1, 42, "something broke".to_string());
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "FatalProtocolError ( 1, 42, \"something broke\" ) ");
     }
 

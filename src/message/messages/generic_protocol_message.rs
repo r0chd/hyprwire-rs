@@ -1,4 +1,4 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
 
@@ -20,11 +20,7 @@ impl GenericProtocolMessage {
         }
     }
 
-    pub fn from_bytes(
-        data: &[u8],
-        fds: &mut Vec<i32>,
-        offset: usize,
-    ) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &[u8], fds: &mut Vec<i32>, offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::GenericProtocolMessage as u8
         {

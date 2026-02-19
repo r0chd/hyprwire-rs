@@ -1,4 +1,4 @@
-use super::{Message, MessageError, MessageType};
+use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ impl NewObject {
         Self { id, seq, data }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self, MessageError> {
+    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::NewObject as u8 {
             return Err(MessageError::InvalidMessageType);
         }
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn new_object_new() {
         let msg = NewObject::new(3, 2);
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "NewObject ( 2, 3 ) ");
     }
 
@@ -101,7 +101,7 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let msg = NewObject::from_bytes(bytes, 0).unwrap();
-        let parsed = msg.parse_data().unwrap();
+        let parsed = msg.parse_data();
         assert_eq!(parsed, "NewObject ( 2, 3 ) ");
     }
 
