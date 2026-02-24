@@ -1,3 +1,5 @@
+mod test_protocol_v1;
+
 use hyprwire::client::{ClientSocket, SocketSource};
 use std::{env, path, str::FromStr};
 

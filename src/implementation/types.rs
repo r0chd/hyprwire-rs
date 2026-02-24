@@ -1,7 +1,8 @@
 use crate::message::MessageError;
+use libffi::low;
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum MessageMagic {
     /// Signifies an end of a message
     End = 0x0,
@@ -28,6 +29,21 @@ pub enum MessageMagic {
     TypeFd = 0x40,
 }
 
+impl MessageMagic {
+    pub fn to_ffi_type(self) -> *mut low::ffi_type {
+        match self {
+            Self::TypeUint | Self::TypeObject | Self::TypeSeq => &raw mut low::types::uint32,
+            Self::TypeInt => &raw mut low::types::sint32,
+            Self::TypeF32 => &raw mut low::types::float,
+            Self::TypeVarchar => &raw mut low::types::pointer,
+            Self::TypeArray => &raw mut low::types::pointer,
+            Self::TypeFd => &raw mut low::types::sint32,
+            Self::TypeObjectId => &raw mut low::types::uint32,
+            Self::End => &raw mut low::types::void,
+        }
+    }
+}
+
 impl TryFrom<u8> for MessageMagic {
     type Error = MessageError;
 
@@ -49,10 +65,10 @@ impl TryFrom<u8> for MessageMagic {
 }
 
 pub struct Method {
-    idx: u32,
-    params: String,
-    returns_type: String,
-    since: u32,
+    pub idx: u32,
+    pub params: String,
+    pub returns_type: String,
+    pub since: u32,
 }
 
 pub trait ProtocolObjectSpec {

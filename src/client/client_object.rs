@@ -1,13 +1,12 @@
 use crate::implementation::{object, types, wire_object};
 use crate::{client, message};
+use std::os::raw;
 
 pub struct ClientObject<'a> {
     client: Option<client::ClientSocket<'a>>,
     spec: Option<&'a dyn types::ProtocolObjectSpec>,
-    // TODO: its a void pointer :(
-    // data:
-    // those are void pointers too
-    // listeners:
+    data: Option<*mut raw::c_void>,
+    listeners: Vec<*mut raw::c_void>,
     pub(crate) id: u32,
     version: u32,
     pub(crate) seq: u32,
@@ -19,7 +18,7 @@ impl object::Object for ClientObject<'_> {
         self.client.as_ref()
     }
 
-    fn error<'a>(&self, error_id: u32, error_msg: &'a str) {
+    fn error(&self, error_id: u32, error_msg: &str) {
         _ = error_id;
         _ = error_msg;
     }
@@ -30,7 +29,7 @@ impl wire_object::WireObject for ClientObject<'_> {
         self.version
     }
 
-    fn get_id(&self) -> u32 {
+    fn id(&self) -> u32 {
         self.id
     }
 
@@ -56,5 +55,9 @@ impl wire_object::WireObject for ClientObject<'_> {
         if let Some(client) = self.client.as_mut() {
             client.send_message(msg);
         }
+    }
+
+    fn listeners(&self) -> &[*mut std::os::raw::c_void] {
+        &self.listeners
     }
 }

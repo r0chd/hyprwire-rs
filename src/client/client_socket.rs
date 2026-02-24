@@ -323,8 +323,8 @@ impl ClientSocket<'_> {
         }
     }
 
-    pub fn on_generic<R>(&self, msg: &message::GenericProtocolMessage<'_, ops::Range<usize>>) {
-        if let Some(obj) = self.objects.iter().find(|obj| obj.id == msg.object()) {
+    pub fn on_generic<R>(&mut self, msg: &message::GenericProtocolMessage<'_, ops::Range<usize>>) {
+        if let Some(obj) = self.objects.iter_mut().find(|obj| obj.id == msg.object()) {
             obj.called(msg.method(), msg.data_span(), msg.fds());
         }
 
@@ -336,11 +336,11 @@ impl ClientSocket<'_> {
         );
     }
 
-    pub fn object_for_id(&self, id: u32) -> Option<&client_object::ClientObject> {
+    pub fn object_for_id(&self, id: u32) -> Option<&client_object::ClientObject<'_>> {
         self.objects.iter().find(|object| object.id == id)
     }
 
-    pub fn object_for_seq(&self, seq: u32) -> Option<&client_object::ClientObject> {
+    pub fn object_for_seq(&self, seq: u32) -> Option<&client_object::ClientObject<'_>> {
         self.objects.iter().find(|object| object.seq == seq)
     }
 }
