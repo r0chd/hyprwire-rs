@@ -22,6 +22,14 @@ impl NewObject {
         Self { id, seq, data }
     }
 
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    pub fn seq(&self) -> u32 {
+        self.seq
+    }
+
     pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::NewObject as u8 {
             return Err(MessageError::InvalidMessageType);
@@ -64,11 +72,11 @@ impl NewObject {
 }
 
 impl Message for NewObject {
-    fn get_data(&self) -> &[u8] {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::NewObject
     }
 }

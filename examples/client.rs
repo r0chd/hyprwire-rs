@@ -12,5 +12,7 @@ fn main() {
     env_logger::init();
 
     let path = socket_path();
-    let _client = ClientSocket::open(SocketSource::Path(&path));
+    let socket = ClientSocket::open(SocketSource::Path(&path));
+
+    // socket.add_implementation();
 }

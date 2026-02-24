@@ -47,11 +47,11 @@ impl Hello {
 }
 
 impl Message for Hello {
-    fn get_data(&self) -> &[u8] {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::Sup
     }
 }

@@ -1,26 +1,36 @@
 use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
+use std::{borrow, ops};
 
 #[derive(Debug)]
-pub struct GenericProtocolMessage {
+pub struct GenericProtocolMessage<'a, R>
+where
+    R: ops::RangeBounds<usize>,
+{
+    depends_on_seq: u32,
     object: u32,
     method: u32,
-    fds: Vec<i32>,
-    data: Vec<u8>,
+    fds: borrow::Cow<'a, [i32]>,
+    data: &'a mut [u8],
+    range: R,
 }
 
-impl GenericProtocolMessage {
-    pub fn new(data: Vec<u8>, fds: Vec<i32>) -> Self {
+impl<'a> GenericProtocolMessage<'a, ops::RangeFull> {
+    pub fn new(data: &'a mut [u8], fds: &'a [i32]) -> Self {
         Self {
+            depends_on_seq: 0,
             object: 0,
             method: 0,
-            fds,
+            fds: borrow::Cow::Borrowed(fds),
             data,
+            range: ..,
         }
     }
+}
 
-    pub fn from_bytes(data: &[u8], fds: &mut Vec<i32>, offset: usize) -> Result<Self> {
+impl<'a> GenericProtocolMessage<'a, ops::Range<usize>> {
+    pub fn from_bytes(data: &'a mut [u8], fds: &mut Vec<i32>, offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::GenericProtocolMessage as u8
         {
@@ -132,33 +142,53 @@ impl GenericProtocolMessage {
 
         let len = i + 1; // include the End byte
 
-        let msg_data = if crate::helpers::is_trace() {
-            data.get(offset..offset + len)
-                .ok_or(MessageError::UnexpectedEof)?
-                .to_vec()
-        } else {
-            Vec::new()
-        };
-
         Ok(Self {
+            depends_on_seq: 0,
             object,
             method,
-            fds: consumed_fds,
-            data: msg_data,
+            fds: borrow::Cow::Owned(consumed_fds),
+            data: &mut data[offset..offset + len],
+            range: offset + 11..offset + i + 1,
         })
+    }
+
+    pub fn object(&self) -> u32 {
+        self.object
+    }
+
+    pub fn method(&self) -> u32 {
+        self.method
+    }
+
+    pub fn data_span(&'a self) -> &'a [u8] {
+        &self.data[self.range.clone()]
+    }
+
+    pub fn depends_on_seq(&self) -> u32 {
+        self.depends_on_seq
+    }
+
+    pub fn resolve_seq(&mut self, id: u32) {
+        self.object = id;
+        if self.data.len() >= 6 {
+            self.data[2..6].copy_from_slice(&id.to_le_bytes());
+        }
     }
 }
 
-impl Message for GenericProtocolMessage {
-    fn get_data(&self) -> &[u8] {
-        &self.data
+impl<'a, R> Message for GenericProtocolMessage<'a, R>
+where
+    R: ops::RangeBounds<usize>,
+{
+    fn data(&self) -> &[u8] {
+        self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::GenericProtocolMessage
     }
 
-    fn get_fds(&self) -> &[i32] {
+    fn fds(&self) -> &[i32] {
         &self.fds
     }
 }
@@ -169,7 +199,7 @@ mod tests {
 
     #[test]
     fn from_bytes_minimal() {
-        let bytes: &[u8] = &[
+        let mut bytes = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x01,
@@ -184,7 +214,7 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
-        let msg = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap();
+        let msg = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.object, 1);
         assert_eq!(msg.method, 2);
         assert!(msg.fds.is_empty());
@@ -192,7 +222,7 @@ mod tests {
 
     #[test]
     fn from_bytes_with_primitives() {
-        let bytes: &[u8] = &[
+        let mut bytes = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x05,
@@ -218,14 +248,14 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
-        let msg = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap();
+        let msg = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.object, 5);
         assert_eq!(msg.method, 3);
     }
 
     #[test]
     fn from_bytes_with_varchar() {
-        let bytes: &[u8] = &[
+        let mut bytes = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x01,
@@ -245,14 +275,14 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
-        let msg = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap();
+        let msg = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.object, 1);
         assert_eq!(msg.method, 1);
     }
 
     #[test]
     fn from_bytes_with_fd() {
-        let bytes: &[u8] = &[
+        let mut bytes = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x01,
@@ -268,14 +298,14 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let mut fds = vec![42];
-        let msg = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap();
+        let msg = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.fds, vec![42]);
         assert!(fds.is_empty());
     }
 
     #[test]
     fn from_bytes_fd_empty_queue() {
-        let bytes: &[u8] = &[
+        let mut bytes = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x01,
@@ -291,13 +321,13 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
-        let err = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap_err();
+        let err = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap_err();
         assert!(matches!(err, MessageError::MalformedMessage));
     }
 
     #[test]
     fn from_bytes_with_uint_array() {
-        let bytes: &[u8] = &[
+        let mut bytes = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x01,
@@ -324,14 +354,14 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
-        let msg = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap();
+        let msg = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.object, 1);
         assert_eq!(msg.method, 1);
     }
 
     #[test]
     fn from_bytes_with_fd_array() {
-        let bytes: &[u8] = &[
+        let mut bytes = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x01,
@@ -350,15 +380,16 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let mut fds = vec![10, 20, 30];
-        let msg = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap();
+        let msg = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.fds, vec![10, 20]);
         assert_eq!(fds, vec![30]);
     }
 
     #[test]
     fn from_bytes_with_offset() {
-        let mut bytes = vec![0xAA, 0xBB]; // padding
-        bytes.extend_from_slice(&[
+        let mut bytes = [
+            0xAA,
+            0xBB,
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x07,
@@ -371,35 +402,35 @@ mod tests {
             0x00,
             0x00,
             MessageMagic::End as u8,
-        ]);
+        ];
         let mut fds = Vec::new();
-        let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 2).unwrap();
+        let msg = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 2).unwrap();
         assert_eq!(msg.object, 7);
         assert_eq!(msg.method, 9);
     }
 
     #[test]
     fn from_bytes_invalid_message_type() {
-        let bytes: &[u8] = &[MessageType::Sup as u8];
+        let mut bytes = [MessageType::Sup as u8];
         let mut fds = Vec::new();
-        let err = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap_err();
+        let err = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap_err();
         assert!(matches!(err, MessageError::InvalidMessageType));
     }
 
     #[test]
     fn from_bytes_unexpected_eof() {
-        let bytes: &[u8] = &[
+        let mut bytes = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
         ];
         let mut fds = Vec::new();
-        let err = GenericProtocolMessage::from_bytes(bytes, &mut fds, 0).unwrap_err();
+        let err = GenericProtocolMessage::from_bytes(&mut bytes, &mut fds, 0).unwrap_err();
         assert!(matches!(err, MessageError::UnexpectedEof));
     }
 
     #[test]
     fn new_ownership() {
-        let data = vec![
+        let data = [
             MessageType::GenericProtocolMessage as u8,
             MessageMagic::TypeObject as u8,
             0x01,
@@ -414,11 +445,12 @@ mod tests {
             MessageMagic::End as u8,
         ];
         let fds = vec![1, 2, 3];
-        let msg = GenericProtocolMessage::new(data.clone(), fds.clone());
-        assert_eq!(msg.get_data(), &data[..]);
-        assert_eq!(msg.get_fds(), &fds[..]);
+        let mut copied = data;
+        let msg = GenericProtocolMessage::new(&mut copied, &fds);
+        assert_eq!(msg.data(), &data[..]);
+        assert_eq!(msg.fds(), &fds[..]);
         assert_eq!(
-            msg.get_message_type() as u8,
+            msg.message_type() as u8,
             MessageType::GenericProtocolMessage as u8
         );
     }

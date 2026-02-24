@@ -19,6 +19,10 @@ impl RoundtripDone {
         Self { seq, data }
     }
 
+    pub fn seq(&self) -> u32 {
+        self.seq
+    }
+
     pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::RoundtripDone as u8
         {
@@ -49,11 +53,11 @@ impl RoundtripDone {
 }
 
 impl Message for RoundtripDone {
-    fn get_data(&self) -> &[u8] {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::RoundtripDone
     }
 }

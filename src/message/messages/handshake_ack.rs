@@ -19,6 +19,10 @@ impl HandshakeAck {
         Self { version, data }
     }
 
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
     pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::HandshakeAck as u8
         {
@@ -57,11 +61,11 @@ impl HandshakeAck {
 }
 
 impl Message for HandshakeAck {
-    fn get_data(&self) -> &[u8] {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::HandshakeAck
     }
 }

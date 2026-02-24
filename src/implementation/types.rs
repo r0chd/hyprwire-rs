@@ -47,3 +47,26 @@ impl TryFrom<u8> for MessageMagic {
         }
     }
 }
+
+pub struct Method {
+    idx: u32,
+    params: String,
+    returns_type: String,
+    since: u32,
+}
+
+pub trait ProtocolObjectSpec {
+    fn object_name(&self) -> &str;
+
+    fn c2s(&self) -> &[Method];
+
+    fn s2c(&self) -> &[Method];
+}
+
+pub trait ProtocolSpec {
+    fn spec_name(&self) -> &str;
+
+    fn spec_ver(&self) -> u32;
+
+    fn objects(&self) -> &[&dyn ProtocolObjectSpec];
+}

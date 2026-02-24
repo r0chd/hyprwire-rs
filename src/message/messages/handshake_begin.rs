@@ -1,14 +1,15 @@
 use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
+use std::borrow;
 
 #[derive(Debug)]
-pub struct HandshakeBegin {
+pub struct HandshakeBegin<'a> {
     versions: Vec<u32>,
-    data: Vec<u8>,
+    data: borrow::Cow<'a, [u8]>,
 }
 
-impl HandshakeBegin {
+impl<'a> HandshakeBegin<'a> {
     pub fn new(versions: &[u32]) -> Self {
         let mut data = Vec::new();
 
@@ -30,11 +31,15 @@ impl HandshakeBegin {
 
         Self {
             versions: versions.to_vec(),
-            data,
+            data: borrow::Cow::Owned(data),
         }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
+    pub fn versions(&self) -> &[u32] {
+        &self.versions
+    }
+
+    pub fn from_bytes(data: &'a [u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::HandshakeBegin as u8
         {
@@ -80,17 +85,17 @@ impl HandshakeBegin {
 
         Ok(Self {
             versions,
-            data: data[offset..offset + message_len].to_vec(),
+            data: borrow::Cow::Borrowed(&data[offset..offset + message_len]),
         })
     }
 }
 
-impl Message for HandshakeBegin {
-    fn get_data(&self) -> &[u8] {
+impl Message for HandshakeBegin<'_> {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::HandshakeBegin
     }
 }

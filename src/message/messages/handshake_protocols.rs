@@ -1,15 +1,16 @@
 use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
+use std::borrow;
 
 #[derive(Debug)]
-pub struct HandshakeProtocols {
-    protocols: Vec<Vec<u8>>,
-    data: Vec<u8>,
+pub struct HandshakeProtocols<'a> {
+    protocols: Vec<String>,
+    data: borrow::Cow<'a, [u8]>,
 }
 
-impl HandshakeProtocols {
-    pub fn new(protocols: &[&[u8]]) -> Self {
+impl<'a> HandshakeProtocols<'a> {
+    pub fn new(protocols: &[&str]) -> Self {
         let mut data = Vec::new();
 
         data.push(MessageType::HandshakeProtocols as u8);
@@ -24,18 +25,22 @@ impl HandshakeProtocols {
             let mut str_len_buf = [0u8; 10];
             let var_int = message::encode_var_int(protocol.len(), &mut str_len_buf);
             data.extend_from_slice(var_int);
-            data.extend_from_slice(protocol);
+            data.extend_from_slice(protocol.as_bytes());
         }
 
         data.push(MessageMagic::End as u8);
 
         Self {
-            protocols: protocols.iter().map(|p| p.to_vec()).collect(),
-            data,
+            protocols: protocols.iter().map(|p| p.to_string()).collect(),
+            data: borrow::Cow::Owned(data),
         }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
+    pub fn protocols(&self) -> &[String] {
+        &self.protocols
+    }
+
+    pub fn from_bytes(data: &'a [u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::HandshakeProtocols as u8
         {
@@ -66,10 +71,12 @@ impl HandshakeProtocols {
             let (str_len, var_int_len) = message::parse_var_int(data, offset + needle);
             needle += var_int_len;
 
-            let protocol = data
-                .get(offset + needle..offset + needle + str_len)
-                .ok_or(MessageError::UnexpectedEof)?
-                .to_vec();
+            let protocol = std::str::from_utf8(
+                data.get(offset + needle..offset + needle + str_len)
+                    .ok_or(MessageError::UnexpectedEof)?,
+            )
+            .map_err(|_| MessageError::MalformedMessage)?
+            .to_string();
             protocols.push(protocol);
 
             needle += str_len;
@@ -88,17 +95,17 @@ impl HandshakeProtocols {
 
         Ok(Self {
             protocols,
-            data: data[offset..offset + message_len].to_vec(),
+            data: borrow::Cow::Borrowed(&data[offset..offset + message_len]),
         })
     }
 }
 
-impl Message for HandshakeProtocols {
-    fn get_data(&self) -> &[u8] {
+impl Message for HandshakeProtocols<'_> {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::HandshakeProtocols
     }
 }
@@ -109,15 +116,15 @@ mod tests {
 
     #[test]
     fn handshake_protocols_new() {
-        let msg = HandshakeProtocols::new(&[b"test@1", b"test@2"]);
+        let msg = HandshakeProtocols::new(&["test@1", "test@2"]);
         let parsed = msg.parse_data();
         assert_eq!(parsed, "HandshakeProtocols ( { \"test@1\", \"test@2\" } ) ");
     }
 
     #[test]
     fn handshake_protocols_roundtrip() {
-        let original = HandshakeProtocols::new(&[b"test@1", b"test@2"]);
-        let parsed = HandshakeProtocols::from_bytes(original.get_data(), 0).unwrap();
+        let original = HandshakeProtocols::new(&["test@1", "test@2"]);
+        let parsed = HandshakeProtocols::from_bytes(original.data(), 0).unwrap();
         assert_eq!(parsed.protocols, original.protocols);
         assert_eq!(parsed.data, original.data);
     }
@@ -145,7 +152,7 @@ mod tests {
     #[test]
     fn handshake_protocols_empty() {
         let msg = HandshakeProtocols::new(&[]);
-        let parsed = HandshakeProtocols::from_bytes(msg.get_data(), 0).unwrap();
+        let parsed = HandshakeProtocols::from_bytes(msg.data(), 0).unwrap();
         assert!(parsed.protocols.is_empty());
     }
 }

@@ -1,16 +1,17 @@
 use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
+use std::borrow;
 
 #[derive(Debug)]
-pub struct FatalProtocolError {
+pub struct FatalProtocolError<'a> {
     object_id: u32,
     error_id: u32,
     error_msg: String,
-    data: Vec<u8>,
+    data: borrow::Cow<'a, [u8]>,
 }
 
-impl FatalProtocolError {
+impl<'a> FatalProtocolError<'a> {
     pub fn new(object_id: u32, error_id: u32, error_msg: String) -> Self {
         let mut data = Vec::new();
         data.push(MessageType::FatalProtocolError as u8);
@@ -31,11 +32,23 @@ impl FatalProtocolError {
             object_id,
             error_id,
             error_msg,
-            data,
+            data: borrow::Cow::Owned(data),
         }
     }
 
-    pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
+    pub fn object_id(&self) -> u32 {
+        self.object_id
+    }
+
+    pub fn error_id(&self) -> u32 {
+        self.error_id
+    }
+
+    pub fn error_msg(&self) -> &str {
+        &self.error_msg
+    }
+
+    pub fn from_bytes(data: &'a [u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::FatalProtocolError as u8
         {
@@ -98,17 +111,17 @@ impl FatalProtocolError {
             object_id,
             error_id,
             error_msg,
-            data: data[offset..offset + needle].to_vec(),
+            data: borrow::Cow::Borrowed(&data[offset..offset + needle]),
         })
     }
 }
 
-impl Message for FatalProtocolError {
-    fn get_data(&self) -> &[u8] {
+impl Message for FatalProtocolError<'_> {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::FatalProtocolError
     }
 }
@@ -127,7 +140,7 @@ mod tests {
     #[test]
     fn fatal_protocol_error_roundtrip() {
         let original = FatalProtocolError::new(1, 42, "something broke".to_string());
-        let parsed = FatalProtocolError::from_bytes(original.get_data(), 0).unwrap();
+        let parsed = FatalProtocolError::from_bytes(original.data(), 0).unwrap();
         assert_eq!(parsed.object_id, original.object_id);
         assert_eq!(parsed.error_id, original.error_id);
         assert_eq!(parsed.error_msg, original.error_msg);

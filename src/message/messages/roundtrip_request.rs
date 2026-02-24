@@ -19,6 +19,10 @@ impl RoundtripRequest {
         Self { seq, data }
     }
 
+    pub fn seq(&self) -> u32 {
+        self.seq
+    }
+
     pub fn from_bytes(data: &[u8], offset: usize) -> Result<Self> {
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::RoundtripRequest as u8
@@ -50,11 +54,11 @@ impl RoundtripRequest {
 }
 
 impl Message for RoundtripRequest {
-    fn get_data(&self) -> &[u8] {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::RoundtripRequest
     }
 }

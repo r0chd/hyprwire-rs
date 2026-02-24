@@ -1,13 +1,14 @@
 use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
+use std::borrow;
 
 #[derive(Debug)]
 pub struct BindProtocol<'a> {
     seq: u32,
     version: u32,
     protocol: &'a str,
-    data: Vec<u8>,
+    data: borrow::Cow<'a, [u8]>,
 }
 
 impl<'a> BindProtocol<'a> {
@@ -30,11 +31,23 @@ impl<'a> BindProtocol<'a> {
         data.push(MessageMagic::End as u8);
 
         Self {
-            data,
+            data: borrow::Cow::Owned(data),
             protocol,
             seq,
             version,
         }
+    }
+
+    pub fn seq(&self) -> u32 {
+        self.seq
+    }
+
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
+    pub fn protocol(&self) -> &str {
+        self.protocol
     }
 
     pub fn from_bytes(data: &'a [u8], offset: usize) -> Result<Self> {
@@ -101,17 +114,17 @@ impl<'a> BindProtocol<'a> {
             seq,
             protocol,
             version,
-            data: data[offset..offset + needle - offset].to_vec(),
+            data: borrow::Cow::Borrowed(&data[offset..offset + needle - offset]),
         })
     }
 }
 
 impl Message for BindProtocol<'_> {
-    fn get_data(&self) -> &[u8] {
+    fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn get_message_type(&self) -> MessageType {
+    fn message_type(&self) -> MessageType {
         MessageType::BindProtocol
     }
 }

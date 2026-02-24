@@ -12,31 +12,30 @@ pub mod roundtrip_request;
 use super::{MessageError, MessageType};
 use crate::implementation::types::MessageMagic;
 use crate::message;
-use std::result;
+use std::{mem, result};
 
 pub type Result<T> = result::Result<T, MessageError>;
 
 pub trait Message {
-    fn get_data(&self) -> &[u8];
+    fn data(&self) -> &[u8];
 
-    fn get_message_type(&self) -> MessageType;
+    fn message_type(&self) -> MessageType;
 
-    fn get_fds(&self) -> &[i32] {
+    fn fds(&self) -> &[i32] {
         &[]
     }
 
     fn parse_data(&self) -> String {
         let mut result = String::new();
-        let data = self.get_data();
+        let data = self.data();
 
-        result.push_str(&format!("{} ( ", self.get_message_type()));
+        result.push_str(&format!("{} ( ", self.message_type()));
 
         let mut first = true;
         let mut needle: usize = 1;
         while needle < data.len() {
-            // Any parsing error can be safely unwrapped as the message had to be
-            // validated to be created in the first place
-            let magic = MessageMagic::try_from(data[needle]).unwrap();
+            // SAFETY: Message was already validated
+            let magic: MessageMagic = unsafe { mem::transmute(data[needle]) };
             needle += 1;
 
             match magic {
@@ -46,7 +45,7 @@ pub trait Message {
                         result.push_str(", ");
                     }
                     first = false;
-                    let bytes: [u8; 4] = data.get(needle..needle + 4).unwrap().try_into().unwrap();
+                    let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
                     let value = u32::from_le_bytes(bytes);
                     result.push_str(&format!("seq: {value}"));
                     needle += 4;
@@ -56,7 +55,7 @@ pub trait Message {
                         result.push_str(", ");
                     }
                     first = false;
-                    let bytes: [u8; 4] = data.get(needle..needle + 4).unwrap().try_into().unwrap();
+                    let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
                     let value = u32::from_le_bytes(bytes);
                     result.push_str(&format!("{value}"));
                     needle += 4;
@@ -215,10 +214,10 @@ mod tests {
     }
 
     impl<'a> Message for TestMessage<'a> {
-        fn get_data(&self) -> &[u8] {
+        fn data(&self) -> &[u8] {
             self.data
         }
-        fn get_message_type(&self) -> MessageType {
+        fn message_type(&self) -> MessageType {
             self.message_type
         }
     }
