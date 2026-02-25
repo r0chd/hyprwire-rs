@@ -1,12 +1,15 @@
 use super::types;
 use crate::implementation::object;
-use crate::message;
 use crate::message::MessageError;
+use crate::{message, steady_millis, trace};
 use libffi::low as ffi;
+use std::os::fd::AsRawFd;
 use std::os::raw;
 use types::MessageMagic;
 
 pub trait WireObject: object::Object {
+    fn set_version(&mut self, version: u32);
+
     fn version(&self) -> u32;
 
     fn listeners(&self) -> &[*mut raw::c_void];
@@ -369,5 +372,216 @@ pub trait WireObject: object::Object {
         };
 
         Ok(())
+    }
+
+    fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32 {
+        let methods = self.methods_out();
+
+        if methods.len() <= id as usize {
+            let msg = format!("invalid method {} for object {}", id, self.id());
+            log::debug!("core protocol error: {msg}");
+            self.error(self.id(), &msg);
+            return 0;
+        }
+
+        let method = &methods[id as usize];
+
+        if method.since > self.version() {
+            let msg = format!(
+                "method {} since {} but has {}",
+                id,
+                method.since,
+                self.version()
+            );
+            log::debug!("core protocol error: {msg}");
+            self.error(self.id(), &msg);
+            return 0;
+        }
+
+        if !method.returns_type.is_empty() && self.server() {
+            let msg = format!(
+                "invalid method spec {} for object {} -> server cannot call returnsType methods",
+                id,
+                self.id()
+            );
+            log::debug!("core protocol error: {msg}");
+            self.error(self.id(), &msg);
+            return 0;
+        }
+
+        // extract method fields before mutable borrows below
+        let method_params = method.params.clone();
+        let method_returns_type = method.returns_type.clone();
+
+        // encode the message
+        let mut data: Vec<u8> = Vec::new();
+        let mut fds: Vec<i32> = Vec::new();
+
+        data.push(message::MessageType::GenericProtocolMessage as u8);
+        data.push(MessageMagic::TypeObject as u8);
+
+        let obj_id = self.id();
+        data.extend_from_slice(&obj_id.to_le_bytes());
+
+        data.push(MessageMagic::TypeUint as u8);
+        data.extend_from_slice(&id.to_le_bytes());
+
+        let return_seq: u32 = 0;
+
+        // TODO: if !method.returns_type.is_empty(), add TypeSeq + client seq
+
+        let params = method_params.as_bytes();
+        let mut arg_idx: usize = 0;
+        let mut i: usize = 0;
+        while i < params.len() {
+            let param = match MessageMagic::try_from(params[i]) {
+                Ok(m) => m,
+                Err(_) => break,
+            };
+
+            match param {
+                MessageMagic::TypeUint => {
+                    data.push(MessageMagic::TypeUint as u8);
+                    if let Some(types::CallArg::Uint(val)) = args.get(arg_idx) {
+                        data.extend_from_slice(&val.to_le_bytes());
+                    }
+                    arg_idx += 1;
+                }
+                MessageMagic::TypeInt => {
+                    data.push(MessageMagic::TypeInt as u8);
+                    if let Some(types::CallArg::Int(val)) = args.get(arg_idx) {
+                        data.extend_from_slice(&val.to_le_bytes());
+                    }
+                    arg_idx += 1;
+                }
+                MessageMagic::TypeObject => {
+                    data.push(MessageMagic::TypeObject as u8);
+                    if let Some(types::CallArg::Object(val)) = args.get(arg_idx) {
+                        data.extend_from_slice(&val.to_le_bytes());
+                    }
+                    arg_idx += 1;
+                }
+                MessageMagic::TypeF32 => {
+                    data.push(MessageMagic::TypeF32 as u8);
+                    if let Some(types::CallArg::F32(val)) = args.get(arg_idx) {
+                        data.extend_from_slice(&val.to_le_bytes());
+                    }
+                    arg_idx += 1;
+                }
+                MessageMagic::TypeVarchar => {
+                    data.push(MessageMagic::TypeVarchar as u8);
+                    if let Some(types::CallArg::Varchar(s)) = args.get(arg_idx) {
+                        let mut var_int_buf = [0u8; 10];
+                        let encoded = message::encode_var_int(s.len(), &mut var_int_buf);
+                        data.extend_from_slice(encoded);
+                        data.extend_from_slice(s);
+                    }
+                    arg_idx += 1;
+                }
+                MessageMagic::TypeFd => {
+                    data.push(MessageMagic::TypeFd as u8);
+                    if let Some(types::CallArg::Fd(fd)) = args.get(arg_idx) {
+                        fds.push(*fd);
+                    }
+                    arg_idx += 1;
+                }
+                MessageMagic::TypeArray => {
+                    i += 1;
+                    let arr_type = match MessageMagic::try_from(params[i]) {
+                        Ok(m) => m,
+                        Err(_) => break,
+                    };
+
+                    data.push(MessageMagic::TypeArray as u8);
+                    data.push(arr_type as u8);
+
+                    match args.get(arg_idx) {
+                        Some(types::CallArg::UintArray(arr))
+                        | Some(types::CallArg::ObjectArray(arr)) => {
+                            let mut var_int_buf = [0u8; 10];
+                            let encoded = message::encode_var_int(arr.len(), &mut var_int_buf);
+                            data.extend_from_slice(encoded);
+                            for val in *arr {
+                                data.extend_from_slice(&val.to_le_bytes());
+                            }
+                        }
+                        Some(types::CallArg::IntArray(arr)) => {
+                            let mut var_int_buf = [0u8; 10];
+                            let encoded = message::encode_var_int(arr.len(), &mut var_int_buf);
+                            data.extend_from_slice(encoded);
+                            for val in *arr {
+                                data.extend_from_slice(&val.to_le_bytes());
+                            }
+                        }
+                        Some(types::CallArg::F32Array(arr)) => {
+                            let mut var_int_buf = [0u8; 10];
+                            let encoded = message::encode_var_int(arr.len(), &mut var_int_buf);
+                            data.extend_from_slice(encoded);
+                            for val in *arr {
+                                data.extend_from_slice(&val.to_le_bytes());
+                            }
+                        }
+                        Some(types::CallArg::FdArray(arr)) => {
+                            let mut var_int_buf = [0u8; 10];
+                            let encoded = message::encode_var_int(arr.len(), &mut var_int_buf);
+                            data.extend_from_slice(encoded);
+                            for fd in *arr {
+                                fds.push(*fd);
+                            }
+                        }
+                        Some(types::CallArg::VarcharArray(arr)) => {
+                            let mut var_int_buf = [0u8; 10];
+                            let encoded = message::encode_var_int(arr.len(), &mut var_int_buf);
+                            data.extend_from_slice(encoded);
+                            for s in *arr {
+                                let encoded = message::encode_var_int(s.len(), &mut var_int_buf);
+                                data.extend_from_slice(encoded);
+                                data.extend_from_slice(s);
+                            }
+                        }
+                        _ => {
+                            log::debug!("core protocol error: failed marshaling array type");
+                            self.errd();
+                            return 0;
+                        }
+                    }
+
+                    arg_idx += 1;
+                }
+                _ => break,
+            }
+
+            i += 1;
+        }
+
+        data.push(MessageMagic::End as u8);
+
+        let msg = message::GenericProtocolMessage::new(data, fds);
+
+        if self.id() == 0 && !self.server() {
+            trace! {
+                if let Some(client) = self.client_sock() {
+                    log::debug!("[{} @ {:.3}] -- call: waiting on object of type {}", client.borrow().stream.as_raw_fd(), steady_millis(), method_returns_type);
+                }
+            }
+
+            if let Some(client) = self.client_sock() {
+                client.borrow_mut().pending_outgoing.push(msg);
+            }
+        } else {
+            self.send_message(&msg);
+            if return_seq != 0 {
+                if let Some(client) = self.client_sock() {
+                    client.borrow_mut().make_object(
+                        "TODO", // self.protocol_name,
+                        &method_returns_type,
+                        return_seq,
+                    );
+                    return return_seq;
+                }
+            }
+        }
+
+        return 0;
     }
 }

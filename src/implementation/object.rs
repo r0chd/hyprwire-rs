@@ -1,19 +1,24 @@
 use crate::client;
+use crate::implementation::types;
+use std::os::raw;
+use std::{cell, rc};
 
 pub trait Object {
-    // listen
+    fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32;
 
-    fn client_sock(&self) -> Option<&client::ClientSocket<'_>> {
+    fn listen(&mut self, id: u32, func: *mut raw::c_void);
+
+    fn client_sock(&self) -> Option<rc::Rc<cell::RefCell<client::ClientSocket>>> {
         None
     }
 
     // fn server_sock(&self) -> Option<>,
 
-    // set_data
-    //
-    // get_data
+    fn set_data(&mut self, data: *mut raw::c_void);
 
-    fn error<'a>(&self, error_id: u32, error_msg: &'a str);
+    fn get_data(&self) -> *mut raw::c_void;
+
+    fn error(&self, error_id: u32, error_msg: &str);
 
     // fn get_client(&self) -> ServerC
 }

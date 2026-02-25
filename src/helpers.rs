@@ -12,9 +12,9 @@ pub fn is_trace() -> bool {
 
 #[macro_export]
 macro_rules! trace {
-    ($($stmt:stmt)*) => {
+    ($($tt:tt)*) => {
         if $crate::helpers::is_trace() {
-            $($stmt)*
+            $($tt)*
         }
     };
 }

@@ -8,33 +8,34 @@ use nix::{errno, poll};
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::os::unix::net;
-use std::{io, ops, path, time};
+use std::{cell, io, ops, path, rc, time};
 
 pub enum SocketSource<'a> {
     Path(&'a path::Path),
     Fd(fd::RawFd),
 }
 
-pub struct ClientSocket<'a> {
+pub struct ClientSocket {
     pub(crate) stream: net::UnixStream,
     impls: Vec<Box<dyn implementation::client::ProtocolImplementations>>,
     server_specs: Vec<server_spec::ServerSpec>,
-    objects: Vec<client_object::ClientObject<'a>>,
+    objects: Vec<rc::Rc<cell::RefCell<client_object::ClientObject>>>,
     handshake_begin: time::Instant,
     pub(crate) error: bool,
     handshake_done: bool,
     pub(crate) last_ackd_roundtrip_seq: u32,
     last_sent_roundtrip_seq: u32,
-    seq: u32,
+    pub(crate) seq: u32,
     pending_socket_data: Vec<socket::SocketRawParsedMessage>,
-    pending_outgoing: Vec<message::GenericProtocolMessage<'a, ops::Range<usize>>>,
+    pub(crate) pending_outgoing: Vec<message::GenericProtocolMessage<ops::Range<usize>>>,
     waiting_on_object: Option<Box<dyn WireObject>>,
+    _self: rc::Weak<cell::RefCell<Self>>,
 }
 
 const HANDSHAKE_MAX_MS: u64 = 5000;
 
-impl ClientSocket<'_> {
-    pub fn open(source: SocketSource) -> Self {
+impl ClientSocket {
+    pub fn open(source: SocketSource) -> rc::Rc<cell::RefCell<Self>> {
         let stream = match source {
             SocketSource::Path(path) => {
                 net::UnixStream::connect(path).expect("Failed to connect to Unix socket")
@@ -42,22 +43,25 @@ impl ClientSocket<'_> {
             SocketSource::Fd(fd) => unsafe { net::UnixStream::from_raw_fd(fd) },
         };
 
-        let client_socket = Self {
-            last_ackd_roundtrip_seq: 0,
-            last_sent_roundtrip_seq: 0,
-            seq: 0,
-            stream,
-            impls: Vec::new(),
-            server_specs: Vec::new(),
-            error: false,
-            objects: Vec::new(),
-            handshake_done: false,
-            handshake_begin: time::Instant::now(),
-            pending_socket_data: Vec::new(),
-            pending_outgoing: Vec::new(),
-            waiting_on_object: None,
-        };
-        client_socket.send_message(&message::Hello::new());
+        let client_socket = rc::Rc::new_cyclic(|weak_self| {
+            cell::RefCell::new(Self {
+                last_ackd_roundtrip_seq: 0,
+                last_sent_roundtrip_seq: 0,
+                seq: 0,
+                stream,
+                impls: Vec::new(),
+                server_specs: Vec::new(),
+                error: false,
+                objects: Vec::new(),
+                handshake_done: false,
+                handshake_begin: time::Instant::now(),
+                pending_socket_data: Vec::new(),
+                pending_outgoing: Vec::new(),
+                waiting_on_object: None,
+                _self: weak_self.clone(),
+            })
+        });
+        client_socket.borrow().send_message(&message::Hello::new());
 
         client_socket
     }
@@ -100,6 +104,46 @@ impl ClientSocket<'_> {
                 }
             }
         }
+    }
+
+    pub fn make_object(
+        &mut self,
+        protocol_name: &str,
+        object_name: &str,
+        seq: u32,
+    ) -> Result<rc::Rc<cell::RefCell<client_object::ClientObject>>, message::MessageError> {
+        let mut object = client_object::ClientObject::new(self._self.clone());
+        object.protocol_name = protocol_name.to_string();
+
+        for imp in self.impls.iter() {
+            let protocol = imp.protocol();
+            if protocol.spec_name() == protocol_name {
+                continue;
+            }
+
+            for obj in protocol.objects() {
+                if obj.object_name() == object_name {
+                    continue;
+                }
+
+                // SAFETY: The spec reference comes from self.impls which outlives self.objects.
+                // ClientObject only accesses spec while ClientSocket is alive.
+                object.spec = Some(unsafe { std::mem::transmute(*obj) });
+                break;
+            }
+            break;
+        }
+
+        if object.spec.is_none() {
+            return Err(message::MessageError::NoSpec);
+        }
+
+        object.seq = seq;
+        object.set_version(0); // TODO: client version doesn't matter that much, but for verification's sake we could fix this
+
+        let object = rc::Rc::new(cell::RefCell::new(object));
+        self.objects.push(rc::Rc::clone(&object));
+        Ok(object)
     }
 
     pub fn extract_loop_fd(&self) -> i32 {
@@ -287,7 +331,7 @@ impl ClientSocket<'_> {
         while i > 0 {
             i -= 1;
             let seq = self.pending_outgoing[i].depends_on_seq();
-            let obj_id = self.object_for_seq(seq).map(|obj| obj.id);
+            let obj_id = self.object_for_seq(seq).map(|obj| obj.borrow().id);
 
             match obj_id {
                 None => {
@@ -318,14 +362,23 @@ impl ClientSocket<'_> {
     }
 
     pub fn on_seq(&mut self, seq: u32, id: u32) {
-        if let Some(object) = self.objects.iter_mut().find(|object| object.seq == seq) {
-            object.id = id;
+        if let Some(object) = self
+            .objects
+            .iter()
+            .find(|object| object.borrow().seq == seq)
+        {
+            object.borrow_mut().id = id;
         }
     }
 
-    pub fn on_generic<R>(&mut self, msg: &message::GenericProtocolMessage<'_, ops::Range<usize>>) {
-        if let Some(obj) = self.objects.iter_mut().find(|obj| obj.id == msg.object()) {
-            obj.called(msg.method(), msg.data_span(), msg.fds());
+    pub fn on_generic(&mut self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
+        if let Some(obj) = self
+            .objects
+            .iter()
+            .find(|obj| obj.borrow().id == msg.object())
+        {
+            obj.borrow_mut()
+                .called(msg.method(), msg.data_span(), msg.fds());
         }
 
         log::debug!(
@@ -336,11 +389,23 @@ impl ClientSocket<'_> {
         );
     }
 
-    pub fn object_for_id(&self, id: u32) -> Option<&client_object::ClientObject<'_>> {
-        self.objects.iter().find(|object| object.id == id)
+    pub fn object_for_id(
+        &self,
+        id: u32,
+    ) -> Option<rc::Rc<cell::RefCell<client_object::ClientObject>>> {
+        self.objects
+            .iter()
+            .find(|object| object.borrow().id == id)
+            .map(rc::Rc::clone)
     }
 
-    pub fn object_for_seq(&self, seq: u32) -> Option<&client_object::ClientObject<'_>> {
-        self.objects.iter().find(|object| object.seq == seq)
+    pub fn object_for_seq(
+        &self,
+        seq: u32,
+    ) -> Option<rc::Rc<cell::RefCell<client_object::ClientObject>>> {
+        self.objects
+            .iter()
+            .find(|object| object.borrow().seq == seq)
+            .map(rc::Rc::clone)
     }
 }

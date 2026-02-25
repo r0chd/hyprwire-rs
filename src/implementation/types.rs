@@ -64,6 +64,21 @@ impl TryFrom<u8> for MessageMagic {
     }
 }
 
+pub enum CallArg<'a> {
+    Uint(u32),
+    Int(i32),
+    F32(f32),
+    Object(u32),
+    Varchar(&'a [u8]),
+    Fd(i32),
+    UintArray(&'a [u32]),
+    IntArray(&'a [i32]),
+    F32Array(&'a [f32]),
+    ObjectArray(&'a [u32]),
+    FdArray(&'a [i32]),
+    VarcharArray(&'a [&'a [u8]]),
+}
+
 pub struct Method {
     pub idx: u32,
     pub params: String,

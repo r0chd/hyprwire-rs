@@ -31,6 +31,7 @@ pub enum MessageError {
     Unimplemented,
     VersionNegotiationFailed,
     MalformedMessage,
+    NoSpec,
 }
 
 impl fmt::Display for MessageError {
@@ -51,6 +52,7 @@ impl fmt::Display for MessageError {
             Self::Unimplemented => write!(f, "unimplemented"),
             Self::VersionNegotiationFailed => write!(f, "version negotiation failed"),
             Self::MalformedMessage => write!(f, "malformed message"),
+            Self::NoSpec => write!(f, "no spec found for object"),
         }
     }
 }
@@ -114,8 +116,8 @@ impl TryFrom<u8> for MessageType {
     }
 }
 
-pub enum Role<'a, 'b> {
-    Client(&'a mut client::ClientSocket<'b>),
+pub enum Role<'a> {
+    Client(&'a mut client::ClientSocket),
     // Server,
 }
 
@@ -217,7 +219,7 @@ fn parse_single_message_client(
                 return Ok(msg.data().len());
             }
             MessageType::GenericProtocolMessage => {
-                let msg = GenericProtocolMessage::from_bytes(&mut raw.data, &mut raw.fds, off)
+                let msg = GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, off)
                     .inspect_err(|_| {
                         log::error!(
                         "server at fd {} core protocol error: malformed message recvd (GenericProtocolMessage)",
@@ -229,7 +231,7 @@ fn parse_single_message_client(
                     log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
                 }
 
-                client.on_generic::<ops::Range<usize>>(&msg);
+                client.on_generic(&msg);
 
                 return Ok(msg.data().len());
             }
