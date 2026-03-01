@@ -81,8 +81,8 @@ pub enum CallArg<'a> {
 
 pub struct Method {
     pub idx: u32,
-    pub params: String,
-    pub returns_type: String,
+    pub params: &'static [u8],
+    pub returns_type: &'static str,
     pub since: u32,
 }
 

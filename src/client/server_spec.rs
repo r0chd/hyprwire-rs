@@ -1,5 +1,6 @@
 use crate::implementation::types;
 
+#[derive(Clone)]
 pub struct ServerSpec {
     name: String,
     version: u32,

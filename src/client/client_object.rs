@@ -12,7 +12,7 @@ pub struct ClientObject {
     data: Option<*mut raw::c_void>,
     listeners: Vec<*mut raw::c_void>,
     pub(crate) id: u32,
-    version: u32,
+    pub(crate) version: u32,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
 }

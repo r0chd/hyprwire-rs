@@ -8,6 +8,7 @@ use std::os::raw;
 use types::MessageMagic;
 
 pub trait WireObject: object::Object {
+
     fn set_version(&mut self, version: u32);
 
     fn version(&self) -> u32;
@@ -47,7 +48,7 @@ pub trait WireObject: object::Object {
             params.push(MessageMagic::TypeSeq as u8);
         }
 
-        params.extend_from_slice(method.params.as_bytes());
+        params.extend_from_slice(method.params);
 
         if method.since > self.version() {
             let msg = format!(
@@ -62,6 +63,8 @@ pub trait WireObject: object::Object {
         }
 
         let mut ffi_types: Vec<*mut ffi::ffi_type> = Vec::new();
+        // Prepend data pointer type so trampolines receive user data as first arg
+        ffi_types.push(&raw mut ffi::types::pointer);
 
         let mut data_idx: usize = 0;
         let mut i: usize = 0;
@@ -177,6 +180,13 @@ pub trait WireObject: object::Object {
         let mut other_buffers: Vec<Vec<u8>> = Vec::new();
         let mut strings: Vec<Vec<u8>> = Vec::new();
         let mut fd_no: usize = 0;
+
+        // Prepend data pointer as first avalue so trampolines can access user data
+        let data_ptr = self.get_data();
+        let mut data_ptr_slot = vec![0u8; std::mem::size_of::<*mut raw::c_void>()];
+        data_ptr_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
+        avalues.push(data_ptr_slot.as_mut_ptr() as *mut raw::c_void);
+        other_buffers.push(data_ptr_slot);
 
         let mut i: usize = 0;
         while i < data.len() {
@@ -409,9 +419,8 @@ pub trait WireObject: object::Object {
             return 0;
         }
 
-        // extract method fields before mutable borrows below
-        let method_params = method.params.clone();
-        let method_returns_type = method.returns_type.clone();
+        let method_params = method.params;
+        let method_returns_type = method.returns_type;
 
         // encode the message
         let mut data: Vec<u8> = Vec::new();
@@ -430,7 +439,7 @@ pub trait WireObject: object::Object {
 
         // TODO: if !method.returns_type.is_empty(), add TypeSeq + client seq
 
-        let params = method_params.as_bytes();
+        let params = method_params;
         let mut arg_idx: usize = 0;
         let mut i: usize = 0;
         while i < params.len() {

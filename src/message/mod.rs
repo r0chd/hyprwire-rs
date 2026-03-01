@@ -1,6 +1,7 @@
 mod messages;
 
 use crate::{client, socket, steady_millis, trace};
+pub(crate) use messages::bind_protocol::BindProtocol;
 pub(crate) use messages::fatal_protocol_error::FatalProtocolError;
 pub(crate) use messages::generic_protocol_message::GenericProtocolMessage;
 pub(crate) use messages::handshake_ack::HandshakeAck;
@@ -199,6 +200,7 @@ fn parse_single_message_client(
                 }
 
                 client.server_specs(msg.protocols());
+                client.handshake_done = true;
 
                 return Ok(msg.data().len());
             }

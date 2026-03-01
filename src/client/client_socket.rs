@@ -1,5 +1,6 @@
 use super::client_object;
 use crate::client::server_spec;
+use crate::implementation::types::ProtocolSpec;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
 use crate::{implementation, message, socket, steady_millis, trace};
@@ -10,11 +11,6 @@ use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::os::unix::net;
 use std::{cell, io, ops, path, rc, time};
 
-pub enum SocketSource<'a> {
-    Path(&'a path::Path),
-    Fd(fd::RawFd),
-}
-
 pub struct ClientSocket {
     pub(crate) stream: net::UnixStream,
     impls: Vec<Box<dyn implementation::client::ProtocolImplementations>>,
@@ -22,27 +18,19 @@ pub struct ClientSocket {
     objects: Vec<rc::Rc<cell::RefCell<client_object::ClientObject>>>,
     handshake_begin: time::Instant,
     pub(crate) error: bool,
-    handshake_done: bool,
+    pub(crate) handshake_done: bool,
     pub(crate) last_ackd_roundtrip_seq: u32,
     last_sent_roundtrip_seq: u32,
     pub(crate) seq: u32,
     pending_socket_data: Vec<socket::SocketRawParsedMessage>,
     pub(crate) pending_outgoing: Vec<message::GenericProtocolMessage<ops::Range<usize>>>,
-    waiting_on_object: Option<Box<dyn WireObject>>,
     _self: rc::Weak<cell::RefCell<Self>>,
 }
 
 const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
-    pub fn open(source: SocketSource) -> rc::Rc<cell::RefCell<Self>> {
-        let stream = match source {
-            SocketSource::Path(path) => {
-                net::UnixStream::connect(path).expect("Failed to connect to Unix socket")
-            }
-            SocketSource::Fd(fd) => unsafe { net::UnixStream::from_raw_fd(fd) },
-        };
-
+    fn new(stream: net::UnixStream) -> rc::Rc<cell::RefCell<Self>> {
         let client_socket = rc::Rc::new_cyclic(|weak_self| {
             cell::RefCell::new(Self {
                 last_ackd_roundtrip_seq: 0,
@@ -57,7 +45,6 @@ impl ClientSocket {
                 handshake_begin: time::Instant::now(),
                 pending_socket_data: Vec::new(),
                 pending_outgoing: Vec::new(),
-                waiting_on_object: None,
                 _self: weak_self.clone(),
             })
         });
@@ -66,11 +53,103 @@ impl ClientSocket {
         client_socket
     }
 
+    pub fn open(path: &path::Path) -> rc::Rc<cell::RefCell<Self>> {
+        let stream = net::UnixStream::connect(path).expect("Failed to connect to Unix socket");
+        Self::new(stream)
+    }
+
+    pub fn from_fd(fd: fd::RawFd) -> rc::Rc<cell::RefCell<Self>> {
+        let stream = unsafe { net::UnixStream::from_raw_fd(fd) };
+        Self::new(stream)
+    }
+
     pub fn add_implementation(
         &mut self,
         p_impl: Box<dyn implementation::client::ProtocolImplementations>,
     ) {
         self.impls.push(p_impl);
+    }
+
+    pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
+        self.handshake_begin = time::Instant::now();
+
+        while !self.error && !self.handshake_done {
+            self.dispatch_events(true)?;
+        }
+
+        if self.error {
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "handshake failed",
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub fn get_spec(&self, name: &str) -> Option<&server_spec::ServerSpec> {
+        self.server_specs
+            .iter()
+            .find(|spec| spec.spec_name() == name)
+    }
+
+    pub fn bind_protocol(
+        &mut self,
+        spec: &dyn ProtocolSpec,
+        version: u32,
+    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::Object>>, io::Error> {
+        if version > spec.spec_ver() {
+            log::debug!(
+                "version {} is larger than current spec ver of {}",
+                version,
+                spec.spec_ver()
+            );
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "version {} exceeds spec version {}",
+                    version,
+                    spec.spec_ver()
+                ),
+            ));
+        }
+
+        let mut object = client_object::ClientObject::new(self._self.clone());
+        let objects = spec.objects();
+        // SAFETY: spec reference comes from static protocol definitions that outlive the socket.
+        object.spec = Some(unsafe { std::mem::transmute(objects[0]) });
+        self.seq += 1;
+        object.seq = self.seq;
+        object.version = version;
+        object.protocol_name = spec.spec_name().to_string();
+
+        let object = rc::Rc::new(cell::RefCell::new(object));
+        self.objects.push(rc::Rc::clone(&object));
+
+        let bind_message = message::BindProtocol::new(spec.spec_name(), self.seq, version);
+        self.send_message(&bind_message);
+
+        self.wait_for_object(&object)?;
+
+        Ok(object)
+    }
+
+    fn wait_for_object(
+        &mut self,
+        object: &rc::Rc<cell::RefCell<client_object::ClientObject>>,
+    ) -> Result<(), io::Error> {
+        while object.borrow().id == 0 && !self.error {
+            self.dispatch_events(true)?;
+        }
+
+        if self.error {
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "connection error while waiting for object",
+            ));
+        }
+
+        Ok(())
     }
 
     pub fn send_message<T>(&self, message: &T)
