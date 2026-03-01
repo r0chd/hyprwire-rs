@@ -1,19 +1,11 @@
 use hyprwire::implementation as hw;
 
 pub mod client {
+    use super::hw;
+    use hyprwire::{Dispatch, DispatchData, Proxy};
     use std::cell::RefCell;
     use std::ffi::{c_char, c_void, CStr};
     use std::rc::Rc;
-
-    use super::hw;
-
-    pub trait Proxy {
-        type Event<'a>;
-    }
-
-    pub trait Dispatch<I: Proxy> {
-        fn event(&mut self, event: I::Event<'_>);
-    }
 
     pub enum MyManagerV1Event<'a> {
         SendMessage { message: &'a CStr },
@@ -32,9 +24,13 @@ pub mod client {
         data: *mut c_void,
         message: *const c_char,
     ) {
-        let state = unsafe { &mut *(data as *mut D) };
+        let dispatch = unsafe { &*(data as *const DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyManagerV1Object {
+            object: hw::types::Object::from_raw(dispatch.object.inner().clone()),
+        };
         let message = unsafe { CStr::from_ptr(message) };
-        state.event(MyManagerV1Event::SendMessage { message });
+        state.event(&proxy, MyManagerV1Event::SendMessage { message });
     }
 
     unsafe extern "C" fn my_manager_v1_recv_message_array_uint<D: Dispatch<MyManagerV1Object>>(
@@ -42,16 +38,25 @@ pub mod client {
         message: *const u32,
         message_len: u32,
     ) {
-        let state = unsafe { &mut *(data as *mut D) };
+        let dispatch = unsafe { &*(data as *const DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyManagerV1Object {
+            object: hw::types::Object::from_raw(dispatch.object.inner().clone()),
+        };
         let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
-        state.event(MyManagerV1Event::RecvMessageArrayUint { message });
+        state.event(&proxy, MyManagerV1Event::RecvMessageArrayUint { message });
     }
 
     impl MyManagerV1Object {
         pub fn new<D: Dispatch<Self>>(object: hw::types::Object, state: &mut D) -> Self {
+            let dispatch_data = Box::into_raw(Box::new(DispatchData {
+                state: state as *mut D,
+                object: hw::types::Object::from_raw(object.inner().clone()),
+            }));
+
             {
                 let mut obj = object.inner().borrow_mut();
-                obj.set_data(state as *mut D as *mut c_void);
+                obj.set_data(dispatch_data as *mut c_void);
                 obj.listen(0, my_manager_v1_send_message::<D> as *mut c_void);
                 obj.listen(1, my_manager_v1_recv_message_array_uint::<D> as *mut c_void);
             }
@@ -59,11 +64,11 @@ pub mod client {
             Self { object }
         }
 
-        pub fn send_send_message(&self, message: &[u8]) {
+        pub fn send_send_message(&self, message: &str) {
             self.object
                 .inner()
                 .borrow_mut()
-                .call(0, &[hw::types::CallArg::Varchar(message)]);
+                .call(0, &[hw::types::CallArg::Varchar(message.as_bytes())]);
         }
 
         pub fn send_send_message_fd(&self, fd: i32) {
@@ -80,11 +85,12 @@ pub mod client {
                 .call(2, &[hw::types::CallArg::FdArray(fds)]);
         }
 
-        pub fn send_send_message_array(&self, msgs: &[&[u8]]) {
+        pub fn send_send_message_array(&self, msgs: &[&str]) {
+            let bytes: Vec<&[u8]> = msgs.iter().map(|s| s.as_bytes()).collect();
             self.object
                 .inner()
                 .borrow_mut()
-                .call(3, &[hw::types::CallArg::VarcharArray(msgs)]);
+                .call(3, &[hw::types::CallArg::VarcharArray(&bytes)]);
         }
 
         pub fn send_send_message_array_uint(&self, vals: &[u32]) {
@@ -123,27 +129,36 @@ pub mod client {
         data: *mut c_void,
         message: *const c_char,
     ) {
-        let state = unsafe { &mut *(data as *mut D) };
+        let dispatch = unsafe { &*(data as *const DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyObjectV1Object {
+            object: hw::types::Object::from_raw(dispatch.object.inner().clone()),
+        };
         let message = unsafe { CStr::from_ptr(message) };
-        state.event(MyObjectV1Event::SendMessage { message });
+        state.event(&proxy, MyObjectV1Event::SendMessage { message });
     }
 
     impl MyObjectV1Object {
         pub fn new<D: Dispatch<Self>>(object: hw::types::Object, state: &mut D) -> Self {
+            let dispatch_data = Box::into_raw(Box::new(DispatchData {
+                state: state as *mut D,
+                object: hw::types::Object::from_raw(object.inner().clone()),
+            }));
+
             {
                 let mut obj = object.inner().borrow_mut();
-                obj.set_data(state as *mut D as *mut c_void);
+                obj.set_data(dispatch_data as *mut c_void);
                 obj.listen(0, my_object_v1_send_message::<D> as *mut c_void);
             }
 
             Self { object }
         }
 
-        pub fn send_send_message(&self, message: &[u8]) {
+        pub fn send_send_message(&self, message: &str) {
             self.object
                 .inner()
                 .borrow_mut()
-                .call(0, &[hw::types::CallArg::Varchar(message)]);
+                .call(0, &[hw::types::CallArg::Varchar(message.as_bytes())]);
         }
 
         pub fn send_send_enum(&self, val: super::spec::MyEnum) {

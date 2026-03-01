@@ -3,13 +3,11 @@ mod test_protocol_v1;
 use hyprwire::client;
 use hyprwire::implementation::client::ProtocolImplementations;
 use hyprwire::implementation::types::ProtocolSpec;
-use std::{
-    env,
-    io::Write,
-    os::{fd::AsRawFd, unix::net::UnixStream},
-    path,
-    str::FromStr,
-};
+use std::io::Write;
+use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
+use std::str::FromStr;
+use std::{env, path};
 
 fn socket_path() -> path::PathBuf {
     let mut runtime_dir = env::var("XDG_RUNTIME_DIR").unwrap();
@@ -21,8 +19,12 @@ fn socket_path() -> path::PathBuf {
 #[derive(Default)]
 struct App {}
 
-impl test_protocol_v1::client::Dispatch<test_protocol_v1::client::MyManagerV1Object> for App {
-    fn event(&mut self, event: test_protocol_v1::client::MyManagerV1Event) {
+impl hyprwire::Dispatch<test_protocol_v1::client::MyManagerV1Object> for App {
+    fn event(
+        &mut self,
+        _proxy: &test_protocol_v1::client::MyManagerV1Object,
+        event: test_protocol_v1::client::MyManagerV1Event,
+    ) {
         match event {
             test_protocol_v1::client::MyManagerV1Event::SendMessage { message } => {
                 println!("Server says {}", message.to_string_lossy());
@@ -34,8 +36,12 @@ impl test_protocol_v1::client::Dispatch<test_protocol_v1::client::MyManagerV1Obj
     }
 }
 
-impl test_protocol_v1::client::Dispatch<test_protocol_v1::client::MyObjectV1Object> for App {
-    fn event(&mut self, event: test_protocol_v1::client::MyObjectV1Event) {
+impl hyprwire::Dispatch<test_protocol_v1::client::MyObjectV1Object> for App {
+    fn event(
+        &mut self,
+        _proxy: &test_protocol_v1::client::MyObjectV1Object,
+        event: test_protocol_v1::client::MyObjectV1Event,
+    ) {
         match event {
             test_protocol_v1::client::MyObjectV1Event::SendMessage { message } => {
                 println!("Server says on object {}", message.to_string_lossy());
@@ -45,7 +51,9 @@ impl test_protocol_v1::client::Dispatch<test_protocol_v1::client::MyObjectV1Obje
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::Builder::new()
+        .filter(None, log::LevelFilter::Trace)
+        .init();
 
     let path = socket_path();
     let mut socket = client::Client::open(&path);
@@ -85,10 +93,10 @@ fn main() {
     let buf = b"bober!!";
     pipes3.1.write_all(buf).unwrap();
 
-    manager.send_send_message(b"Hello!");
+    manager.send_send_message("Hello!");
     manager.send_send_message_fd(pipes.0.as_raw_fd());
     manager.send_send_message_array_fd(&[pipes2.0.as_raw_fd(), pipes3.0.as_raw_fd()]);
-    manager.send_send_message_array(&[b"Hello", b"via", b"array!"]);
+    manager.send_send_message_array(&["Hello", "via", "array!"]);
     manager.send_send_message_array(&[]);
     manager.send_send_message_array_uint(&[69, 420, 1337]);
 
@@ -97,7 +105,7 @@ fn main() {
     let obj = manager.send_make_object().unwrap();
     let obj = test_protocol_v1::client::MyObjectV1Object::new(obj, &mut state);
 
-    obj.send_send_message(b"Hello on object");
+    obj.send_send_message("Hello on object");
     obj.send_send_enum(test_protocol_v1::spec::MyEnum::World);
 
     while socket.dispatch_events(true).is_ok() {}

@@ -147,7 +147,7 @@ impl GenericProtocolMessage<ops::Range<usize>> {
             method,
             fds: consumed_fds,
             data: data[offset..offset + len].to_vec(),
-            range: 11..i + 1,
+            range: 11..len,
         })
     }
 

@@ -6,6 +6,19 @@ pub mod implementation;
 pub(crate) mod message;
 pub(crate) mod socket;
 
+pub trait Proxy {
+    type Event<'a>;
+}
+
+pub trait Dispatch<I: Proxy> {
+    fn event(&mut self, proxy: &I, event: I::Event<'_>);
+}
+
+pub struct DispatchData<D> {
+    pub state: *mut D,
+    pub object: implementation::types::Object,
+}
+
 static START: sync::OnceLock<time::Instant> = sync::OnceLock::new();
 
 pub fn steady_millis() -> f64 {
