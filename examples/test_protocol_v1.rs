@@ -21,7 +21,7 @@ pub mod client {
     }
 
     pub struct MyManagerV1Object {
-        object: Rc<RefCell<dyn hw::object::Object>>,
+        object: hw::types::Object,
     }
 
     impl Proxy for MyManagerV1Object {
@@ -48,12 +48,9 @@ pub mod client {
     }
 
     impl MyManagerV1Object {
-        pub fn new<D: Dispatch<Self>>(
-            object: Rc<RefCell<dyn hw::object::Object>>,
-            state: &mut D,
-        ) -> Self {
+        pub fn new<D: Dispatch<Self>>(object: hw::types::Object, state: &mut D) -> Self {
             {
-                let mut obj = object.borrow_mut();
+                let mut obj = object.inner().borrow_mut();
                 obj.set_data(state as *mut D as *mut c_void);
                 obj.listen(0, my_manager_v1_send_message::<D> as *mut c_void);
                 obj.listen(1, my_manager_v1_recv_message_array_uint::<D> as *mut c_void);
@@ -64,36 +61,49 @@ pub mod client {
 
         pub fn send_send_message(&self, message: &[u8]) {
             self.object
+                .inner()
                 .borrow_mut()
                 .call(0, &[hw::types::CallArg::Varchar(message)]);
         }
 
         pub fn send_send_message_fd(&self, fd: i32) {
             self.object
+                .inner()
                 .borrow_mut()
                 .call(1, &[hw::types::CallArg::Fd(fd)]);
         }
 
         pub fn send_send_message_array_fd(&self, fds: &[i32]) {
             self.object
+                .inner()
                 .borrow_mut()
                 .call(2, &[hw::types::CallArg::FdArray(fds)]);
         }
 
         pub fn send_send_message_array(&self, msgs: &[&[u8]]) {
             self.object
+                .inner()
                 .borrow_mut()
                 .call(3, &[hw::types::CallArg::VarcharArray(msgs)]);
         }
 
         pub fn send_send_message_array_uint(&self, vals: &[u32]) {
             self.object
+                .inner()
                 .borrow_mut()
                 .call(4, &[hw::types::CallArg::UintArray(vals)]);
         }
 
-        pub fn send_make_object(&self) -> u32 {
-            self.object.borrow_mut().call(5, &[])
+        pub fn send_make_object(&self) -> Option<hw::types::Object> {
+            let seq = self.object.inner().borrow_mut().call(5, &[]);
+            let obj = self
+                .object
+                .inner()
+                .borrow()
+                .client_sock()
+                .and_then(|sock| sock.borrow().object_for_seq(seq))
+                .map(|obj| obj as Rc<RefCell<dyn hw::object::Object>>)?;
+            Some(hw::types::Object::from_raw(obj))
         }
     }
 
@@ -102,7 +112,7 @@ pub mod client {
     }
 
     pub struct MyObjectV1Object {
-        object: Rc<RefCell<dyn hw::object::Object>>,
+        object: hw::types::Object,
     }
 
     impl Proxy for MyObjectV1Object {
@@ -119,12 +129,9 @@ pub mod client {
     }
 
     impl MyObjectV1Object {
-        pub fn new<D: Dispatch<Self>>(
-            object: Rc<RefCell<dyn hw::object::Object>>,
-            state: &mut D,
-        ) -> Self {
+        pub fn new<D: Dispatch<Self>>(object: hw::types::Object, state: &mut D) -> Self {
             {
-                let mut obj = object.borrow_mut();
+                let mut obj = object.inner().borrow_mut();
                 obj.set_data(state as *mut D as *mut c_void);
                 obj.listen(0, my_object_v1_send_message::<D> as *mut c_void);
             }
@@ -134,22 +141,32 @@ pub mod client {
 
         pub fn send_send_message(&self, message: &[u8]) {
             self.object
+                .inner()
                 .borrow_mut()
                 .call(0, &[hw::types::CallArg::Varchar(message)]);
         }
 
-        pub fn send_send_uint(&self, val: u32) {
+        pub fn send_send_enum(&self, val: super::spec::MyEnum) {
             self.object
+                .inner()
                 .borrow_mut()
-                .call(1, &[hw::types::CallArg::Uint(val)]);
+                .call(1, &[hw::types::CallArg::Uint(val as u32)]);
         }
 
         pub fn send_destroy(&self) {
-            self.object.borrow_mut().call(2, &[]);
+            self.object.inner().borrow_mut().call(2, &[]);
         }
 
-        pub fn send_make_object(&self) -> u32 {
-            self.object.borrow_mut().call(3, &[])
+        pub fn send_make_object(&self) -> Option<hw::types::Object> {
+            let seq = self.object.inner().borrow_mut().call(3, &[]);
+            let obj = self
+                .object
+                .inner()
+                .borrow()
+                .client_sock()
+                .and_then(|sock| sock.borrow().object_for_seq(seq))
+                .map(|obj| obj as Rc<RefCell<dyn hw::object::Object>>)?;
+            Some(hw::types::Object::from_raw(obj))
         }
     }
 

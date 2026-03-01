@@ -6,7 +6,7 @@ description = "A fast and consistent wire protocol for IPC"
 license = "BSD-3-Clause"
 
 [dependencies]
-env_logger = "0.11.9"
-libffi = "5.1.0"
+env_logger = { version = "0.11.9", default-features = false }
+libffi = { version = "5.1.0", default-features = false }
 log = "0.4.29"
 nix = { version = "0.31.1", features = ["poll", "socket", "uio"] }

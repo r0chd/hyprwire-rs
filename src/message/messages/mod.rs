@@ -88,7 +88,7 @@ pub trait Message {
                     let (len, int_len) = message::parse_var_int(data, needle);
                     if len > 0 {
                         let str_data = &data[needle + int_len..needle + int_len + len];
-                        let s = String::from_utf8_lossy(&str_data);
+                        let s = String::from_utf8_lossy(str_data);
                         result.push_str(&format!("\"{s}\""));
                     } else {
                         result.push_str("\"\"");

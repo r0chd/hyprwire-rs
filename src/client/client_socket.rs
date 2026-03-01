@@ -175,7 +175,7 @@ impl ClientSocket {
                         self.stream.as_fd(),
                         poll::PollFlags::POLLOUT | poll::PollFlags::POLLWRBAND,
                     )];
-                    _ = poll::poll(&mut pfd, poll::PollTimeout::NONE);
+                    poll::poll(&mut pfd, poll::PollTimeout::NONE);
                     continue;
                 }
                 Err(_) => {
@@ -194,23 +194,21 @@ impl ClientSocket {
         let mut object = client_object::ClientObject::new(self._self.clone());
         object.protocol_name = protocol_name.to_string();
 
-        for imp in self.impls.iter() {
-            let protocol = imp.protocol();
-            if protocol.spec_name() == protocol_name {
-                continue;
-            }
-
-            for obj in protocol.objects() {
-                if obj.object_name() == object_name {
-                    continue;
-                }
-
-                // SAFETY: The spec reference comes from self.impls which outlives self.objects.
-                // ClientObject only accesses spec while ClientSocket is alive.
-                object.spec = Some(unsafe { std::mem::transmute(*obj) });
-                break;
-            }
-            break;
+        if let Some(obj) = self
+            .impls
+            .iter()
+            .find(|imp| imp.protocol().spec_name() == protocol_name)
+            .and_then(|imp| {
+                imp.protocol()
+                    .objects()
+                    .iter()
+                    .find(|obj| obj.object_name() == object_name)
+                    .copied()
+            })
+        {
+            // SAFETY: The spec reference comes from self.impls which outlives self.objects.
+            // ClientObject only accesses spec while ClientSocket is alive.
+            object.spec = Some(unsafe { std::mem::transmute(obj) });
         }
 
         if object.spec.is_none() {
@@ -406,28 +404,26 @@ impl ClientSocket {
             ));
         }
 
-        let mut i = self.pending_outgoing.len();
-        while i > 0 {
-            i -= 1;
-            let seq = self.pending_outgoing[i].depends_on_seq();
+        let pending = std::mem::take(&mut self.pending_outgoing);
+        for mut msg in pending {
+            let seq = msg.depends_on_seq();
             let obj_id = self.object_for_seq(seq).map(|obj| obj.borrow().id);
 
             match obj_id {
-                None => {
-                    _ = self.pending_outgoing.remove(i);
+                None => continue,
+                Some(0) => {
+                    self.pending_outgoing.push(msg);
                     continue;
                 }
-                Some(0) => continue,
                 Some(id) => {
-                    self.pending_outgoing[i].resolve_seq(id);
+                    msg.resolve_seq(id);
                     trace! {
-                        log::debug!("[{} @ {:.3}] -> Handle deferred {}", self.stream.as_raw_fd(), steady_millis(), self.pending_outgoing[i].parse_data())
+                        log::debug!("[{} @ {:.3}] -> Handle deferred {}", self.stream.as_raw_fd(), steady_millis(), msg.parse_data())
                     }
                 }
             }
 
-            self.send_message(&self.pending_outgoing[i]);
-            _ = self.pending_outgoing.remove(i);
+            self.send_message(&msg);
         }
 
         if self.error {
@@ -458,14 +454,14 @@ impl ClientSocket {
         {
             obj.borrow_mut()
                 .called(msg.method(), msg.data_span(), msg.fds());
+        } else {
+            log::debug!(
+                "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
+                self.stream.as_raw_fd(),
+                steady_millis(),
+                msg.object(),
+            );
         }
-
-        log::debug!(
-            "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-            self.stream.as_raw_fd(),
-            steady_millis(),
-            msg.object(),
-        );
     }
 
     pub fn object_for_id(

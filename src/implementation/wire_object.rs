@@ -8,7 +8,6 @@ use std::os::raw;
 use types::MessageMagic;
 
 pub trait WireObject: object::Object {
-
     fn set_version(&mut self, version: u32);
 
     fn version(&self) -> u32;
@@ -23,9 +22,13 @@ pub trait WireObject: object::Object {
 
     fn send_message(&mut self, msg: &dyn message::Message);
 
+    fn protocol_name(&self) -> &str;
+
     fn server(&self) -> bool;
 
     fn id(&self) -> u32;
+
+    fn seq(&self) -> u32;
 
     fn called(&mut self, id: u32, data: &[u8], fds: &[i32]) -> Result<(), MessageError> {
         let methods = self.methods_in();
@@ -435,9 +438,23 @@ pub trait WireObject: object::Object {
         data.push(MessageMagic::TypeUint as u8);
         data.extend_from_slice(&id.to_le_bytes());
 
-        let return_seq: u32 = 0;
+        let mut return_seq: u32 = 0;
 
-        // TODO: if !method.returns_type.is_empty(), add TypeSeq + client seq
+        if !method_returns_type.is_empty() {
+            trace! {
+                if let Some(client) = self.client_sock() {
+                    log::trace!("[{} @ {:.3}] -- call {}: returnsType has {}", client.borrow().stream.as_raw_fd(), steady_millis(), id, method_returns_type);
+                }
+            }
+
+            data.push(MessageMagic::TypeSeq as u8);
+            if let Some(client) = self.client_sock() {
+                let mut client_ref = client.borrow_mut();
+                client_ref.seq += 1;
+                return_seq = client_ref.seq;
+            }
+            data.extend_from_slice(&return_seq.to_le_bytes());
+        }
 
         let params = method_params;
         let mut arg_idx: usize = 0;
@@ -565,7 +582,7 @@ pub trait WireObject: object::Object {
 
         data.push(MessageMagic::End as u8);
 
-        let msg = message::GenericProtocolMessage::new(data, fds);
+        let mut msg = message::GenericProtocolMessage::new(data, fds);
 
         if self.id() == 0 && !self.server() {
             trace! {
@@ -574,16 +591,27 @@ pub trait WireObject: object::Object {
                 }
             }
 
+            let protocol_name = self.protocol_name().to_string();
+            msg.set_depends_on_seq(self.seq());
             if let Some(client) = self.client_sock() {
                 client.borrow_mut().pending_outgoing.push(msg);
+                if return_seq != 0 {
+                    client.borrow_mut().make_object(
+                        &protocol_name,
+                        method_returns_type,
+                        return_seq,
+                    );
+                    return return_seq;
+                }
             }
         } else {
             self.send_message(&msg);
             if return_seq != 0 {
+                let protocol_name = self.protocol_name().to_string();
                 if let Some(client) = self.client_sock() {
                     client.borrow_mut().make_object(
-                        "TODO", // self.protocol_name,
-                        &method_returns_type,
+                        &protocol_name,
+                        method_returns_type,
                         return_seq,
                     );
                     return return_seq;
@@ -591,6 +619,6 @@ pub trait WireObject: object::Object {
             }
         }
 
-        return 0;
+        0
     }
 }

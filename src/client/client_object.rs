@@ -76,6 +76,14 @@ impl wire_object::WireObject for ClientObject {
         self.id
     }
 
+    fn seq(&self) -> u32 {
+        self.seq
+    }
+
+    fn protocol_name(&self) -> &str {
+        &self.protocol_name
+    }
+
     fn server(&self) -> bool {
         false
     }

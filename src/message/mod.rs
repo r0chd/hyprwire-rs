@@ -12,8 +12,8 @@ pub(crate) use messages::new_object::NewObject;
 pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
 pub(crate) use messages::Message;
+use std::fmt;
 use std::os::fd::AsRawFd;
-use std::{fmt, ops};
 
 #[derive(Debug)]
 pub enum MessageError {

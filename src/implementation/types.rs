@@ -1,5 +1,24 @@
 use crate::message::MessageError;
 use libffi::low;
+use std::{cell, rc};
+
+/// A user-facing handle to a protocol object. Wraps the internal
+/// `Rc<RefCell<dyn Object>>` so callers never deal with those types directly.
+pub struct Object(rc::Rc<cell::RefCell<dyn super::object::Object>>);
+
+impl Object {
+    pub fn from_raw(inner: rc::Rc<cell::RefCell<dyn super::object::Object>>) -> Self {
+        Self(inner)
+    }
+
+    pub fn into_inner(self) -> rc::Rc<cell::RefCell<dyn super::object::Object>> {
+        self.0
+    }
+
+    pub fn inner(&self) -> &rc::Rc<cell::RefCell<dyn super::object::Object>> {
+        &self.0
+    }
+}
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
