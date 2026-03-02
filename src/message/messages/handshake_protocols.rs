@@ -1,11 +1,11 @@
 use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
-use std::borrow;
+use std::{borrow, rc};
 
 #[derive(Debug)]
 pub struct HandshakeProtocols<'a> {
-    protocols: Vec<String>,
+    protocols: Vec<rc::Rc<str>>,
     data: borrow::Cow<'a, [u8]>,
 }
 
@@ -31,12 +31,12 @@ impl<'a> HandshakeProtocols<'a> {
         data.push(MessageMagic::End as u8);
 
         Self {
-            protocols: protocols.iter().map(|p| p.to_string()).collect(),
+            protocols: protocols.iter().map(|&s| rc::Rc::from(s)).collect(),
             data: borrow::Cow::Owned(data),
         }
     }
 
-    pub fn protocols(&self) -> &[String] {
+    pub fn protocols(&self) -> &[rc::Rc<str>] {
         &self.protocols
     }
 
@@ -71,12 +71,12 @@ impl<'a> HandshakeProtocols<'a> {
             let (str_len, var_int_len) = message::parse_var_int(data, offset + needle);
             needle += var_int_len;
 
-            let protocol = std::str::from_utf8(
+            let protocol: rc::Rc<str> = std::str::from_utf8(
                 data.get(offset + needle..offset + needle + str_len)
                     .ok_or(MessageError::UnexpectedEof)?,
             )
             .map_err(|_| MessageError::MalformedMessage)?
-            .to_string();
+            .into();
             protocols.push(protocol);
 
             needle += str_len;

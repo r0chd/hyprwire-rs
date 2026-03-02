@@ -227,8 +227,7 @@ impl ClientSocket {
         self.stream.as_raw_fd()
     }
 
-    // TODO: Consider using a shared pointer instead
-    pub fn server_specs(&mut self, specs: &[String]) {
+    pub fn server_specs(&mut self, specs: &[rc::Rc<str>]) {
         for spec in specs.iter() {
             let at_pos = spec.rfind('@').unwrap();
 

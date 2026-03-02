@@ -7,12 +7,12 @@ use std::borrow;
 pub struct FatalProtocolError<'a> {
     object_id: u32,
     error_id: u32,
-    error_msg: String,
+    error_msg: borrow::Cow<'a, str>,
     data: borrow::Cow<'a, [u8]>,
 }
 
 impl<'a> FatalProtocolError<'a> {
-    pub fn new(object_id: u32, error_id: u32, error_msg: String) -> Self {
+    pub fn new(object_id: u32, error_id: u32, error_msg: &'a str) -> Self {
         let mut data = Vec::new();
         data.push(MessageType::FatalProtocolError as u8);
         data.push(MessageMagic::TypeUint as u8);
@@ -31,7 +31,7 @@ impl<'a> FatalProtocolError<'a> {
         Self {
             object_id,
             error_id,
-            error_msg,
+            error_msg: borrow::Cow::Borrowed(error_msg),
             data: borrow::Cow::Owned(data),
         }
     }
@@ -110,7 +110,7 @@ impl<'a> FatalProtocolError<'a> {
         Ok(Self {
             object_id,
             error_id,
-            error_msg,
+            error_msg: borrow::Cow::Owned(error_msg),
             data: borrow::Cow::Borrowed(&data[offset..offset + needle]),
         })
     }
@@ -132,14 +132,14 @@ mod tests {
 
     #[test]
     fn fatal_protocol_error_new() {
-        let msg = FatalProtocolError::new(1, 42, "something broke".to_string());
+        let msg = FatalProtocolError::new(1, 42, "something broke");
         let parsed = msg.parse_data();
         assert_eq!(parsed, "FatalProtocolError ( 1, 42, \"something broke\" ) ");
     }
 
     #[test]
     fn fatal_protocol_error_roundtrip() {
-        let original = FatalProtocolError::new(1, 42, "something broke".to_string());
+        let original = FatalProtocolError::new(1, 42, "something broke");
         let parsed = FatalProtocolError::from_bytes(original.data(), 0).unwrap();
         assert_eq!(parsed.object_id, original.object_id);
         assert_eq!(parsed.error_id, original.error_id);

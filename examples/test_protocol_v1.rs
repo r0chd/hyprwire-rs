@@ -381,3 +381,5 @@ pub mod spec {
         }
     }
 }
+
+fn main() {}
