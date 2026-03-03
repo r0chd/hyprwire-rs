@@ -1,5 +1,6 @@
 use crate::client;
 use crate::implementation::types;
+use client::client_socket;
 use std::os::raw;
 use std::{cell, rc};
 
@@ -8,7 +9,7 @@ pub trait Object {
 
     fn listen(&mut self, id: u32, func: *mut raw::c_void);
 
-    fn client_sock(&self) -> Option<rc::Rc<cell::RefCell<client::ClientSocket>>> {
+    fn client_sock(&self) -> Option<rc::Rc<cell::RefCell<client_socket::ClientSocket>>> {
         None
     }
 

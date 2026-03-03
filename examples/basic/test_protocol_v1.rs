@@ -1,0 +1,405 @@
+pub struct MyManagerV1Object {
+    object: hyprwire::implementation::types::Object,
+}
+
+pub struct MyObjectV1Object {
+    object: hyprwire::implementation::types::Object,
+}
+
+pub mod server {}
+
+pub mod client {
+    use std::{cell, ffi, rc};
+
+    pub enum MyManagerV1Event<'a> {
+        SendMessage { message: &'a ffi::CStr },
+        RecvMessageArrayUint { message: &'a [u32] },
+    }
+
+    impl hyprwire::Proxy for super::MyManagerV1Object {
+        type Event<'a> = MyManagerV1Event<'a>;
+    }
+
+    unsafe extern "C" fn my_manager_v1_method0<D: hyprwire::Dispatch<super::MyManagerV1Object>>(
+        data: *mut ffi::c_void,
+        message: *const ffi::c_char,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = super::MyManagerV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        let message = unsafe { ffi::CStr::from_ptr(message) };
+        state.event(&proxy, MyManagerV1Event::SendMessage { message });
+    }
+
+    unsafe extern "C" fn my_manager_v1_method1<D: hyprwire::Dispatch<super::MyManagerV1Object>>(
+        data: *mut ffi::c_void,
+        message: *const u32,
+        message_len: u32,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = super::MyManagerV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
+        state.event(&proxy, MyManagerV1Event::RecvMessageArrayUint { message });
+    }
+
+    impl super::MyManagerV1Object {
+        pub fn new<D: hyprwire::Dispatch<Self>>(
+            object: hyprwire::implementation::types::Object,
+            state: &mut D,
+        ) -> Self {
+            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
+                state: state as *mut D,
+                object: hyprwire::implementation::types::Object::from_raw(object.inner().clone()),
+            }));
+
+            {
+                let mut obj = object.inner().borrow_mut();
+                obj.set_data(dispatch_data as *mut ffi::c_void);
+                obj.listen(0, my_manager_v1_method0::<D> as *mut ffi::c_void);
+                obj.listen(1, my_manager_v1_method1::<D> as *mut ffi::c_void);
+            }
+
+            Self { object }
+        }
+
+        pub fn send_send_message(&self, message: &str) {
+            self.object.inner().borrow_mut().call(
+                0,
+                &[hyprwire::implementation::types::CallArg::Varchar(
+                    message.as_bytes(),
+                )],
+            );
+        }
+
+        pub fn send_send_message_fd(&self, fd: i32) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(1, &[hyprwire::implementation::types::CallArg::Fd(fd)]);
+        }
+
+        pub fn send_send_message_array_fd(&self, fds: &[i32]) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(2, &[hyprwire::implementation::types::CallArg::FdArray(fds)]);
+        }
+
+        pub fn send_send_message_array(&self, msgs: &[&str]) {
+            let bytes: Vec<&[u8]> = msgs.iter().map(|s| s.as_bytes()).collect();
+            self.object.inner().borrow_mut().call(
+                3,
+                &[hyprwire::implementation::types::CallArg::VarcharArray(
+                    &bytes,
+                )],
+            );
+        }
+
+        pub fn send_send_message_array_uint(&self, vals: &[u32]) {
+            self.object.inner().borrow_mut().call(
+                4,
+                &[hyprwire::implementation::types::CallArg::UintArray(vals)],
+            );
+        }
+
+        pub fn send_make_object(&self) -> Option<hyprwire::implementation::types::Object> {
+            let seq = self.object.inner().borrow_mut().call(5, &[]);
+            let obj = self
+                .object
+                .inner()
+                .borrow()
+                .client_sock()
+                .and_then(|sock| sock.borrow().object_for_seq(seq))
+                .map(|obj| {
+                    obj as rc::Rc<cell::RefCell<dyn hyprwire::implementation::object::Object>>
+                })?;
+            Some(hyprwire::implementation::types::Object::from_raw(obj))
+        }
+    }
+
+    pub enum MyObjectV1Event<'a> {
+        SendMessage { message: &'a ffi::CStr },
+    }
+
+    impl hyprwire::Proxy for super::MyObjectV1Object {
+        type Event<'a> = MyObjectV1Event<'a>;
+    }
+
+    unsafe extern "C" fn my_object_v1_send_message<
+        D: hyprwire::Dispatch<super::MyObjectV1Object>,
+    >(
+        data: *mut ffi::c_void,
+        message: *const ffi::c_char,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = super::MyObjectV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        let message = unsafe { ffi::CStr::from_ptr(message) };
+        state.event(&proxy, MyObjectV1Event::SendMessage { message });
+    }
+
+    impl super::MyObjectV1Object {
+        pub fn new<D: hyprwire::Dispatch<Self>>(
+            object: hyprwire::implementation::types::Object,
+            state: &mut D,
+        ) -> Self {
+            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
+                state: state as *mut D,
+                object: hyprwire::implementation::types::Object::from_raw(object.inner().clone()),
+            }));
+
+            {
+                let mut obj = object.inner().borrow_mut();
+                obj.set_data(dispatch_data as *mut ffi::c_void);
+                obj.listen(0, my_object_v1_send_message::<D> as *mut ffi::c_void);
+            }
+
+            Self { object }
+        }
+
+        pub fn send_send_message(&self, message: &str) {
+            self.object.inner().borrow_mut().call(
+                0,
+                &[hyprwire::implementation::types::CallArg::Varchar(
+                    message.as_bytes(),
+                )],
+            );
+        }
+
+        pub fn send_send_enum(&self, val: super::spec::MyEnum) {
+            self.object.inner().borrow_mut().call(
+                1,
+                &[hyprwire::implementation::types::CallArg::Uint(val as u32)],
+            );
+        }
+
+        pub fn send_destroy(&self) {
+            self.object.inner().borrow_mut().call(2, &[]);
+        }
+
+        pub fn send_make_object(&self) -> Option<hyprwire::implementation::types::Object> {
+            let seq = self.object.inner().borrow_mut().call(3, &[]);
+            let obj = self
+                .object
+                .inner()
+                .borrow()
+                .client_sock()
+                .and_then(|sock| sock.borrow().object_for_seq(seq))
+                .map(|obj| {
+                    obj as rc::Rc<cell::RefCell<dyn hyprwire::implementation::object::Object>>
+                })?;
+            Some(hyprwire::implementation::types::Object::from_raw(obj))
+        }
+    }
+
+    #[derive(Default, Copy, Clone)]
+    pub struct TestProtocolV1Impl {
+        protocol: super::spec::TestProtocolV1ProtocolSpec,
+    }
+
+    impl hyprwire::implementation::client::ProtocolImplementations for TestProtocolV1Impl {
+        fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
+            &self.protocol
+        }
+
+        fn implementation(&self) -> &[hyprwire::implementation::client::ObjectImplementation<'_>] {
+            &[]
+        }
+    }
+}
+
+pub mod spec {
+    #[repr(u32)]
+    pub enum MyEnum {
+        Hello = 0,
+        World = 4,
+    }
+
+    #[repr(u32)]
+    pub enum MyErrorEnum {
+        OhNo = 0,
+        ErrorImportant = 1,
+    }
+
+    pub struct MyManagerV1Spec {
+        c2s_methods: &'static [hyprwire::implementation::types::Method],
+        s2c_methods: &'static [hyprwire::implementation::types::Method],
+    }
+
+    static MY_MANAGER_V1: MyManagerV1Spec = MyManagerV1Spec {
+        c2s_methods: &[
+            hyprwire::implementation::types::Method {
+                idx: 0,
+                params: &[hyprwire::implementation::types::MessageMagic::TypeVarchar as u8],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 1,
+                params: &[hyprwire::implementation::types::MessageMagic::TypeFd as u8],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 2,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
+                    hyprwire::implementation::types::MessageMagic::TypeFd as u8,
+                ],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 3,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
+                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
+                ],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 4,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
+                    hyprwire::implementation::types::MessageMagic::TypeUint as u8,
+                ],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 5,
+                params: &[],
+                returns_type: "my_object_v1",
+                since: 0,
+            },
+        ],
+        s2c_methods: &[
+            hyprwire::implementation::types::Method {
+                idx: 0,
+                params: &[hyprwire::implementation::types::MessageMagic::TypeVarchar as u8],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 1,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
+                    hyprwire::implementation::types::MessageMagic::TypeUint as u8,
+                ],
+                returns_type: "",
+                since: 0,
+            },
+        ],
+    };
+
+    impl hyprwire::implementation::types::ProtocolObjectSpec for MyManagerV1Spec {
+        fn object_name(&self) -> &str {
+            "my_manager_v1"
+        }
+
+        fn c2s(&self) -> &[hyprwire::implementation::types::Method] {
+            self.c2s_methods
+        }
+
+        fn s2c(&self) -> &[hyprwire::implementation::types::Method] {
+            self.s2c_methods
+        }
+    }
+
+    pub struct MyObjectV1Spec {
+        c2s_methods: &'static [hyprwire::implementation::types::Method],
+        s2c_methods: &'static [hyprwire::implementation::types::Method],
+    }
+
+    static MY_OBJECT_V1: MyObjectV1Spec = MyObjectV1Spec {
+        c2s_methods: &[
+            hyprwire::implementation::types::Method {
+                idx: 0,
+                params: &[hyprwire::implementation::types::MessageMagic::TypeVarchar as u8],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 1,
+                params: &[hyprwire::implementation::types::MessageMagic::TypeUint as u8],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 2,
+                params: &[],
+                returns_type: "",
+                since: 0,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 3,
+                params: &[],
+                returns_type: "my_object_v1",
+                since: 0,
+            },
+        ],
+        s2c_methods: &[hyprwire::implementation::types::Method {
+            idx: 0,
+            params: &[hyprwire::implementation::types::MessageMagic::TypeVarchar as u8],
+            returns_type: "",
+            since: 0,
+        }],
+    };
+
+    impl hyprwire::implementation::types::ProtocolObjectSpec for MyObjectV1Spec {
+        fn object_name(&self) -> &str {
+            "my_object_v1"
+        }
+
+        fn c2s(&self) -> &[hyprwire::implementation::types::Method] {
+            self.c2s_methods
+        }
+
+        fn s2c(&self) -> &[hyprwire::implementation::types::Method] {
+            self.s2c_methods
+        }
+    }
+
+    #[derive(Copy, Clone)]
+    pub struct TestProtocolV1ProtocolSpec {
+        objects: [&'static dyn hyprwire::implementation::types::ProtocolObjectSpec; 2],
+    }
+
+    impl Default for TestProtocolV1ProtocolSpec {
+        fn default() -> Self {
+            Self {
+                objects: [&MY_MANAGER_V1, &MY_OBJECT_V1],
+            }
+        }
+    }
+
+    impl hyprwire::implementation::types::ProtocolSpec for TestProtocolV1ProtocolSpec {
+        fn spec_name(&self) -> &str {
+            "test_protocol_v1"
+        }
+
+        fn spec_ver(&self) -> u32 {
+            1
+        }
+
+        fn objects(&self) -> &[&dyn hyprwire::implementation::types::ProtocolObjectSpec] {
+            &self.objects
+        }
+    }
+}
+
+fn main() {}

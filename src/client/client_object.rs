@@ -1,11 +1,11 @@
 use crate::client::client_socket;
 use crate::implementation::{object, types, wire_object};
-use crate::{client, message};
+use crate::message;
 use std::os::raw;
 use std::{cell, rc};
 
 pub struct ClientObject {
-    client: Option<rc::Weak<cell::RefCell<client::ClientSocket>>>,
+    client: Option<rc::Weak<cell::RefCell<client_socket::ClientSocket>>>,
     // SAFETY: spec points into ClientSocket.impls which outlives ClientSocket.objects.
     // Only accessed while the parent ClientSocket is alive.
     pub(crate) spec: Option<*const dyn types::ProtocolObjectSpec>,
@@ -45,7 +45,7 @@ impl object::Object for ClientObject {
         self.listeners.push(callback);
     }
 
-    fn client_sock(&self) -> Option<rc::Rc<cell::RefCell<client::ClientSocket>>> {
+    fn client_sock(&self) -> Option<rc::Rc<cell::RefCell<client_socket::ClientSocket>>> {
         self.client.as_ref().and_then(|weak| weak.upgrade())
     }
 

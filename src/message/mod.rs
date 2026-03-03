@@ -1,7 +1,7 @@
 mod messages;
 
-use crate::{client, socket, steady_millis, trace};
-pub(crate) use messages::Message;
+use crate::client::client_socket;
+use crate::{socket, steady_millis, trace};
 pub(crate) use messages::bind_protocol::BindProtocol;
 pub(crate) use messages::fatal_protocol_error::FatalProtocolError;
 pub(crate) use messages::generic_protocol_message::GenericProtocolMessage;
@@ -12,6 +12,7 @@ pub(crate) use messages::hello::Hello;
 pub(crate) use messages::new_object::NewObject;
 pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
+pub(crate) use messages::Message;
 use std::fmt;
 use std::os::fd::AsRawFd;
 
@@ -118,7 +119,7 @@ impl TryFrom<u8> for MessageType {
 }
 
 pub enum Role<'a> {
-    Client(&'a mut client::ClientSocket),
+    Client(&'a mut client_socket::ClientSocket),
     // Server,
 }
 
@@ -150,7 +151,7 @@ pub fn handle_message(
 fn parse_single_message_client(
     raw: &mut socket::SocketRawParsedMessage,
     off: usize,
-    client: &mut client::ClientSocket,
+    client: &mut client_socket::ClientSocket,
 ) -> Result<usize, MessageError> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {

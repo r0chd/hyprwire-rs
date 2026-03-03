@@ -5,6 +5,14 @@ edition = "2024"
 description = "A fast and consistent wire protocol for IPC"
 license = "BSD-3-Clause"
 
+[[example]]
+name = "basic-client"
+path = "examples/basic/client.rs"
+
+[[example]]
+name = "basic-server"
+path = "examples/basic/server.rs"
+
 [dependencies]
 env_logger = { version = "0.11.9", default-features = false }
 libffi = { version = "5.1.0", default-features = false }

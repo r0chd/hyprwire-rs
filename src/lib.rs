@@ -4,6 +4,7 @@ pub mod client;
 pub(crate) mod helpers;
 pub mod implementation;
 pub(crate) mod message;
+pub mod server;
 pub(crate) mod socket;
 
 pub trait Proxy {

@@ -1,25 +1,27 @@
-pub mod client_object;
-mod client_socket;
+mod client_object;
+pub(crate) mod client_socket;
 mod server_spec;
 
 use crate::{implementation, message};
-pub use client_socket::ClientSocket;
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
 use std::{cell, io, path, rc};
 
-pub struct Client(rc::Rc<cell::RefCell<ClientSocket>>);
+pub struct Client(rc::Rc<cell::RefCell<client_socket::ClientSocket>>);
 
 impl Client {
     pub fn open(path: &path::Path) -> Self {
-        Self(ClientSocket::open(path))
+        Self(client_socket::ClientSocket::open(path))
     }
 
     pub fn from_fd(fd: fd::RawFd) -> Self {
-        Self(ClientSocket::from_fd(fd))
+        Self(client_socket::ClientSocket::from_fd(fd))
     }
 
-    pub fn add_implementation(&mut self, p_impl: impl ProtocolImplementations + 'static) {
+    pub fn add_implementation<T>(&mut self, p_impl: T)
+    where
+        T: ProtocolImplementations + 'static,
+    {
         self.0.borrow_mut().add_implementation(Box::new(p_impl));
     }
 
