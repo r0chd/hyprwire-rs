@@ -175,7 +175,14 @@ impl ClientSocket {
                         self.stream.as_fd(),
                         poll::PollFlags::POLLOUT | poll::PollFlags::POLLWRBAND,
                     )];
-                    poll::poll(&mut pfd, poll::PollTimeout::NONE);
+                    if let Err(e) = poll::poll(&mut pfd, poll::PollTimeout::NONE) {
+                        log::error!(
+                            "[{} @ {:.3}] poll error during send_message: {e}",
+                            self.stream.as_raw_fd(),
+                            steady_millis(),
+                        );
+                        break;
+                    }
                     continue;
                 }
                 Err(_) => {
@@ -451,16 +458,26 @@ impl ClientSocket {
             .iter()
             .find(|obj| obj.borrow().id == msg.object())
         {
-            obj.borrow_mut()
-                .called(msg.method(), msg.data_span(), msg.fds());
-        } else {
-            log::debug!(
-                "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-                self.stream.as_raw_fd(),
-                steady_millis(),
-                msg.object(),
-            );
+            if let Err(e) = obj
+                .borrow_mut()
+                .called(msg.method(), msg.data_span(), msg.fds())
+            {
+                log::error!(
+                    "[{} @ {:.3}] object {} called method error: {e}",
+                    self.stream.as_raw_fd(),
+                    steady_millis(),
+                    msg.object(),
+                );
+            }
+            return;
         }
+
+        log::debug!(
+            "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
+            self.stream.as_raw_fd(),
+            steady_millis(),
+            msg.object(),
+        );
     }
 
     pub fn object_for_id(

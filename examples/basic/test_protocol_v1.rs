@@ -1,32 +1,34 @@
-pub struct MyManagerV1Object {
-    object: hyprwire::implementation::types::Object,
-}
-
-pub struct MyObjectV1Object {
-    object: hyprwire::implementation::types::Object,
-}
-
-pub mod server {}
-
-pub mod client {
+pub mod server {
     use std::{cell, ffi, rc};
+
+    pub struct MyManagerV1Object {
+        object: hyprwire::implementation::types::Object,
+    }
+
+    pub struct MyObjectV1Object {
+        object: hyprwire::implementation::types::Object,
+    }
 
     pub enum MyManagerV1Event<'a> {
         SendMessage { message: &'a ffi::CStr },
-        RecvMessageArrayUint { message: &'a [u32] },
+        SendMessageFd { message: i32 },
+        SendMessageArrayFd { message: &'a [i32] },
+        SendMessageArray { message: &'a [&'a ffi::CStr] },
+        SendMessageArrayUint { message: &'a [u32] },
+        MakeObject { seq: u32 },
     }
 
-    impl hyprwire::Proxy for super::MyManagerV1Object {
+    impl hyprwire::Proxy for MyManagerV1Object {
         type Event<'a> = MyManagerV1Event<'a>;
     }
 
-    unsafe extern "C" fn my_manager_v1_method0<D: hyprwire::Dispatch<super::MyManagerV1Object>>(
+    unsafe extern "C" fn my_manager_v1_method0<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
         message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
         let state = unsafe { &mut *dispatch.state };
-        let proxy = super::MyManagerV1Object {
+        let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
                 dispatch.object.inner().clone(),
             ),
@@ -35,14 +37,133 @@ pub mod client {
         state.event(&proxy, MyManagerV1Event::SendMessage { message });
     }
 
-    unsafe extern "C" fn my_manager_v1_method1<D: hyprwire::Dispatch<super::MyManagerV1Object>>(
+    unsafe extern "C" fn my_manager_v1_method1<D: hyprwire::Dispatch<MyManagerV1Object>>(
+        data: *mut ffi::c_void,
+        message: i32,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyManagerV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        state.event(&proxy, MyManagerV1Event::SendMessageFd { message });
+    }
+
+    unsafe extern "C" fn my_manager_v1_method2<D: hyprwire::Dispatch<MyManagerV1Object>>(
+        data: *mut ffi::c_void,
+        message: *const i32,
+        message_len: u32,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyManagerV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
+        state.event(&proxy, MyManagerV1Event::SendMessageArrayFd { message });
+    }
+
+    unsafe extern "C" fn my_manager_v1_method3<D: hyprwire::Dispatch<MyManagerV1Object>>(
+        data: *mut ffi::c_void,
+        message: *const *const ffi::c_char,
+        message_len: u32,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyManagerV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        let ptrs = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
+        let strings: Vec<&ffi::CStr> = ptrs
+            .iter()
+            .map(|&p| unsafe { ffi::CStr::from_ptr(p) })
+            .collect();
+        state.event(
+            &proxy,
+            MyManagerV1Event::SendMessageArray { message: &strings },
+        );
+    }
+
+    unsafe extern "C" fn my_manager_v1_method4<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
         message: *const u32,
         message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
         let state = unsafe { &mut *dispatch.state };
-        let proxy = super::MyManagerV1Object {
+        let proxy = MyManagerV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
+        state.event(&proxy, MyManagerV1Event::SendMessageArrayUint { message });
+    }
+
+    unsafe extern "C" fn my_manager_v1_method5<D: hyprwire::Dispatch<MyManagerV1Object>>(
+        data: *mut ffi::c_void,
+        seq: u32,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyManagerV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        state.event(&proxy, MyManagerV1Event::MakeObject { seq });
+    }
+}
+
+pub mod client {
+    use std::{cell, ffi, rc};
+
+    pub struct MyManagerV1Object {
+        object: hyprwire::implementation::types::Object,
+    }
+
+    pub struct MyObjectV1Object {
+        object: hyprwire::implementation::types::Object,
+    }
+
+    pub enum MyManagerV1Event<'a> {
+        SendMessage { message: &'a ffi::CStr },
+        RecvMessageArrayUint { message: &'a [u32] },
+    }
+
+    impl hyprwire::Proxy for MyManagerV1Object {
+        type Event<'a> = MyManagerV1Event<'a>;
+    }
+
+    unsafe extern "C" fn my_manager_v1_method0<D: hyprwire::Dispatch<MyManagerV1Object>>(
+        data: *mut ffi::c_void,
+        message: *const ffi::c_char,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyManagerV1Object {
+            object: hyprwire::implementation::types::Object::from_raw(
+                dispatch.object.inner().clone(),
+            ),
+        };
+        let message = unsafe { ffi::CStr::from_ptr(message) };
+        state.event(&proxy, MyManagerV1Event::SendMessage { message });
+    }
+
+    unsafe extern "C" fn my_manager_v1_method1<D: hyprwire::Dispatch<MyManagerV1Object>>(
+        data: *mut ffi::c_void,
+        message: *const u32,
+        message_len: u32,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
+        let state = unsafe { &mut *dispatch.state };
+        let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
                 dispatch.object.inner().clone(),
             ),
@@ -51,7 +172,7 @@ pub mod client {
         state.event(&proxy, MyManagerV1Event::RecvMessageArrayUint { message });
     }
 
-    impl super::MyManagerV1Object {
+    impl MyManagerV1Object {
         pub fn new<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
             state: &mut D,
@@ -130,19 +251,17 @@ pub mod client {
         SendMessage { message: &'a ffi::CStr },
     }
 
-    impl hyprwire::Proxy for super::MyObjectV1Object {
+    impl hyprwire::Proxy for MyObjectV1Object {
         type Event<'a> = MyObjectV1Event<'a>;
     }
 
-    unsafe extern "C" fn my_object_v1_send_message<
-        D: hyprwire::Dispatch<super::MyObjectV1Object>,
-    >(
+    unsafe extern "C" fn my_object_v1_send_message<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
         message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };
         let state = unsafe { &mut *dispatch.state };
-        let proxy = super::MyObjectV1Object {
+        let proxy = MyObjectV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
                 dispatch.object.inner().clone(),
             ),
@@ -151,7 +270,7 @@ pub mod client {
         state.event(&proxy, MyObjectV1Event::SendMessage { message });
     }
 
-    impl super::MyObjectV1Object {
+    impl MyObjectV1Object {
         pub fn new<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
             state: &mut D,

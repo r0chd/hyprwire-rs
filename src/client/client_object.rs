@@ -34,7 +34,13 @@ impl ClientObject {
 
 impl object::Object for ClientObject {
     fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32 {
-        wire_object::WireObject::call(self, id, args)
+        match wire_object::WireObject::call(self, id, args) {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("object {} (protocol {}) call error: {e}", self.id, self.protocol_name);
+                0
+            }
+        }
     }
 
     fn listen(&mut self, id: u32, callback: *mut raw::c_void) {

@@ -1,11 +1,9 @@
 use super::types;
 use crate::implementation::object;
-use crate::message::MessageError;
 use crate::{message, steady_millis, trace};
 use libffi::low as ffi;
 use std::os::fd::AsRawFd;
 use std::os::raw;
-use types::MessageMagic;
 
 pub trait WireObject: object::Object {
     fn set_version(&mut self, version: u32);
@@ -30,14 +28,14 @@ pub trait WireObject: object::Object {
 
     fn seq(&self) -> u32;
 
-    fn called(&mut self, id: u32, data: &[u8], fds: &[i32]) -> Result<(), MessageError> {
+    fn called(&mut self, id: u32, data: &[u8], fds: &[i32]) -> Result<(), message::MessageError> {
         let methods = self.methods_in();
 
         if methods.len() <= id as usize {
             let msg = format!("invalid method {} for object {}", id, self.id());
             log::debug!("core protocol error: {msg}");
             self.error(self.id(), &msg);
-            return Err(MessageError::InvalidMethod);
+            return Err(message::MessageError::InvalidMethod);
         }
 
         if self.listeners().len() <= id as usize {
@@ -48,7 +46,7 @@ pub trait WireObject: object::Object {
         let mut params: Vec<u8> = Vec::new();
 
         if !method.returns_type.is_empty() {
-            params.push(MessageMagic::TypeSeq as u8);
+            params.push(types::MessageMagic::TypeSeq as u8);
         }
 
         params.extend_from_slice(method.params);
@@ -62,7 +60,7 @@ pub trait WireObject: object::Object {
             );
             log::debug!("core protocol error: {}", msg);
             self.error(self.id(), &msg);
-            return Err(MessageError::ProtocolVersionTooLow);
+            return Err(message::MessageError::ProtocolVersionTooLow);
         }
 
         let mut ffi_types: Vec<*mut ffi::ffi_type> = Vec::new();
@@ -72,8 +70,8 @@ pub trait WireObject: object::Object {
         let mut data_idx: usize = 0;
         let mut i: usize = 0;
         while i < params.len() {
-            let param = MessageMagic::try_from(params[i])?;
-            let wire_param = MessageMagic::try_from(data[data_idx])?;
+            let param = types::MessageMagic::try_from(params[i])?;
+            let wire_param = types::MessageMagic::try_from(data[data_idx])?;
 
             if param != wire_param {
                 let msg = format!(
@@ -82,27 +80,27 @@ pub trait WireObject: object::Object {
                 );
                 log::debug!("core protocol error: {msg}");
                 self.error(self.id(), &msg);
-                return Err(MessageError::InvalidParameter);
+                return Err(message::MessageError::InvalidParameter);
             }
 
             ffi_types.push(param.to_ffi_type());
 
             match param {
-                MessageMagic::End => i += 1, // BUG if this happens or malformed message
-                MessageMagic::TypeFd => data_idx += 1,
-                MessageMagic::TypeUint
-                | MessageMagic::TypeF32
-                | MessageMagic::TypeInt
-                | MessageMagic::TypeObject
-                | MessageMagic::TypeSeq => data_idx += 5,
-                MessageMagic::TypeVarchar => {
+                types::MessageMagic::End => i += 1, // BUG if this happens or malformed message
+                types::MessageMagic::TypeFd => data_idx += 1,
+                types::MessageMagic::TypeUint
+                | types::MessageMagic::TypeF32
+                | types::MessageMagic::TypeInt
+                | types::MessageMagic::TypeObject
+                | types::MessageMagic::TypeSeq => data_idx += 5,
+                types::MessageMagic::TypeVarchar => {
                     let (str_len, var_int_len) = message::parse_var_int(data, data_idx + 1);
                     data_idx += str_len + var_int_len + 1;
                 }
-                MessageMagic::TypeArray => {
+                types::MessageMagic::TypeArray => {
                     i += 1;
-                    let arr_type = MessageMagic::try_from(params[i])?;
-                    let wire_type = MessageMagic::try_from(data[data_idx + 1])?;
+                    let arr_type = types::MessageMagic::try_from(params[i])?;
+                    let wire_type = types::MessageMagic::try_from(data[data_idx + 1])?;
 
                     if arr_type != wire_type {
                         // raise protocol error
@@ -112,27 +110,27 @@ pub trait WireObject: object::Object {
                         );
                         log::debug!("core protocol error: {msg}");
                         self.error(self.id(), &msg);
-                        return Err(MessageError::IncorrectParamIdx);
+                        return Err(message::MessageError::IncorrectParamIdx);
                     }
 
                     let (arr_len, len_len) = message::parse_var_int(data, data_idx + 2);
                     let mut arr_message_len: usize = 2 + len_len;
 
-                    ffi_types.push(MessageMagic::TypeUint.to_ffi_type());
+                    ffi_types.push(types::MessageMagic::TypeUint.to_ffi_type());
 
                     match arr_type {
-                        MessageMagic::TypeUint
-                        | MessageMagic::TypeF32
-                        | MessageMagic::TypeInt
-                        | MessageMagic::TypeObject
-                        | MessageMagic::TypeSeq => arr_message_len += 4 * arr_len,
-                        MessageMagic::TypeVarchar => {
+                        types::MessageMagic::TypeUint
+                        | types::MessageMagic::TypeF32
+                        | types::MessageMagic::TypeInt
+                        | types::MessageMagic::TypeObject
+                        | types::MessageMagic::TypeSeq => arr_message_len += 4 * arr_len,
+                        types::MessageMagic::TypeVarchar => {
                             for _ in 0..arr_len {
                                 if data_idx + arr_message_len > data.len() {
                                     let msg = "failed demarshaling array message";
                                     log::debug!("core protocol error: {msg}");
                                     self.error(self.id(), msg);
-                                    return Err(MessageError::DemarshalingFailed);
+                                    return Err(message::MessageError::DemarshalingFailed);
                                 }
 
                                 let (str_len, str_len_len) =
@@ -140,22 +138,22 @@ pub trait WireObject: object::Object {
                                 arr_message_len += str_len + str_len_len;
                             }
                         }
-                        MessageMagic::TypeFd => {}
+                        types::MessageMagic::TypeFd => {}
                         _ => {
                             let msg = "failed demarshaling array message";
                             log::debug!("core protocol error: {msg}");
                             self.error(self.id(), msg);
-                            return Err(MessageError::DemarshalingFailed);
+                            return Err(message::MessageError::DemarshalingFailed);
                         }
                     }
 
                     data_idx += arr_message_len;
                 }
-                MessageMagic::TypeObjectId => {
+                types::MessageMagic::TypeObjectId => {
                     let msg = "object type is not implemented";
                     log::debug!("core protocol error: {msg}");
                     self.error(self.id(), msg);
-                    return Err(MessageError::Unimplemented);
+                    return Err(message::MessageError::Unimplemented);
                 }
             }
 
@@ -194,32 +192,34 @@ pub trait WireObject: object::Object {
         let mut i: usize = 0;
         while i < data.len() {
             let mut buf: Option<*mut raw::c_void> = None;
-            let param = MessageMagic::try_from(data[i])?;
+            let param = types::MessageMagic::try_from(data[i])?;
 
             match param {
-                MessageMagic::End => break,
-                MessageMagic::TypeUint | MessageMagic::TypeObject | MessageMagic::TypeSeq => {
+                types::MessageMagic::End => break,
+                types::MessageMagic::TypeUint
+                | types::MessageMagic::TypeObject
+                | types::MessageMagic::TypeSeq => {
                     let mut storage = vec![0u8; std::mem::size_of::<u32>()];
                     storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<u32>()]);
                     buf = Some(storage.as_mut_ptr() as *mut raw::c_void);
                     other_buffers.push(storage);
                     i += std::mem::size_of::<u32>();
                 }
-                MessageMagic::TypeF32 => {
+                types::MessageMagic::TypeF32 => {
                     let mut storage = vec![0u8; std::mem::size_of::<f32>()];
                     storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<f32>()]);
                     buf = Some(storage.as_mut_ptr() as *mut raw::c_void);
                     other_buffers.push(storage);
                     i += std::mem::size_of::<f32>();
                 }
-                MessageMagic::TypeInt => {
+                types::MessageMagic::TypeInt => {
                     let mut storage = vec![0u8; std::mem::size_of::<i32>()];
                     storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<i32>()]);
                     buf = Some(storage.as_mut_ptr() as *mut raw::c_void);
                     other_buffers.push(storage);
                     i += std::mem::size_of::<i32>();
                 }
-                MessageMagic::TypeVarchar => {
+                types::MessageMagic::TypeVarchar => {
                     let (str_len, len_len) = message::parse_var_int(data, i + 1);
                     let str_bytes = &data[i + 1 + len_len..i + 1 + len_len + str_len];
 
@@ -236,17 +236,17 @@ pub trait WireObject: object::Object {
 
                     i += str_len + len_len;
                 }
-                MessageMagic::TypeArray => {
-                    let arr_type = MessageMagic::try_from(data[i + 1])?;
+                types::MessageMagic::TypeArray => {
+                    let arr_type = types::MessageMagic::try_from(data[i + 1])?;
                     let (arr_len, len_len) = message::parse_var_int(data, i + 2);
                     let mut arr_message_len: usize = 2 + len_len;
 
                     match arr_type {
-                        MessageMagic::TypeUint
-                        | MessageMagic::TypeF32
-                        | MessageMagic::TypeInt
-                        | MessageMagic::TypeObject
-                        | MessageMagic::TypeSeq => {
+                        types::MessageMagic::TypeUint
+                        | types::MessageMagic::TypeF32
+                        | types::MessageMagic::TypeInt
+                        | types::MessageMagic::TypeObject
+                        | types::MessageMagic::TypeSeq => {
                             let elem_size = std::mem::size_of::<u32>();
                             let alloc_len = if arr_len == 0 { 1 } else { arr_len };
                             let mut data_buf = vec![0u8; alloc_len * elem_size];
@@ -271,7 +271,7 @@ pub trait WireObject: object::Object {
                             avalues.push(size_slot.as_mut_ptr() as *mut raw::c_void);
                             other_buffers.push(size_slot);
                         }
-                        MessageMagic::TypeVarchar => {
+                        types::MessageMagic::TypeVarchar => {
                             let alloc_len = if arr_len == 0 { 1 } else { arr_len };
                             let ptr_size = std::mem::size_of::<*const u8>();
                             let mut data_buf = vec![0u8; alloc_len * ptr_size];
@@ -307,7 +307,7 @@ pub trait WireObject: object::Object {
                             avalues.push(size_slot.as_mut_ptr() as *mut raw::c_void);
                             other_buffers.push(size_slot);
                         }
-                        MessageMagic::TypeFd => {
+                        types::MessageMagic::TypeFd => {
                             let alloc_len = if arr_len == 0 { 1 } else { arr_len };
                             let elem_size = std::mem::size_of::<i32>();
                             let mut data_buf = vec![0u8; alloc_len * elem_size];
@@ -317,7 +317,7 @@ pub trait WireObject: object::Object {
                                     let msg = "failed demarshaling array message";
                                     log::debug!("core protocol error: {msg}");
                                     self.error(self.id(), msg);
-                                    return Err(MessageError::DemarshalingFailed);
+                                    return Err(message::MessageError::DemarshalingFailed);
                                 }
                                 data_buf[j * elem_size..(j + 1) * elem_size]
                                     .copy_from_slice(&fds[fd_no].to_le_bytes());
@@ -341,24 +341,24 @@ pub trait WireObject: object::Object {
                             let msg = "failed demarshaling array message";
                             log::debug!("core protocol error: {msg}");
                             self.error(self.id(), msg);
-                            return Err(MessageError::DemarshalingFailed);
+                            return Err(message::MessageError::DemarshalingFailed);
                         }
                     }
 
                     i += arr_message_len - 1; // loop does += 1
                 }
-                MessageMagic::TypeObjectId => {
+                types::MessageMagic::TypeObjectId => {
                     let msg = "object type is not implemented";
                     log::debug!("core protocol error: {msg}");
                     self.error(self.id(), msg);
-                    return Err(MessageError::Unimplemented);
+                    return Err(message::MessageError::Unimplemented);
                 }
-                MessageMagic::TypeFd => {
+                types::MessageMagic::TypeFd => {
                     if fd_no >= fds.len() {
                         let msg = "failed demarshaling fd";
                         log::debug!("core protocol error: {msg}");
                         self.error(self.id(), msg);
-                        return Err(MessageError::DemarshalingFailed);
+                        return Err(message::MessageError::DemarshalingFailed);
                     }
                     let mut storage = vec![0u8; std::mem::size_of::<i32>()];
                     storage.copy_from_slice(&fds[fd_no].to_le_bytes());
@@ -387,14 +387,14 @@ pub trait WireObject: object::Object {
         Ok(())
     }
 
-    fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32 {
+    fn call(&mut self, id: u32, args: &[types::CallArg]) -> Result<u32, message::MessageError> {
         let methods = self.methods_out();
 
         if methods.len() <= id as usize {
             let msg = format!("invalid method {} for object {}", id, self.id());
             log::debug!("core protocol error: {msg}");
             self.error(self.id(), &msg);
-            return 0;
+            return Ok(0);
         }
 
         let method = &methods[id as usize];
@@ -408,7 +408,7 @@ pub trait WireObject: object::Object {
             );
             log::debug!("core protocol error: {msg}");
             self.error(self.id(), &msg);
-            return 0;
+            return Ok(0);
         }
 
         if !method.returns_type.is_empty() && self.server() {
@@ -419,7 +419,7 @@ pub trait WireObject: object::Object {
             );
             log::debug!("core protocol error: {msg}");
             self.error(self.id(), &msg);
-            return 0;
+            return Ok(0);
         }
 
         let method_params = method.params;
@@ -430,12 +430,12 @@ pub trait WireObject: object::Object {
         let mut fds: Vec<i32> = Vec::new();
 
         data.push(message::MessageType::GenericProtocolMessage as u8);
-        data.push(MessageMagic::TypeObject as u8);
+        data.push(types::MessageMagic::TypeObject as u8);
 
         let obj_id = self.id();
         data.extend_from_slice(&obj_id.to_le_bytes());
 
-        data.push(MessageMagic::TypeUint as u8);
+        data.push(types::MessageMagic::TypeUint as u8);
         data.extend_from_slice(&id.to_le_bytes());
 
         let mut return_seq: u32 = 0;
@@ -447,7 +447,7 @@ pub trait WireObject: object::Object {
                 }
             }
 
-            data.push(MessageMagic::TypeSeq as u8);
+            data.push(types::MessageMagic::TypeSeq as u8);
             if let Some(client) = self.client_sock() {
                 let mut client_ref = client.borrow_mut();
                 client_ref.seq += 1;
@@ -460,42 +460,42 @@ pub trait WireObject: object::Object {
         let mut arg_idx: usize = 0;
         let mut i: usize = 0;
         while i < params.len() {
-            let param = match MessageMagic::try_from(params[i]) {
+            let param = match types::MessageMagic::try_from(params[i]) {
                 Ok(m) => m,
                 Err(_) => break,
             };
 
             match param {
-                MessageMagic::TypeUint => {
-                    data.push(MessageMagic::TypeUint as u8);
+                types::MessageMagic::TypeUint => {
+                    data.push(types::MessageMagic::TypeUint as u8);
                     if let Some(types::CallArg::Uint(val)) = args.get(arg_idx) {
                         data.extend_from_slice(&val.to_le_bytes());
                     }
                     arg_idx += 1;
                 }
-                MessageMagic::TypeInt => {
-                    data.push(MessageMagic::TypeInt as u8);
+                types::MessageMagic::TypeInt => {
+                    data.push(types::MessageMagic::TypeInt as u8);
                     if let Some(types::CallArg::Int(val)) = args.get(arg_idx) {
                         data.extend_from_slice(&val.to_le_bytes());
                     }
                     arg_idx += 1;
                 }
-                MessageMagic::TypeObject => {
-                    data.push(MessageMagic::TypeObject as u8);
+                types::MessageMagic::TypeObject => {
+                    data.push(types::MessageMagic::TypeObject as u8);
                     if let Some(types::CallArg::Object(val)) = args.get(arg_idx) {
                         data.extend_from_slice(&val.to_le_bytes());
                     }
                     arg_idx += 1;
                 }
-                MessageMagic::TypeF32 => {
-                    data.push(MessageMagic::TypeF32 as u8);
+                types::MessageMagic::TypeF32 => {
+                    data.push(types::MessageMagic::TypeF32 as u8);
                     if let Some(types::CallArg::F32(val)) = args.get(arg_idx) {
                         data.extend_from_slice(&val.to_le_bytes());
                     }
                     arg_idx += 1;
                 }
-                MessageMagic::TypeVarchar => {
-                    data.push(MessageMagic::TypeVarchar as u8);
+                types::MessageMagic::TypeVarchar => {
+                    data.push(types::MessageMagic::TypeVarchar as u8);
                     if let Some(types::CallArg::Varchar(s)) = args.get(arg_idx) {
                         let mut var_int_buf = [0u8; 10];
                         let encoded = message::encode_var_int(s.len(), &mut var_int_buf);
@@ -504,21 +504,21 @@ pub trait WireObject: object::Object {
                     }
                     arg_idx += 1;
                 }
-                MessageMagic::TypeFd => {
-                    data.push(MessageMagic::TypeFd as u8);
+                types::MessageMagic::TypeFd => {
+                    data.push(types::MessageMagic::TypeFd as u8);
                     if let Some(types::CallArg::Fd(fd)) = args.get(arg_idx) {
                         fds.push(*fd);
                     }
                     arg_idx += 1;
                 }
-                MessageMagic::TypeArray => {
+                types::MessageMagic::TypeArray => {
                     i += 1;
-                    let arr_type = match MessageMagic::try_from(params[i]) {
+                    let arr_type = match types::MessageMagic::try_from(params[i]) {
                         Ok(m) => m,
                         Err(_) => break,
                     };
 
-                    data.push(MessageMagic::TypeArray as u8);
+                    data.push(types::MessageMagic::TypeArray as u8);
                     data.push(arr_type as u8);
 
                     match args.get(arg_idx) {
@@ -568,7 +568,7 @@ pub trait WireObject: object::Object {
                         _ => {
                             log::debug!("core protocol error: failed marshaling array type");
                             self.errd();
-                            return 0;
+                            return Ok(0);
                         }
                     }
 
@@ -580,7 +580,7 @@ pub trait WireObject: object::Object {
             i += 1;
         }
 
-        data.push(MessageMagic::End as u8);
+        data.push(types::MessageMagic::End as u8);
 
         let mut msg = message::GenericProtocolMessage::new(data, fds);
 
@@ -600,8 +600,8 @@ pub trait WireObject: object::Object {
                         &protocol_name,
                         method_returns_type,
                         return_seq,
-                    );
-                    return return_seq;
+                    )?;
+                    return Ok(return_seq);
                 }
             }
         } else {
@@ -613,12 +613,12 @@ pub trait WireObject: object::Object {
                         &protocol_name,
                         method_returns_type,
                         return_seq,
-                    );
-                    return return_seq;
+                    )?;
+                    return Ok(return_seq);
                 }
             }
         }
 
-        0
+        Ok(0)
     }
 }

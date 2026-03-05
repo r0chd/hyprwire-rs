@@ -1,6 +1,8 @@
 use std::os::unix::net;
 use std::{cell, fs, io, path, rc};
 
+use crate::implementation;
+
 pub struct ServerSocket {
     server: Option<net::UnixListener>,
     export_fd: Option<net::UnixStream>,
@@ -10,6 +12,7 @@ pub struct ServerSocket {
     exit_fd: net::UnixStream,
     exit_write_fd: net::UnixStream,
     is_empty_listener: bool,
+    impls: Vec<Box<dyn implementation::server::ProtocolImplementations>>,
     _self: rc::Weak<cell::RefCell<Self>>,
 }
 
@@ -41,6 +44,7 @@ impl ServerSocket {
                         exit_fd: exit_pipes.0,
                         exit_write_fd: exit_pipes.1,
                         is_empty_listener: false,
+                        impls: Vec::new(),
                         _self: weak_self.clone(),
                     })
                 }))
@@ -55,9 +59,17 @@ impl ServerSocket {
                     exit_fd: exit_pipes.0,
                     exit_write_fd: exit_pipes.1,
                     is_empty_listener: true,
+                    impls: Vec::new(),
                     _self: weak_self.clone(),
                 })
             })),
         }
+    }
+
+    pub fn add_implementation(
+        &mut self,
+        implementation: Box<dyn implementation::server::ProtocolImplementations>,
+    ) {
+        self.impls.push(implementation);
     }
 }
