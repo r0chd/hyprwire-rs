@@ -17,14 +17,22 @@ pub(crate) struct ServerClient {
     pub(crate) error: bool,
     pub(crate) scheduled_roundtrip_seq: u32,
     pub(crate) objects: Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>>,
-    server: rc::Weak<cell::RefCell<server_socket::ServerSocket>>,
+    pub(crate) pending_binds: Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>>,
+    // SAFETY: ServerClient is always accessed from within ServerSocket methods,
+    // and ServerSocket outlives its clients. We use a raw pointer to avoid
+    // deadlocking on the RwLock that wraps ServerSocket.
+    server: *const server_socket::ServerSocket,
     _self: rc::Weak<cell::RefCell<Self>>,
 }
+
+// SAFETY: ServerClient is only accessed from within ServerSocket which is behind Arc<RwLock>
+unsafe impl Send for ServerClient {}
+unsafe impl Sync for ServerClient {}
 
 impl ServerClient {
     pub fn new(
         stream: net::UnixStream,
-        server: rc::Weak<cell::RefCell<server_socket::ServerSocket>>,
+        server: *const server_socket::ServerSocket,
         weak_self: rc::Weak<cell::RefCell<Self>>,
     ) -> Self {
         Self {
@@ -36,6 +44,7 @@ impl ServerClient {
             error: false,
             scheduled_roundtrip_seq: 0,
             objects: Vec::new(),
+            pending_binds: Vec::new(),
             server,
             _self: weak_self,
         }
@@ -73,15 +82,27 @@ impl ServerClient {
         }
     }
 
-    pub fn create_object(
-        &mut self,
-        protocol: &str,
-        object_name: &str,
-        version: u32,
-        seq: u32,
-    ) {
+    pub fn protocol_names(&self) -> Vec<String> {
+        // SAFETY: server pointer is valid as long as ServerSocket is alive,
+        // and we are always called from within ServerSocket methods.
+        let server = unsafe { &*self.server };
+        server
+            .impls
+            .iter()
+            .map(|imp| {
+                format!(
+                    "{}@{}",
+                    imp.protocol().spec_name(),
+                    imp.protocol().spec_ver()
+                )
+            })
+            .collect()
+    }
+
+    pub fn create_object(&mut self, protocol: &str, object_name: &str, version: u32, seq: u32) {
         let obj = rc::Rc::new_cyclic(|weak_obj| {
-            let mut server_obj = server_object::ServerObject::new(self._self.clone(), weak_obj.clone());
+            let mut server_obj =
+                server_object::ServerObject::new(self._self.clone(), weak_obj.clone());
             server_obj.id = self.max_id;
             self.max_id += 1;
             server_obj.version = version;
@@ -89,19 +110,19 @@ impl ServerClient {
             server_obj.protocol_name = protocol.to_string();
 
             // Find spec from server implementations
-            if let Some(server) = self.server.upgrade() {
-                let server_ref = server.borrow();
-                for imp in &server_ref.impls {
-                    if imp.protocol().spec_name() == protocol {
-                        for spec in imp.protocol().objects() {
-                            if spec.object_name() == object_name {
-                                // SAFETY: spec comes from server impls which outlive the objects
-                                server_obj.spec = Some(unsafe { std::mem::transmute(*spec as *const _) });
-                                break;
-                            }
+            // SAFETY: server pointer valid, called from within ServerSocket methods
+            let server = unsafe { &*self.server };
+            for imp in &server.impls {
+                if imp.protocol().spec_name() == protocol {
+                    for spec in imp.protocol().objects() {
+                        if object_name.is_empty() || spec.object_name() == object_name {
+                            // SAFETY: spec comes from server impls which outlive the objects
+                            server_obj.spec =
+                                Some(unsafe { std::mem::transmute(*spec as *const _) });
+                            break;
                         }
-                        break;
                     }
+                    break;
                 }
             }
 
@@ -112,19 +133,39 @@ impl ServerClient {
         self.send_message(&new_obj_msg);
 
         self.objects.push(rc::Rc::clone(&obj));
-        self.on_bind(obj);
+        self.pending_binds.push(obj);
+    }
+
+    pub fn take_pending_binds(
+        &mut self,
+    ) -> Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>> {
+        std::mem::take(&mut self.pending_binds)
     }
 
     pub fn on_bind(&self, obj: rc::Rc<cell::RefCell<server_object::ServerObject>>) {
-        let protocol_name = obj.borrow().protocol_name.clone();
+        let (protocol_name, object_name) = {
+            let obj_ref = obj.borrow();
+            let object_name = obj_ref
+                .spec
+                .map(|spec| unsafe { &*spec }.object_name().to_string())
+                .unwrap_or_default();
+            (obj_ref.protocol_name.clone(), object_name)
+        };
 
-        if let Some(server) = self.server.upgrade() {
-            let server_ref = server.borrow();
-            for imp in &server_ref.impls {
-                if imp.protocol().spec_name() == protocol_name {
-                    imp.on_bind(obj as rc::Rc<cell::RefCell<dyn crate::implementation::object::Object>>);
-                    return;
+        // SAFETY: server pointer valid, called from within ServerSocket methods
+        let server = unsafe { &*self.server };
+        for imp in &server.impls {
+            if imp.protocol().spec_name() == protocol_name {
+                if let Some(obj_impl) = imp
+                    .implementation()
+                    .iter()
+                    .find(|impl_obj| impl_obj.object_name == object_name)
+                {
+                    (obj_impl.on_bind)(
+                        obj as rc::Rc<cell::RefCell<dyn crate::implementation::object::Object>>,
+                    );
                 }
+                return;
             }
         }
     }

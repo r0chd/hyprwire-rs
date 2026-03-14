@@ -1,5 +1,9 @@
-use nix::{libc, poll};
+use super::server_client;
+use crate::{message, socket, steady_millis, trace};
+use nix::poll;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::os::unix::net;
+use std::sync;
 use std::{cell, fs, io, path, rc};
 
 use crate::implementation;
@@ -14,12 +18,13 @@ pub struct ServerSocket {
     exit_write_fd: net::UnixStream,
     is_empty_listener: bool,
     pub(crate) impls: Vec<Box<dyn implementation::server::ProtocolImplementations>>,
+    clients: Vec<rc::Rc<cell::RefCell<server_client::ServerClient>>>,
     pollfds: Vec<poll::PollFd<'static>>,
-    _self: rc::Weak<cell::RefCell<Self>>,
+    _self: sync::Weak<sync::RwLock<Self>>,
 }
 
 impl ServerSocket {
-    pub fn open(path: Option<&path::Path>) -> io::Result<rc::Rc<cell::RefCell<Self>>> {
+    pub fn open(path: Option<&path::Path>) -> io::Result<sync::Arc<sync::RwLock<Self>>> {
         let wake_pipes = net::UnixStream::pair()?;
         let exit_pipes = net::UnixStream::pair()?;
 
@@ -39,8 +44,9 @@ impl ServerSocket {
                 }
 
                 let socket = net::UnixListener::bind(path)?;
-                Ok(rc::Rc::new_cyclic(|weak_self| {
-                    cell::RefCell::new(Self {
+                socket.set_nonblocking(true)?;
+                let arc = sync::Arc::new_cyclic(|weak_self| {
+                    sync::RwLock::new(Self {
                         server: Some(socket),
                         export_fd: None,
                         export_write_fd: None,
@@ -50,26 +56,34 @@ impl ServerSocket {
                         exit_write_fd: exit_pipes.1,
                         is_empty_listener: false,
                         impls: Vec::new(),
+                        clients: Vec::new(),
                         pollfds: Vec::new(),
                         _self: weak_self.clone(),
                     })
-                }))
+                });
+                arc.write().unwrap().recheck_pollfds();
+                Ok(arc)
             }
-            None => Ok(rc::Rc::new_cyclic(|weak_self| {
-                cell::RefCell::new(Self {
-                    server: None,
-                    export_fd: None,
-                    export_write_fd: None,
-                    wakeup_fd: wake_pipes.0,
-                    wakeup_write_fd: wake_pipes.1,
-                    exit_fd: exit_pipes.0,
-                    exit_write_fd: exit_pipes.1,
-                    is_empty_listener: true,
-                    impls: Vec::new(),
-                    pollfds: Vec::new(),
-                    _self: weak_self.clone(),
-                })
-            })),
+            None => {
+                let arc = sync::Arc::new_cyclic(|weak_self| {
+                    sync::RwLock::new(Self {
+                        server: None,
+                        export_fd: None,
+                        export_write_fd: None,
+                        wakeup_fd: wake_pipes.0,
+                        wakeup_write_fd: wake_pipes.1,
+                        exit_fd: exit_pipes.0,
+                        exit_write_fd: exit_pipes.1,
+                        is_empty_listener: true,
+                        impls: Vec::new(),
+                        clients: Vec::new(),
+                        pollfds: Vec::new(),
+                        _self: weak_self.clone(),
+                    })
+                });
+                arc.write().unwrap().recheck_pollfds();
+                Ok(arc)
+            }
         }
     }
 
@@ -80,11 +94,153 @@ impl ServerSocket {
         self.impls.push(implementation);
     }
 
-    pub fn dispatch_pending(&mut self) {
-        poll::poll(&mut self.pollfds, poll::PollTimeout::NONE);
+    pub fn dispatch_pending(&mut self) -> bool {
+        let _ = poll::poll(&mut self.pollfds, poll::PollTimeout::ZERO);
+
+        if self.dispatch_new_connections() {
+            return self.dispatch_pending();
+        }
+
+        self.dispatch_existing_connections()
     }
 
-    pub fn dispatch_new_connections(&self) -> bool {
+    fn clear_fd(fd: &net::UnixStream) {
+        let mut buf = [0u8; 128];
+        let mut pfd = [poll::PollFd::new(fd.as_fd(), poll::PollFlags::POLLIN)];
+
+        loop {
+            let _ = poll::poll(&mut pfd, poll::PollTimeout::ZERO);
+
+            if let Some(revents) = pfd[0].revents() && revents.contains(poll::PollFlags::POLLIN) {
+                let _ = io::Read::read(&mut &*fd, &mut buf);
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    fn clear_exit_fd(&self) {
+        Self::clear_fd(&self.exit_fd);
+    }
+
+    fn clear_wakeup_fd(&self) {
+        Self::clear_fd(&self.wakeup_fd);
+    }
+
+    fn dispatch_client(&self, client: &rc::Rc<cell::RefCell<server_client::ServerClient>>) {
+        let mut data = match socket::SocketRawParsedMessage::read_from_socket(
+            &client.borrow().stream,
+        ) {
+            Ok(d) => d,
+            Err(_) => {
+                client
+                    .borrow()
+                    .send_message(&message::FatalProtocolError::new(
+                        0,
+                        u32::MAX,
+                        "fatal: invalid message on wire",
+                    ));
+                client.borrow_mut().error = true;
+                return;
+            }
+        };
+
+        if data.data.is_empty() {
+            return;
+        }
+
+        if message::handle_message(
+            &mut data,
+            message::Role::Server(&mut client.borrow_mut()),
+        )
+        .is_err()
+        {
+            client
+                .borrow()
+                .send_message(&message::FatalProtocolError::new(
+                    0,
+                    u32::MAX,
+                    "fatal: failed to handle message on wire",
+                ));
+            client.borrow_mut().error = true;
+            return;
+        }
+
+        let pending_binds = client.borrow_mut().take_pending_binds();
+        if !pending_binds.is_empty() {
+            for obj in pending_binds {
+                client.borrow().on_bind(obj);
+            }
+        }
+
+        let scheduled_seq = client.borrow().scheduled_roundtrip_seq;
+        if scheduled_seq > 0 {
+            client
+                .borrow()
+                .send_message(&message::RoundtripDone::new(scheduled_seq));
+            client.borrow_mut().scheduled_roundtrip_seq = 0;
+        }
+    }
+
+    pub fn dispatch_existing_connections(&mut self) -> bool {
+        let mut had_any = false;
+        let mut needs_poll_recheck = false;
+
+        let internal_fds = self.internal_fds();
+
+        for i in internal_fds..self.pollfds.len() {
+            let revents = match self.pollfds[i].revents() {
+                Some(r) => r,
+                None => continue,
+            };
+
+            if !revents.contains(poll::PollFlags::POLLIN) {
+                continue;
+            }
+
+            let client_idx = i - internal_fds;
+            self.dispatch_client(&self.clients[client_idx].clone());
+
+            had_any = true;
+
+            if revents.contains(poll::PollFlags::POLLHUP) {
+                self.clients[client_idx].borrow_mut().error = true;
+                needs_poll_recheck = true;
+                trace! {
+                    log::debug!(
+                        "[{} @ {:.3}] Dropping client (hangup)",
+                        self.clients[client_idx].borrow().stream.as_raw_fd(),
+                        steady_millis(),
+                    )
+                }
+                continue;
+            }
+
+            if self.clients[client_idx].borrow().error {
+                trace! {
+                    log::debug!(
+                        "[{} @ {:.3}] Dropping client (protocol error)",
+                        self.clients[client_idx].borrow().stream.as_raw_fd(),
+                        steady_millis(),
+                    )
+                }
+            }
+        }
+
+        if needs_poll_recheck {
+            self.clients.retain(|c| !c.borrow().error);
+            self.recheck_pollfds();
+        }
+
+        had_any
+    }
+
+    fn internal_fds(&self) -> usize {
+        if self.is_empty_listener { 2 } else { 3 }
+    }
+
+    pub fn dispatch_new_connections(&mut self) -> bool {
         if self.is_empty_listener {
             return false;
         }
@@ -98,7 +254,70 @@ impl ServerSocket {
             return false;
         }
 
-        // TODO: accept new connections
+        let server = match &self.server {
+            Some(s) => s,
+            None => return false,
+        };
+
+        let (stream, _addr) = match server.accept() {
+            Ok(conn) => conn,
+            Err(e) => {
+                log::error!("failed to accept connection: {e}");
+                return false;
+            }
+        };
+
+        let server_ptr: *const Self = self;
+        let client = rc::Rc::new_cyclic(|weak_client| {
+            cell::RefCell::new(server_client::ServerClient::new(
+                stream,
+                server_ptr,
+                weak_client.clone(),
+            ))
+        });
+
+        self.clients.push(client);
+        self.recheck_pollfds();
+
+        true
+    }
+
+    fn recheck_pollfds(&mut self) {
+        self.pollfds.clear();
+
+        if !self.is_empty_listener && let Some(server) = &self.server {
+                let fd = unsafe { BorrowedFd::borrow_raw(server.as_fd().as_raw_fd()) };
+                self.pollfds
+                    .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
+        }
+
+        let fd = unsafe { BorrowedFd::borrow_raw(self.exit_fd.as_fd().as_raw_fd()) };
+        self.pollfds
+            .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
+
+        let fd = unsafe { BorrowedFd::borrow_raw(self.wakeup_fd.as_fd().as_raw_fd()) };
+        self.pollfds
+            .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
+
+        for client in &self.clients {
+            let raw_fd = client.borrow().stream.as_raw_fd();
+            let fd = unsafe { BorrowedFd::borrow_raw(raw_fd) };
+            self.pollfds
+                .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
+        }
+    }
+
+    pub fn dispatch_events(&mut self, block: bool) -> bool {
+        while self.dispatch_pending() {}
+
+        self.clear_exit_fd();
+        self.clear_wakeup_fd();
+
+        if block {
+            let _ = poll::poll(&mut self.pollfds, poll::PollTimeout::NONE);
+            while self.dispatch_pending() {}
+        }
+
         true
     }
 }

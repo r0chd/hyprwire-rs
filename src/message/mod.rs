@@ -1,6 +1,7 @@
 mod messages;
 
 use crate::client::client_socket;
+use crate::server::server_client;
 use crate::{socket, steady_millis, trace};
 pub(crate) use messages::Message;
 pub(crate) use messages::bind_protocol::BindProtocol;
@@ -120,7 +121,7 @@ impl TryFrom<u8> for MessageType {
 
 pub enum Role<'a> {
     Client(&'a mut client_socket::ClientSocket),
-    // Server,
+    Server(&'a mut server_client::ServerClient),
 }
 
 pub fn handle_message(
@@ -133,6 +134,21 @@ pub fn handle_message(
 
             while needle < data.data.len() {
                 needle += parse_single_message_client(data, needle, client)?;
+            }
+
+            if !data.fds.is_empty() {
+                return Err(MessageError::MalformedMessage);
+            }
+
+            trace! {
+                log::debug!("[{} @ {}] -- handleMessage: Finished read", client.stream.as_raw_fd(), steady_millis())
+            }
+        }
+        Role::Server(client) => {
+            let mut needle = 0;
+
+            while needle < data.data.len() {
+                needle += parse_single_message_server(data, needle, client)?;
             }
 
             if !data.fds.is_empty() {
@@ -293,6 +309,152 @@ fn parse_single_message_client(
         "server at fd {} core protocol error: invalid message recvd (invalid type code)",
         client.stream.as_raw_fd()
     );
+
+    Err(MessageError::InvalidMessage)
+}
+
+fn parse_single_message_server(
+    raw: &mut socket::SocketRawParsedMessage,
+    off: usize,
+    client: &mut server_client::ServerClient,
+) -> Result<usize, MessageError> {
+    if let Ok(message) = MessageType::try_from(raw.data[off]) {
+        match message {
+            MessageType::Sup => {
+                let msg = Hello::from_bytes(&raw.data, off).inspect_err(|_| {
+                    log::error!(
+                        "client at fd {} core protocol error: malformed message recvd (Sup)",
+                        client.stream.as_raw_fd()
+                    );
+                })?;
+
+                trace! {
+                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                }
+
+                client.dispatch_first_poll();
+                client.send_message(&HandshakeBegin::new(&[1]));
+
+                return Ok(msg.data().len());
+            }
+            MessageType::HandshakeBegin => {
+                client.error = true;
+                log::error!(
+                    "client at fd {} core protocol error: invalid message recvd (HandshakeBegin)",
+                    client.stream.as_raw_fd()
+                );
+                return Err(MessageError::InvalidMessage);
+            }
+            MessageType::HandshakeAck => {
+                let msg = HandshakeAck::from_bytes(&raw.data, off).inspect_err(|_| {
+                    log::error!(
+                        "client at fd {} core protocol error: malformed message recvd (HandshakeAck)",
+                        client.stream.as_raw_fd()
+                    );
+                })?;
+
+                trace! {
+                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                }
+
+                client.version = msg.version();
+
+                let protocol_names = client.protocol_names();
+                let protocol_refs: Vec<&str> = protocol_names.iter().map(|s| s.as_str()).collect();
+                client.send_message(&HandshakeProtocols::new(&protocol_refs));
+
+                return Ok(msg.data().len());
+            }
+            MessageType::HandshakeProtocols => {
+                client.error = true;
+                log::error!(
+                    "client at fd {} core protocol error: invalid message recvd (HandshakeProtocols)",
+                    client.stream.as_raw_fd()
+                );
+                return Err(MessageError::InvalidMessage);
+            }
+            MessageType::BindProtocol => {
+                let msg = BindProtocol::from_bytes(&raw.data, off).inspect_err(|_| {
+                    log::error!(
+                        "client at fd {} core protocol error: malformed message recvd (BindProtocol)",
+                        client.stream.as_raw_fd()
+                    );
+                })?;
+
+                trace! {
+                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                }
+
+                client.create_object(msg.protocol(), "", msg.version(), msg.seq());
+
+                return Ok(msg.data().len());
+            }
+            MessageType::NewObject => {
+                client.error = true;
+                log::error!(
+                    "client at fd {} core protocol error: invalid message recvd (NewObject)",
+                    client.stream.as_raw_fd()
+                );
+                return Err(MessageError::InvalidMessage);
+            }
+            MessageType::GenericProtocolMessage => {
+                let msg = GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, off)
+                    .inspect_err(|_| {
+                        log::error!(
+                            "client at fd {} core protocol error: malformed message recvd (GenericProtocolMessage)",
+                            client.stream.as_raw_fd()
+                        );
+                    })?;
+
+                trace! {
+                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                }
+
+                client.on_generic(&msg);
+
+                return Ok(msg.data().len());
+            }
+            MessageType::FatalProtocolError => {
+                client.error = true;
+                log::error!(
+                    "client at fd {} core protocol error: invalid message recvd (FatalProtocolError)",
+                    client.stream.as_raw_fd()
+                );
+                return Err(MessageError::InvalidMessage);
+            }
+            MessageType::RoundtripRequest => {
+                let msg = RoundtripRequest::from_bytes(&raw.data, off).inspect_err(|_| {
+                    log::error!(
+                        "client at fd {} core protocol error: malformed message recvd (RoundtripRequest)",
+                        client.stream.as_raw_fd()
+                    );
+                })?;
+
+                trace! {
+                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                }
+
+                client.scheduled_roundtrip_seq = msg.seq();
+
+                return Ok(msg.data().len());
+            }
+            MessageType::RoundtripDone => {
+                client.error = true;
+                log::error!(
+                    "client at fd {} core protocol error: invalid message recvd (RoundtripDone)",
+                    client.stream.as_raw_fd()
+                );
+                return Err(MessageError::InvalidMessage);
+            }
+            MessageType::Invalid => {}
+        }
+    }
+
+    log::error!(
+        "client at fd {} core protocol error: malformed message recvd (invalid type code)",
+        client.stream.as_raw_fd()
+    );
+    client.error = true;
 
     Err(MessageError::InvalidMessage)
 }

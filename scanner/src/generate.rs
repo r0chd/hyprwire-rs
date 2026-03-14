@@ -132,7 +132,7 @@ fn call_arg_expr(name: &str, arg_type: &ArgType) -> String {
         ArgType::F32 => format!("hyprwire::implementation::types::CallArg::F32({name})"),
         ArgType::Enum => format!("hyprwire::implementation::types::CallArg::Uint({name} as u32)"),
         ArgType::ArrayVarchar => {
-            format!("hyprwire::implementation::types::CallArg::VarcharArray(&bytes)")
+            "hyprwire::implementation::types::CallArg::VarcharArray(&bytes)".to_string()
         }
         ArgType::ArrayFd => {
             format!("hyprwire::implementation::types::CallArg::FdArray({name})")
@@ -341,32 +341,179 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         w.line("");
     }
 
-    // For each object: event enum, proxy impl, dispatch functions
+    // For each object: event enum, proxy impl, dispatch functions, impl block
     for obj in &protocol.objects {
-        if obj.c2s.is_empty() {
-            continue;
-        }
-
         let pascal = snake_to_pascal(&obj.name);
         let obj_type = format!("{pascal}Object");
         let event_type = format!("{pascal}Event");
 
-        // Event enum
-        write_event_enum(w, &event_type, &obj.c2s);
+        // Event enum for c2s methods (what the server receives)
+        if !obj.c2s.is_empty() {
+            write_event_enum(w, &event_type, &obj.c2s);
 
-        // Proxy impl
-        w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
+            // Proxy impl
+            w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
+            w.indent();
+            w.line(&format!("type Event<'a> = {event_type}<'a>;"));
+            w.dedent();
+            w.line("}");
+            w.line("");
+
+            // Dispatch functions for c2s
+            for (idx, m) in obj.c2s.iter().enumerate() {
+                write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m, false);
+            }
+        }
+
+        // Impl block with new + send methods
+        w.line(&format!("impl {obj_type} {{"));
         w.indent();
-        w.line(&format!("type Event<'a> = {event_type}<'a>;"));
+
+        // new function
+        w.line("pub fn new<D: hyprwire::Dispatch<Self>>(");
+        w.indent();
+        w.line("object: hyprwire::implementation::types::Object,");
+        w.dedent();
+        w.line(") -> Self {");
+        w.indent();
+        w.line("unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {");
+        w.indent();
+        w.line("drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });");
         w.dedent();
         w.line("}");
         w.line("");
-
-        // Dispatch functions
-        for (idx, m) in obj.c2s.iter().enumerate() {
-            write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m, false);
+        w.line("let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {");
+        w.indent();
+        w.line("object: rc::Rc::as_ptr(object.inner()),");
+        w.dedent();
+        w.line("}));");
+        w.line("");
+        w.line("{");
+        w.indent();
+        w.line("let mut obj = object.inner().borrow_mut();");
+        w.line("obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));");
+        for (idx, _m) in obj.c2s.iter().enumerate() {
+            w.line(&format!(
+                "obj.listen({idx}, {}_method{idx}::<D> as *mut ffi::c_void);",
+                obj.name
+            ));
         }
+        w.dedent();
+        w.line("}");
+        w.line("");
+        w.line("Self { object }");
+        w.dedent();
+        w.line("}");
+        w.line("");
+        w.line("pub fn error(&self, error_id: u32, error_msg: &str) {");
+        w.indent();
+        w.line("self.object.inner().borrow().error(error_id, error_msg);");
+        w.dedent();
+        w.line("}");
+
+        // Send methods for s2c (what the server sends to clients)
+        for (idx, m) in obj.s2c.iter().enumerate() {
+            w.line("");
+            write_send_method(w, idx, m);
+        }
+
+        w.dedent();
+        w.line("}");
+        w.line("");
     }
+
+    // Handler trait
+    let proto_pascal = snake_to_pascal(&protocol.name);
+    let handler_name = format!("{proto_pascal}Handler");
+    let impl_name = format!("{proto_pascal}Impl");
+
+    w.line(&format!("pub trait {handler_name} {{"));
+    w.indent();
+    w.line("fn bind(&mut self, object: hyprwire::implementation::types::Object);");
+    w.dedent();
+    w.line("}");
+    w.line("");
+
+    // Server protocol Impl struct
+    w.line(&format!("pub struct {impl_name} {{"));
+    w.indent();
+    w.line("version: u32,");
+    w.line(&format!("handler: *mut dyn {handler_name},"));
+    w.line(&format!(
+        "protocol: super::spec::{proto_pascal}ProtocolSpec,"
+    ));
+    w.line("impls: Vec<hyprwire::implementation::server::ObjectImplementation<'static>>,");
+    w.dedent();
+    w.line("}");
+    w.line("");
+
+    w.line(&format!("impl {impl_name} {{"));
+    w.indent();
+    w.line(&format!(
+        "pub fn new(version: u32, handler: &mut (impl {handler_name} + 'static)) -> Self {{"
+    ));
+    w.indent();
+    w.line(&format!(
+        "let handler = handler as *mut dyn {handler_name};"
+    ));
+    w.line("Self {");
+    w.indent();
+    w.line("version,");
+    w.line("handler,");
+    w.line(&format!(
+        "protocol: super::spec::{proto_pascal}ProtocolSpec::default(),"
+    ));
+    w.line("impls: vec![");
+    w.indent();
+    for (idx, obj) in protocol.objects.iter().enumerate() {
+        w.line("hyprwire::implementation::server::ObjectImplementation {");
+        w.indent();
+        w.line(&format!("object_name: \"{}\",", obj.name));
+        w.line("version,");
+        if idx == 0 {
+            w.line("on_bind: Box::new(move |obj| {");
+            w.indent();
+            w.line("let object = hyprwire::implementation::types::Object::from_raw(obj);");
+            w.line("unsafe { &mut *handler }.bind(object);");
+            w.dedent();
+            w.line("}),");
+        } else {
+            w.line("on_bind: Box::new(|_obj| {}),");
+        }
+        w.dedent();
+        w.line("},");
+    }
+    w.dedent();
+    w.line("],");
+    w.dedent();
+    w.line("}");
+    w.dedent();
+    w.line("}");
+    w.dedent();
+    w.line("}");
+    w.line("");
+
+    // ProtocolImplementations impl
+    w.line(&format!(
+        "impl hyprwire::implementation::server::ProtocolImplementations for {impl_name} {{"
+    ));
+    w.indent();
+    w.line("fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {");
+    w.indent();
+    w.line("&self.protocol");
+    w.dedent();
+    w.line("}");
+    w.line("");
+    w.line(
+        "fn implementation(&self) -> &[hyprwire::implementation::server::ObjectImplementation<'_>] {",
+    );
+    w.indent();
+    w.line("&self.impls");
+    w.dedent();
+    w.line("}");
+
+    w.dedent();
+    w.line("}");
 
     w.dedent();
     w.line("}");
@@ -709,14 +856,9 @@ fn write_send_method(w: &mut W, idx: usize, m: &Method) {
         w.line(".inner()");
         w.line(".borrow()");
         w.line(".client_sock()");
-        w.line(".and_then(|sock| sock.borrow().object_for_seq(seq))");
-        w.line(".map(|obj| {");
-        w.indent();
-        w.line("obj as rc::Rc<cell::RefCell<dyn hyprwire::implementation::object::Object>>");
+        w.line(".and_then(|sock| sock.object_for_seq(seq));");
         w.dedent();
-        w.line("})?;");
-        w.dedent();
-        w.line("Some(hyprwire::implementation::types::Object::from_raw(obj))");
+        w.line("Some(hyprwire::implementation::types::Object::from_raw(obj?))");
         w.dedent();
         w.line("}");
     } else if m.args.is_empty() {

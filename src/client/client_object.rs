@@ -1,4 +1,4 @@
-use crate::client::client_socket;
+use crate::client::{self, client_socket};
 use crate::implementation::{object, types, wire_object};
 use crate::{message, trace};
 use std::os::raw;
@@ -21,10 +21,8 @@ pub struct ClientObject {
 impl Drop for ClientObject {
     fn drop(&mut self) {
         trace! {log::debug!("destroying object {}", self.id)}
-        if let Some(destructor) = self.data_destructor {
-            if let Some(data) = self.data {
-                unsafe { destructor(data) };
-            }
+        if let Some(destructor) = self.data_destructor && let Some(data) = self.data {
+            unsafe { destructor(data) };
         }
     }
 }
@@ -68,8 +66,10 @@ impl object::Object for ClientObject {
         self.listeners.push(callback);
     }
 
-    fn client_sock(&self) -> Option<rc::Rc<cell::RefCell<client_socket::ClientSocket>>> {
-        self.client.as_ref().and_then(|weak| weak.upgrade())
+    fn client_sock(&self) -> Option<client::Client> {
+        self.client
+            .as_ref()
+            .and_then(|weak| weak.upgrade().map(client::Client))
     }
 
     fn set_data(

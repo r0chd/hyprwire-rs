@@ -20,10 +20,8 @@ pub(crate) struct ServerObject {
 impl Drop for ServerObject {
     fn drop(&mut self) {
         trace! {log::debug!("destroying server object {}", self.id)}
-        if let Some(destructor) = self.data_destructor {
-            if let Some(data) = self.data {
-                unsafe { destructor(data) };
-            }
+        if let Some(destructor) = self.data_destructor && let Some(data) = self.data {
+            unsafe { destructor(data) };
         }
     }
 }

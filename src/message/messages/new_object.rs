@@ -14,9 +14,9 @@ impl NewObject {
 
         data[0] = MessageType::NewObject as u8;
         data[1] = MessageMagic::TypeUint as u8;
-        data[2..2 + 4].copy_from_slice(&id.to_le_bytes());
-        data[7] = MessageMagic::TypeUint as u8;
-        data[8..8 + 4].copy_from_slice(&seq.to_le_bytes());
+        data[2..6].copy_from_slice(&id.to_le_bytes());
+        data[6] = MessageMagic::TypeUint as u8;
+        data[7..11].copy_from_slice(&seq.to_le_bytes());
         data[11] = MessageMagic::End as u8;
 
         Self { id, seq, data }

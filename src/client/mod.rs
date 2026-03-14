@@ -7,7 +7,7 @@ use implementation::client::ProtocolImplementations;
 use std::os::fd;
 use std::{cell, ffi, io, path, rc};
 
-pub struct Client(rc::Rc<cell::RefCell<client_socket::ClientSocket>>);
+pub struct Client(pub(crate) rc::Rc<cell::RefCell<client_socket::ClientSocket>>);
 
 impl Client {
     pub fn open(path: &path::Path) -> Self {
@@ -29,14 +29,14 @@ impl Client {
         self.0.borrow_mut().wait_for_handshake()
     }
 
-    pub fn dispatch_events<D>(&mut self, state: &mut D, block: bool) -> Result<(), io::Error> {
+    pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> Result<(), io::Error> {
         crate::set_dispatch_state(state as *mut D as *mut ffi::c_void);
         let result = self.0.borrow_mut().dispatch_events(block);
         crate::set_dispatch_state(std::ptr::null_mut());
         result
     }
 
-    pub fn roundtrip<D>(&mut self, state: &mut D) -> Result<(), io::Error> {
+    pub fn roundtrip<D>(&self, state: &mut D) -> Result<(), io::Error> {
         crate::set_dispatch_state(state as *mut D as *mut ffi::c_void);
         let result = self.0.borrow_mut().roundtrip();
         crate::set_dispatch_state(std::ptr::null_mut());
@@ -48,7 +48,7 @@ impl Client {
     }
 
     pub fn make_object(
-        &mut self,
+        &self,
         protocol_name: &str,
         object_name: &str,
         seq: u32,
@@ -62,7 +62,7 @@ impl Client {
     }
 
     pub fn bind_protocol(
-        &mut self,
+        &self,
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,
     ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::Object>>, io::Error> {
@@ -73,7 +73,17 @@ impl Client {
         self.0.borrow().get_spec(name).cloned()
     }
 
-    pub fn disconnect_on_error(&mut self) {
+    pub fn disconnect_on_error(&self) {
         self.0.borrow_mut().disconnect_on_error()
+    }
+
+    pub fn object_for_seq(
+        &self,
+        seq: u32,
+    ) -> Option<rc::Rc<cell::RefCell<dyn implementation::object::Object>>> {
+        self.0
+            .borrow()
+            .object_for_seq(seq)
+            .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::Object>>)
     }
 }

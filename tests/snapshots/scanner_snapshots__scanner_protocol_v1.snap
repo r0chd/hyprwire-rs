@@ -1,6 +1,5 @@
 ---
 source: tests/scanner_snapshots.rs
-assertion_line: 10
 expression: code
 ---
 pub mod server {
@@ -131,6 +130,51 @@ pub mod server {
         state.event(&proxy, MyManagerV1Event::MakeObject { seq });
     }
 
+    impl MyManagerV1Object {
+        pub fn new<D: hyprwire::Dispatch<Self>>(
+            object: hyprwire::implementation::types::Object,
+        ) -> Self {
+            unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
+                drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
+            }
+
+            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
+                object: rc::Rc::as_ptr(object.inner()),
+            }));
+
+            {
+                let mut obj = object.inner().borrow_mut();
+                obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
+                obj.listen(0, my_manager_v1_method0::<D> as *mut ffi::c_void);
+                obj.listen(1, my_manager_v1_method1::<D> as *mut ffi::c_void);
+                obj.listen(2, my_manager_v1_method2::<D> as *mut ffi::c_void);
+                obj.listen(3, my_manager_v1_method3::<D> as *mut ffi::c_void);
+                obj.listen(4, my_manager_v1_method4::<D> as *mut ffi::c_void);
+                obj.listen(5, my_manager_v1_method5::<D> as *mut ffi::c_void);
+            }
+
+            Self { object }
+        }
+
+        pub fn error(&self, error_id: u32, error_msg: &str) {
+            self.object.inner().borrow().error(error_id, error_msg);
+        }
+
+        pub fn send_send_message(&self, message: &str) {
+            self.object.inner().borrow_mut().call(
+                0,
+                &[hyprwire::implementation::types::CallArg::Varchar(message.as_bytes())],
+            );
+        }
+
+        pub fn send_recv_message_array_uint(&self, message: &[u32]) {
+            self.object.inner().borrow_mut().call(
+                1,
+                &[hyprwire::implementation::types::CallArg::UintArray(message)],
+            );
+        }
+    }
+
     pub enum MyObjectV1Event<'a> {
         SendMessage { message: &'a ffi::CStr },
         SendEnum { message: u32 },
@@ -202,6 +246,88 @@ pub mod server {
         state.event(&proxy, MyObjectV1Event::MakeObject { seq });
     }
 
+    impl MyObjectV1Object {
+        pub fn new<D: hyprwire::Dispatch<Self>>(
+            object: hyprwire::implementation::types::Object,
+        ) -> Self {
+            unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
+                drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
+            }
+
+            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
+                object: rc::Rc::as_ptr(object.inner()),
+            }));
+
+            {
+                let mut obj = object.inner().borrow_mut();
+                obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
+                obj.listen(0, my_object_v1_method0::<D> as *mut ffi::c_void);
+                obj.listen(1, my_object_v1_method1::<D> as *mut ffi::c_void);
+                obj.listen(2, my_object_v1_method2::<D> as *mut ffi::c_void);
+                obj.listen(3, my_object_v1_method3::<D> as *mut ffi::c_void);
+            }
+
+            Self { object }
+        }
+
+        pub fn error(&self, error_id: u32, error_msg: &str) {
+            self.object.inner().borrow().error(error_id, error_msg);
+        }
+
+        pub fn send_send_message(&self, message: &str) {
+            self.object.inner().borrow_mut().call(
+                0,
+                &[hyprwire::implementation::types::CallArg::Varchar(message.as_bytes())],
+            );
+        }
+    }
+
+    pub trait TestProtocolV1Handler {
+        fn bind(&mut self, object: hyprwire::implementation::types::Object);
+    }
+
+    pub struct TestProtocolV1Impl {
+        version: u32,
+        handler: *mut dyn TestProtocolV1Handler,
+        protocol: super::spec::TestProtocolV1ProtocolSpec,
+        impls: Vec<hyprwire::implementation::server::ObjectImplementation<'static>>,
+    }
+
+    impl TestProtocolV1Impl {
+        pub fn new(version: u32, handler: &mut (impl TestProtocolV1Handler + 'static)) -> Self {
+            let handler = handler as *mut dyn TestProtocolV1Handler;
+            Self {
+                version,
+                handler,
+                protocol: super::spec::TestProtocolV1ProtocolSpec::default(),
+                impls: vec![
+                    hyprwire::implementation::server::ObjectImplementation {
+                        object_name: "my_manager_v1",
+                        version,
+                        on_bind: Box::new(move |obj| {
+                            let object = hyprwire::implementation::types::Object::from_raw(obj);
+                            unsafe { &mut *handler }.bind(object);
+                        }),
+                    },
+                    hyprwire::implementation::server::ObjectImplementation {
+                        object_name: "my_object_v1",
+                        version,
+                        on_bind: Box::new(|_obj| {}),
+                    },
+                ],
+            }
+        }
+    }
+
+    impl hyprwire::implementation::server::ProtocolImplementations for TestProtocolV1Impl {
+        fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
+            &self.protocol
+        }
+
+        fn implementation(&self) -> &[hyprwire::implementation::server::ObjectImplementation<'_>] {
+            &self.impls
+        }
+    }
 }
 
 pub mod client {
@@ -327,11 +453,8 @@ pub mod client {
                 .inner()
                 .borrow()
                 .client_sock()
-                .and_then(|sock| sock.borrow().object_for_seq(seq))
-                .map(|obj| {
-                    obj as rc::Rc<cell::RefCell<dyn hyprwire::implementation::object::Object>>
-                })?;
-            Some(hyprwire::implementation::types::Object::from_raw(obj))
+                .and_then(|sock| sock.object_for_seq(seq));
+            Some(hyprwire::implementation::types::Object::from_raw(obj?))
         }
     }
 
@@ -418,11 +541,8 @@ pub mod client {
                 .inner()
                 .borrow()
                 .client_sock()
-                .and_then(|sock| sock.borrow().object_for_seq(seq))
-                .map(|obj| {
-                    obj as rc::Rc<cell::RefCell<dyn hyprwire::implementation::object::Object>>
-                })?;
-            Some(hyprwire::implementation::types::Object::from_raw(obj))
+                .and_then(|sock| sock.object_for_seq(seq));
+            Some(hyprwire::implementation::types::Object::from_raw(obj?))
         }
     }
 

@@ -82,6 +82,7 @@ fn main() {
     let mut pipes = net::UnixStream::pair().unwrap();
     let buf = b"pipe!";
     pipes.1.write_all(buf).unwrap();
+    drop(pipes.1);
 
     println!("Will send fd {}\n", pipes.0.as_raw_fd());
 
@@ -90,6 +91,8 @@ fn main() {
 
     pipes2.1.write_all(b"o kurwa").unwrap();
     pipes3.1.write_all(b"bober!!").unwrap();
+    drop(pipes2.1);
+    drop(pipes3.1);
 
     manager.send_send_message("Hello!");
     manager.send_send_message_fd(pipes.0.as_raw_fd());
