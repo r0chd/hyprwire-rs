@@ -1,5 +1,5 @@
 mod test_protocol_v1 {
-    include!(concat!(env!("OUT_DIR"), "/test_protocol_v1.rs"));
+    hyprwire::include_protocol!("test_protocol_v1");
 }
 
 use hyprwire::client;
@@ -7,7 +7,7 @@ use hyprwire::implementation::client::ProtocolImplementations;
 use hyprwire::implementation::types::ProtocolSpec;
 use std::io::Write;
 use std::os::fd::AsRawFd;
-use std::os::unix::net::UnixStream;
+use std::os::unix::net;
 use std::str::FromStr;
 use std::{env, path};
 
@@ -80,14 +80,14 @@ fn main() {
 
     println!("Bound!");
 
-    let mut pipes = UnixStream::pair().unwrap();
+    let mut pipes = net::UnixStream::pair().unwrap();
     let buf = b"pipe!";
     pipes.1.write_all(buf).unwrap();
 
     println!("Will send fd {}\n", pipes.0.as_raw_fd());
 
-    let mut pipes2 = UnixStream::pair().unwrap();
-    let mut pipes3 = UnixStream::pair().unwrap();
+    let mut pipes2 = net::UnixStream::pair().unwrap();
+    let mut pipes3 = net::UnixStream::pair().unwrap();
 
     let buf = b"o kurwa";
     pipes2.1.write_all(buf).unwrap();

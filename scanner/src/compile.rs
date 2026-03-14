@@ -1,0 +1,54 @@
+use crate::{generate, parse};
+use std::{env, fs, io, path};
+
+pub struct Builder {
+    out_dir: Option<path::PathBuf>,
+}
+
+pub fn configure() -> Builder {
+    Builder { out_dir: None }
+}
+
+impl Builder {
+    pub fn out_dir(mut self, path: impl Into<path::PathBuf>) -> Self {
+        self.out_dir = Some(path.into());
+        self
+    }
+
+    pub fn compile(self, proto: impl AsRef<path::Path>) -> Result<(), io::Error> {
+        self.compile_protos(&[proto])
+    }
+
+    pub fn compile_protos(self, protos: &[impl AsRef<path::Path>]) -> Result<(), io::Error> {
+        let out_dir = self
+            .out_dir
+            .unwrap_or_else(|| path::PathBuf::from(env::var("OUT_DIR").unwrap()));
+
+        for proto_path in protos {
+            let proto_path = proto_path.as_ref();
+            let xml = fs::read_to_string(proto_path).map_err(|e| {
+                io::Error::new(
+                    e.kind(),
+                    format!("failed to read {}: {e}", proto_path.display()),
+                )
+            })?;
+
+            let protocol = parse::parse_protocol(&xml).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("failed to parse {}: {e}", proto_path.display()),
+                )
+            })?;
+
+            let code = generate::generate(&protocol);
+
+            let out_name = format!("{}.rs", protocol.name);
+            let out_path = out_dir.join(&out_name);
+            fs::write(&out_path, code)?;
+
+            println!("cargo::rerun-if-changed={}", proto_path.display());
+        }
+
+        Ok(())
+    }
+}

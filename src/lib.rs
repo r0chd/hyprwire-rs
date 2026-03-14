@@ -1,5 +1,3 @@
-use std::{sync, time};
-
 pub mod client;
 pub(crate) mod helpers;
 pub mod implementation;
@@ -7,6 +5,16 @@ pub(crate) mod message;
 pub mod scanner;
 pub mod server;
 pub(crate) mod socket;
+
+use implementation::object;
+use std::{cell, sync, time};
+
+#[macro_export]
+macro_rules! include_protocol {
+    ($name:expr) => {
+        include!(concat!(env!("OUT_DIR"), "/", $name, ".rs"));
+    };
+}
 
 pub trait Proxy {
     type Event<'a>;
@@ -18,7 +26,7 @@ pub trait Dispatch<I: Proxy> {
 
 pub struct DispatchData<D> {
     pub state: *mut D,
-    pub object: *const std::cell::RefCell<dyn implementation::object::Object>,
+    pub object: *const cell::RefCell<dyn object::Object>,
 }
 
 static START: sync::OnceLock<time::Instant> = sync::OnceLock::new();
