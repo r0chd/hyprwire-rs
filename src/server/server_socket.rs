@@ -26,7 +26,10 @@ impl ServerSocket {
                 if fs::exists(path)? {
                     match net::UnixStream::connect(path) {
                         Ok(_) => {
-                            return Err(io::Error::new(io::ErrorKind::AddrInUse, "socket is alive"));
+                            return Err(io::Error::new(
+                                io::ErrorKind::AddrInUse,
+                                "socket is alive",
+                            ));
                         }
                         Err(e) if e.kind() != io::ErrorKind::ConnectionRefused => return Err(e),
                         _ => fs::remove_file(path)?,

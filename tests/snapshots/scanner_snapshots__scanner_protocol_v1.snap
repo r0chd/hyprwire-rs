@@ -8,13 +8,16 @@ pub mod server {
 
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
+        on_destroy: Option<unsafe fn(*mut ffi::c_void)>,
     }
 
     pub struct MyObjectV1Object {
         object: hyprwire::implementation::types::Object,
+        on_destroy: Option<unsafe fn(*mut ffi::c_void)>,
     }
 
     pub enum MyManagerV1Event<'a> {
+        Destroyed,
         SendMessage { message: &'a ffi::CStr },
         SendMessageFd { message: i32 },
         SendMessageArrayFd { message: &'a [i32] },
@@ -38,6 +41,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         let message = unsafe { ffi::CStr::from_ptr(message) };
         state.event(&proxy, MyManagerV1Event::SendMessage { message });
@@ -54,6 +58,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         state.event(&proxy, MyManagerV1Event::SendMessageFd { message });
     }
@@ -70,6 +75,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
         state.event(&proxy, MyManagerV1Event::SendMessageArrayFd { message });
@@ -87,6 +93,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         let ptrs = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
         let strings: Vec<&ffi::CStr> = ptrs
@@ -111,6 +118,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
         state.event(&proxy, MyManagerV1Event::SendMessageArrayUint { message });
@@ -127,11 +135,13 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         state.event(&proxy, MyManagerV1Event::MakeObject { seq });
     }
 
     pub enum MyObjectV1Event<'a> {
+        Destroyed,
         SendMessage { message: &'a ffi::CStr },
         SendEnum { message: u32 },
         Destroy,
@@ -153,6 +163,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         let message = unsafe { ffi::CStr::from_ptr(message) };
         state.event(&proxy, MyObjectV1Event::SendMessage { message });
@@ -169,6 +180,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         state.event(&proxy, MyObjectV1Event::SendEnum { message });
     }
@@ -183,6 +195,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         state.event(&proxy, MyObjectV1Event::Destroy);
     }
@@ -198,6 +211,7 @@ pub mod server {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         state.event(&proxy, MyObjectV1Event::MakeObject { seq });
     }
@@ -209,13 +223,16 @@ pub mod client {
 
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
+        on_destroy: Option<unsafe fn(*mut ffi::c_void)>,
     }
 
     pub struct MyObjectV1Object {
         object: hyprwire::implementation::types::Object,
+        on_destroy: Option<unsafe fn(*mut ffi::c_void)>,
     }
 
     pub enum MyManagerV1Event<'a> {
+        Destroyed,
         SendMessage { message: &'a ffi::CStr },
         RecvMessageArrayUint { message: &'a [u32] },
     }
@@ -235,6 +252,7 @@ pub mod client {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         let message = unsafe { ffi::CStr::from_ptr(message) };
         state.event(&proxy, MyManagerV1Event::SendMessage { message });
@@ -252,6 +270,7 @@ pub mod client {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
         state.event(&proxy, MyManagerV1Event::RecvMessageArrayUint { message });
@@ -266,6 +285,19 @@ pub mod client {
                 drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData<T>) });
             }
 
+            unsafe fn fire_destroyed<T: hyprwire::Dispatch<MyManagerV1Object>>(data: *mut ffi::c_void) {
+                let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<T>) };
+                let state = unsafe { &mut *dispatch.state };
+                unsafe { rc::Rc::increment_strong_count(dispatch.object) };
+                let proxy = MyManagerV1Object {
+                    object: hyprwire::implementation::types::Object::from_raw(
+                        unsafe { rc::Rc::from_raw(dispatch.object) },
+                    ),
+                    on_destroy: None,
+                };
+                state.event(&proxy, MyManagerV1Event::Destroyed);
+            }
+
             let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
                 state: state as *mut D,
                 object: rc::Rc::as_ptr(object.inner()),
@@ -278,7 +310,7 @@ pub mod client {
                 obj.listen(1, my_manager_v1_method1::<D> as *mut ffi::c_void);
             }
 
-            Self { object }
+            Self { object, on_destroy: Some(fire_destroyed::<D>) }
         }
 
         pub fn send_send_message(&self, message: &str) {
@@ -329,7 +361,19 @@ pub mod client {
         }
     }
 
+    impl Drop for MyManagerV1Object {
+        fn drop(&mut self) {
+            if let Some(fire) = self.on_destroy {
+                let data = self.object.inner().borrow().get_data();
+                if !data.is_null() {
+                    unsafe { fire(data) };
+                }
+            }
+        }
+    }
+
     pub enum MyObjectV1Event<'a> {
+        Destroyed,
         SendMessage { message: &'a ffi::CStr },
     }
 
@@ -348,6 +392,7 @@ pub mod client {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
+            on_destroy: None,
         };
         let message = unsafe { ffi::CStr::from_ptr(message) };
         state.event(&proxy, MyObjectV1Event::SendMessage { message });
@@ -362,6 +407,19 @@ pub mod client {
                 drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData<T>) });
             }
 
+            unsafe fn fire_destroyed<T: hyprwire::Dispatch<MyObjectV1Object>>(data: *mut ffi::c_void) {
+                let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<T>) };
+                let state = unsafe { &mut *dispatch.state };
+                unsafe { rc::Rc::increment_strong_count(dispatch.object) };
+                let proxy = MyObjectV1Object {
+                    object: hyprwire::implementation::types::Object::from_raw(
+                        unsafe { rc::Rc::from_raw(dispatch.object) },
+                    ),
+                    on_destroy: None,
+                };
+                state.event(&proxy, MyObjectV1Event::Destroyed);
+            }
+
             let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
                 state: state as *mut D,
                 object: rc::Rc::as_ptr(object.inner()),
@@ -373,7 +431,7 @@ pub mod client {
                 obj.listen(0, my_object_v1_method0::<D> as *mut ffi::c_void);
             }
 
-            Self { object }
+            Self { object, on_destroy: Some(fire_destroyed::<D>) }
         }
 
         pub fn send_send_message(&self, message: &str) {
@@ -406,6 +464,17 @@ pub mod client {
                     obj as rc::Rc<cell::RefCell<dyn hyprwire::implementation::object::Object>>
                 })?;
             Some(hyprwire::implementation::types::Object::from_raw(obj))
+        }
+    }
+
+    impl Drop for MyObjectV1Object {
+        fn drop(&mut self) {
+            if let Some(fire) = self.on_destroy {
+                let data = self.object.inner().borrow().get_data();
+                if !data.is_null() {
+                    unsafe { fire(data) };
+                }
+            }
         }
     }
 

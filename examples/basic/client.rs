@@ -34,6 +34,7 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyManagerV1Object> for App {
             test_protocol_v1::client::MyManagerV1Event::RecvMessageArrayUint { message } => {
                 println!("Server sent uint array {:?}", message);
             }
+            _ => {}
         }
     }
 }
@@ -44,10 +45,8 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyObjectV1Object> for App {
         _proxy: &test_protocol_v1::client::MyObjectV1Object,
         event: test_protocol_v1::client::MyObjectV1Event,
     ) {
-        match event {
-            test_protocol_v1::client::MyObjectV1Event::SendMessage { message } => {
-                println!("Server says on object {}", message.to_string_lossy());
-            }
+        if let test_protocol_v1::client::MyObjectV1Event::SendMessage { message } = event {
+            println!("Server says on object {}", message.to_string_lossy());
         }
     }
 }

@@ -336,6 +336,7 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         w.line(&format!("pub struct {pascal}Object {{"));
         w.indent();
         w.line("object: hyprwire::implementation::types::Object,");
+        w.line("on_destroy: Option<unsafe fn(*mut ffi::c_void)>,");
         w.dedent();
         w.line("}");
         w.line("");
@@ -352,7 +353,7 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         let event_type = format!("{pascal}Event");
 
         // Event enum
-        write_event_enum(w, &event_type, &obj.c2s);
+        write_event_enum(w, &event_type, &obj.c2s, true);
 
         // Proxy impl
         w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
@@ -386,6 +387,7 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.line(&format!("pub struct {pascal}Object {{"));
         w.indent();
         w.line("object: hyprwire::implementation::types::Object,");
+        w.line("on_destroy: Option<unsafe fn(*mut ffi::c_void)>,");
         w.dedent();
         w.line("}");
         w.line("");
@@ -399,7 +401,7 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
 
         // Event enum (s2c methods)
         if !obj.s2c.is_empty() {
-            write_event_enum(w, &event_type, &obj.s2c);
+            write_event_enum(w, &event_type, &obj.s2c, true);
 
             // Proxy impl
             w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
@@ -433,6 +435,27 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.dedent();
         w.line("}");
         w.line("");
+        w.line(&format!(
+            "unsafe fn fire_destroyed<T: hyprwire::Dispatch<{obj_type}>>(data: *mut ffi::c_void) {{"
+        ));
+        w.indent();
+        w.line("let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<T>) };");
+        w.line("let state = unsafe { &mut *dispatch.state };");
+        w.line("unsafe { rc::Rc::increment_strong_count(dispatch.object) };");
+        w.line(&format!("let proxy = {obj_type} {{"));
+        w.indent();
+        w.line("object: hyprwire::implementation::types::Object::from_raw(");
+        w.indent();
+        w.line("unsafe { rc::Rc::from_raw(dispatch.object) },");
+        w.dedent();
+        w.line("),");
+        w.line("on_destroy: None,");
+        w.dedent();
+        w.line("};");
+        w.line(&format!("state.event(&proxy, {event_type}::Destroyed);"));
+        w.dedent();
+        w.line("}");
+        w.line("");
         w.line("let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {");
         w.indent();
         w.line("state: state as *mut D,");
@@ -453,7 +476,7 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.dedent();
         w.line("}");
         w.line("");
-        w.line("Self { object }");
+        w.line("Self { object, on_destroy: Some(fire_destroyed::<D>) }");
         w.dedent();
         w.line("}");
 
@@ -463,6 +486,27 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
             write_send_method(w, idx, m);
         }
 
+        w.dedent();
+        w.line("}");
+        w.line("");
+
+        // Drop impl
+        w.line(&format!("impl Drop for {obj_type} {{"));
+        w.indent();
+        w.line("fn drop(&mut self) {");
+        w.indent();
+        w.line("if let Some(fire) = self.on_destroy {");
+        w.indent();
+        w.line("let data = self.object.inner().borrow().get_data();");
+        w.line("if !data.is_null() {");
+        w.indent();
+        w.line("unsafe { fire(data) };");
+        w.dedent();
+        w.line("}");
+        w.dedent();
+        w.line("}");
+        w.dedent();
+        w.line("}");
         w.dedent();
         w.line("}");
         w.line("");
@@ -506,9 +550,12 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
 
 // --- Shared helpers ---
 
-fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method]) {
+fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method], include_destroyed: bool) {
     w.line(&format!("pub enum {event_type}<'a> {{"));
     w.indent();
+    if include_destroyed {
+        w.line("Destroyed,");
+    }
     for m in methods {
         let variant = snake_to_pascal(&m.name);
         if m.args.is_empty() && m.returns.is_some() {
@@ -578,6 +625,7 @@ fn write_dispatch_fn(
     w.line("unsafe { rc::Rc::from_raw(dispatch.object) },");
     w.dedent();
     w.line("),");
+    w.line("on_destroy: None,");
     w.dedent();
     w.line("};");
 

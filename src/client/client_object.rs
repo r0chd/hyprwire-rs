@@ -72,7 +72,11 @@ impl object::Object for ClientObject {
         self.client.as_ref().and_then(|weak| weak.upgrade())
     }
 
-    fn set_data(&mut self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>) {
+    fn set_data(
+        &mut self,
+        data: *mut raw::c_void,
+        destructor: Option<unsafe fn(*mut raw::c_void)>,
+    ) {
         self.data = Some(data);
         self.data_destructor = destructor;
     }
