@@ -7,7 +7,7 @@ pub mod server;
 pub(crate) mod socket;
 
 use implementation::object;
-use std::{cell, sync, time};
+use std::{cell, ffi, sync, time};
 
 #[macro_export]
 macro_rules! include_protocol {
@@ -24,9 +24,20 @@ pub trait Dispatch<I: Proxy> {
     fn event(&mut self, proxy: &I, event: I::Event<'_>);
 }
 
-pub struct DispatchData<D> {
-    pub state: *mut D,
+pub struct DispatchData {
     pub object: *const cell::RefCell<dyn object::Object>,
+}
+
+thread_local! {
+    static DISPATCH_STATE: cell::Cell<*mut ffi::c_void> = const { cell::Cell::new(std::ptr::null_mut()) };
+}
+
+pub fn set_dispatch_state(state: *mut ffi::c_void) {
+    DISPATCH_STATE.set(state);
+}
+
+pub fn get_dispatch_state() -> *mut ffi::c_void {
+    DISPATCH_STATE.get()
 }
 
 static START: sync::OnceLock<time::Instant> = sync::OnceLock::new();

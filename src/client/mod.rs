@@ -5,7 +5,7 @@ mod server_spec;
 use crate::{implementation, message};
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
-use std::{cell, io, path, rc};
+use std::{cell, ffi, io, path, rc};
 
 pub struct Client(rc::Rc<cell::RefCell<client_socket::ClientSocket>>);
 
@@ -29,12 +29,18 @@ impl Client {
         self.0.borrow_mut().wait_for_handshake()
     }
 
-    pub fn dispatch_events(&mut self, block: bool) -> Result<(), io::Error> {
-        self.0.borrow_mut().dispatch_events(block)
+    pub fn dispatch_events<D>(&mut self, state: &mut D, block: bool) -> Result<(), io::Error> {
+        crate::set_dispatch_state(state as *mut D as *mut ffi::c_void);
+        let result = self.0.borrow_mut().dispatch_events(block);
+        crate::set_dispatch_state(std::ptr::null_mut());
+        result
     }
 
-    pub fn roundtrip(&mut self) -> Result<(), io::Error> {
-        self.0.borrow_mut().roundtrip()
+    pub fn roundtrip<D>(&mut self, state: &mut D) -> Result<(), io::Error> {
+        crate::set_dispatch_state(state as *mut D as *mut ffi::c_void);
+        let result = self.0.borrow_mut().roundtrip();
+        crate::set_dispatch_state(std::ptr::null_mut());
+        result
     }
 
     pub fn extract_loop_fd(&self) -> i32 {

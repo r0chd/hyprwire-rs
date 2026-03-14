@@ -4,6 +4,7 @@ mod test_protocol_v1 {
 
 use hyprwire::client;
 use hyprwire::implementation::client::ProtocolImplementations;
+use hyprwire::implementation::types;
 use hyprwire::implementation::types::ProtocolSpec;
 use std::io::Write;
 use std::os::fd::AsRawFd;
@@ -34,7 +35,6 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyManagerV1Object> for App {
             test_protocol_v1::client::MyManagerV1Event::RecvMessageArrayUint { message } => {
                 println!("Server sent uint array {:?}", message);
             }
-            _ => {}
         }
     }
 }
@@ -45,9 +45,8 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyObjectV1Object> for App {
         _proxy: &test_protocol_v1::client::MyObjectV1Object,
         event: test_protocol_v1::client::MyObjectV1Event,
     ) {
-        if let test_protocol_v1::client::MyObjectV1Event::SendMessage { message } = event {
-            println!("Server says on object {}", message.to_string_lossy());
-        }
+        let test_protocol_v1::client::MyObjectV1Event::SendMessage { message } = event;
+        println!("Server says on object {}", message.to_string_lossy());
     }
 }
 
@@ -75,8 +74,8 @@ fn main() {
     let mut state = App::default();
 
     let obj = socket.bind_protocol(implementation.protocol(), 1).unwrap();
-    let obj = hyprwire::implementation::types::Object::from_raw(obj);
-    let manager = test_protocol_v1::client::MyManagerV1Object::new(obj, &mut state);
+    let obj = types::Object::from_raw(obj);
+    let manager = test_protocol_v1::client::MyManagerV1Object::new::<App>(obj);
 
     println!("Bound!");
 
@@ -89,10 +88,8 @@ fn main() {
     let mut pipes2 = net::UnixStream::pair().unwrap();
     let mut pipes3 = net::UnixStream::pair().unwrap();
 
-    let buf = b"o kurwa";
-    pipes2.1.write_all(buf).unwrap();
-    let buf = b"bober!!";
-    pipes3.1.write_all(buf).unwrap();
+    pipes2.1.write_all(b"o kurwa").unwrap();
+    pipes3.1.write_all(b"bober!!").unwrap();
 
     manager.send_send_message("Hello!");
     manager.send_send_message_fd(pipes.0.as_raw_fd());
@@ -101,13 +98,18 @@ fn main() {
     manager.send_send_message_array(&[]);
     manager.send_send_message_array_uint(&[69, 420, 1337]);
 
-    socket.roundtrip().unwrap();
+    socket.roundtrip(&mut state).unwrap();
 
     let obj = manager.send_make_object().unwrap();
-    let obj = test_protocol_v1::client::MyObjectV1Object::new(obj, &mut state);
+    let obj = test_protocol_v1::client::MyObjectV1Object::new::<App>(obj);
 
     obj.send_send_message("Hello on object");
     obj.send_send_enum(test_protocol_v1::spec::MyEnum::World);
 
-    while socket.dispatch_events(true).is_ok() {}
+    loop {
+        if let Err(e) = socket.dispatch_events(&mut state, true) {
+            log::error!("{e}");
+            break;
+        }
+    }
 }

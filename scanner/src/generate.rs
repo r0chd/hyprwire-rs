@@ -336,7 +336,6 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         w.line(&format!("pub struct {pascal}Object {{"));
         w.indent();
         w.line("object: hyprwire::implementation::types::Object,");
-        w.line("on_destroy: Option<unsafe fn(*mut ffi::c_void)>,");
         w.dedent();
         w.line("}");
         w.line("");
@@ -353,7 +352,7 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         let event_type = format!("{pascal}Event");
 
         // Event enum
-        write_event_enum(w, &event_type, &obj.c2s, true);
+        write_event_enum(w, &event_type, &obj.c2s);
 
         // Proxy impl
         w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
@@ -365,7 +364,7 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
 
         // Dispatch functions
         for (idx, m) in obj.c2s.iter().enumerate() {
-            write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m);
+            write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m, false);
         }
     }
 
@@ -387,7 +386,7 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.line(&format!("pub struct {pascal}Object {{"));
         w.indent();
         w.line("object: hyprwire::implementation::types::Object,");
-        w.line("on_destroy: Option<unsafe fn(*mut ffi::c_void)>,");
+        w.line("on_destroy: Option<Box<dyn FnOnce()>>,");
         w.dedent();
         w.line("}");
         w.line("");
@@ -401,7 +400,7 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
 
         // Event enum (s2c methods)
         if !obj.s2c.is_empty() {
-            write_event_enum(w, &event_type, &obj.s2c, true);
+            write_event_enum(w, &event_type, &obj.s2c);
 
             // Proxy impl
             w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
@@ -413,7 +412,7 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
 
             // Dispatch functions for s2c
             for (idx, m) in obj.s2c.iter().enumerate() {
-                write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m);
+                write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m, true);
             }
         }
 
@@ -425,40 +424,17 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.line("pub fn new<D: hyprwire::Dispatch<Self>>(");
         w.indent();
         w.line("object: hyprwire::implementation::types::Object,");
-        w.line("state: &mut D,");
         w.dedent();
         w.line(") -> Self {");
         w.indent();
-        w.line("unsafe fn drop_dispatch_data<T>(ptr: *mut ffi::c_void) {");
+        w.line("unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {");
         w.indent();
-        w.line("drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData<T>) });");
-        w.dedent();
-        w.line("}");
-        w.line("");
-        w.line(&format!(
-            "unsafe fn fire_destroyed<T: hyprwire::Dispatch<{obj_type}>>(data: *mut ffi::c_void) {{"
-        ));
-        w.indent();
-        w.line("let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<T>) };");
-        w.line("let state = unsafe { &mut *dispatch.state };");
-        w.line("unsafe { rc::Rc::increment_strong_count(dispatch.object) };");
-        w.line(&format!("let proxy = {obj_type} {{"));
-        w.indent();
-        w.line("object: hyprwire::implementation::types::Object::from_raw(");
-        w.indent();
-        w.line("unsafe { rc::Rc::from_raw(dispatch.object) },");
-        w.dedent();
-        w.line("),");
-        w.line("on_destroy: None,");
-        w.dedent();
-        w.line("};");
-        w.line(&format!("state.event(&proxy, {event_type}::Destroyed);"));
+        w.line("drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });");
         w.dedent();
         w.line("}");
         w.line("");
         w.line("let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {");
         w.indent();
-        w.line("state: state as *mut D,");
         w.line("object: rc::Rc::as_ptr(object.inner()),");
         w.dedent();
         w.line("}));");
@@ -466,7 +442,7 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.line("{");
         w.indent();
         w.line("let mut obj = object.inner().borrow_mut();");
-        w.line("obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data::<D>));");
+        w.line("obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));");
         for (idx, _m) in obj.s2c.iter().enumerate() {
             w.line(&format!(
                 "obj.listen({idx}, {}_method{idx}::<D> as *mut ffi::c_void);",
@@ -476,7 +452,15 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.dedent();
         w.line("}");
         w.line("");
-        w.line("Self { object, on_destroy: Some(fire_destroyed::<D>) }");
+        w.line("Self { object, on_destroy: None }");
+        w.dedent();
+        w.line("}");
+
+        // set_on_destroy
+        w.line("");
+        w.line("pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {");
+        w.indent();
+        w.line("self.on_destroy = Some(Box::new(callback));");
         w.dedent();
         w.line("}");
 
@@ -495,14 +479,9 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.indent();
         w.line("fn drop(&mut self) {");
         w.indent();
-        w.line("if let Some(fire) = self.on_destroy {");
+        w.line("if let Some(cb) = self.on_destroy.take() {");
         w.indent();
-        w.line("let data = self.object.inner().borrow().get_data();");
-        w.line("if !data.is_null() {");
-        w.indent();
-        w.line("unsafe { fire(data) };");
-        w.dedent();
-        w.line("}");
+        w.line("cb();");
         w.dedent();
         w.line("}");
         w.dedent();
@@ -550,12 +529,9 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
 
 // --- Shared helpers ---
 
-fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method], include_destroyed: bool) {
+fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method]) {
     w.line(&format!("pub enum {event_type}<'a> {{"));
     w.indent();
-    if include_destroyed {
-        w.line("Destroyed,");
-    }
     for m in methods {
         let variant = snake_to_pascal(&m.name);
         if m.args.is_empty() && m.returns.is_some() {
@@ -583,6 +559,7 @@ fn write_dispatch_fn(
     event_type: &str,
     idx: usize,
     m: &Method,
+    has_on_destroy: bool,
 ) {
     // Function signature
     let fn_name = format!("{obj_name}_method{idx}");
@@ -615,8 +592,8 @@ fn write_dispatch_fn(
     w.indent();
 
     // Body: standard preamble
-    w.line("let dispatch = unsafe { &*(data as *const hyprwire::DispatchData<D>) };");
-    w.line("let state = unsafe { &mut *dispatch.state };");
+    w.line("let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };");
+    w.line("let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };");
     w.line("unsafe { rc::Rc::increment_strong_count(dispatch.object) };");
     w.line(&format!("let proxy = {obj_type} {{"));
     w.indent();
@@ -625,7 +602,9 @@ fn write_dispatch_fn(
     w.line("unsafe { rc::Rc::from_raw(dispatch.object) },");
     w.dedent();
     w.line("),");
-    w.line("on_destroy: None,");
+    if has_on_destroy {
+        w.line("on_destroy: None,");
+    }
     w.dedent();
     w.line("};");
 
