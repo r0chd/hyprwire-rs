@@ -4,6 +4,10 @@ version = "0.0.0"
 edition = "2024"
 description = "A fast and consistent wire protocol for IPC"
 license = "BSD-3-Clause"
+build = "examples/basic/build.rs"
+
+[workspace]
+members = ["scanner"]
 
 [[example]]
 name = "basic-client"
@@ -15,6 +19,13 @@ path = "examples/basic/server.rs"
 
 [dependencies]
 env_logger = { version = "0.11.9", default-features = false }
+hyprwire-scanner = { path = "scanner" }
 libffi = { version = "5.1.0", default-features = false }
 log = "0.4.29"
 nix = { version = "0.31.1", features = ["poll", "socket", "uio"] }
+
+[build-dependencies]
+hyprwire-scanner = { path = "scanner" }
+
+[dev-dependencies]
+insta = "1"

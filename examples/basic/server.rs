@@ -1,4 +1,6 @@
-mod test_protocol_v1;
+mod test_protocol_v1 {
+    include!(concat!(env!("OUT_DIR"), "/test_protocol_v1.rs"));
+}
 
 use hyprwire::server;
 use std::str::FromStr;

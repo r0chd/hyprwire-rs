@@ -4,6 +4,7 @@ pub mod client;
 pub(crate) mod helpers;
 pub mod implementation;
 pub(crate) mod message;
+pub mod scanner;
 pub mod server;
 pub(crate) mod socket;
 
@@ -17,7 +18,7 @@ pub trait Dispatch<I: Proxy> {
 
 pub struct DispatchData<D> {
     pub state: *mut D,
-    pub object: implementation::types::Object,
+    pub object: *const std::cell::RefCell<dyn implementation::object::Object>,
 }
 
 static START: sync::OnceLock<time::Instant> = sync::OnceLock::new();

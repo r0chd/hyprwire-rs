@@ -2,6 +2,7 @@ mod messages;
 
 use crate::client::client_socket;
 use crate::{socket, steady_millis, trace};
+pub(crate) use messages::Message;
 pub(crate) use messages::bind_protocol::BindProtocol;
 pub(crate) use messages::fatal_protocol_error::FatalProtocolError;
 pub(crate) use messages::generic_protocol_message::GenericProtocolMessage;
@@ -12,7 +13,6 @@ pub(crate) use messages::hello::Hello;
 pub(crate) use messages::new_object::NewObject;
 pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
-pub(crate) use messages::Message;
 use std::fmt;
 use std::os::fd::AsRawFd;
 

@@ -15,7 +15,7 @@ pub trait Object {
 
     // fn server_sock(&self) -> Option<>,
 
-    fn set_data(&mut self, data: *mut raw::c_void);
+    fn set_data(&mut self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>);
 
     fn get_data(&self) -> *mut raw::c_void;
 

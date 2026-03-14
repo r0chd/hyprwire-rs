@@ -1,6 +1,6 @@
 use crate::client::client_socket;
 use crate::implementation::{object, types, wire_object};
-use crate::message;
+use crate::{message, trace};
 use std::os::raw;
 use std::{cell, rc};
 
@@ -10,11 +10,23 @@ pub struct ClientObject {
     // Only accessed while the parent ClientSocket is alive.
     pub(crate) spec: Option<*const dyn types::ProtocolObjectSpec>,
     data: Option<*mut raw::c_void>,
+    data_destructor: Option<unsafe fn(*mut raw::c_void)>,
     listeners: Vec<*mut raw::c_void>,
     pub(crate) id: u32,
     pub(crate) version: u32,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
+}
+
+impl Drop for ClientObject {
+    fn drop(&mut self) {
+        trace! {log::debug!("destroying object {}", self.id)}
+        if let Some(destructor) = self.data_destructor {
+            if let Some(data) = self.data {
+                unsafe { destructor(data) };
+            }
+        }
+    }
 }
 
 impl ClientObject {
@@ -23,6 +35,7 @@ impl ClientObject {
             client: Some(client_socket),
             spec: None,
             data: None,
+            data_destructor: None,
             listeners: Vec::new(),
             id: 0,
             version: 0,
@@ -37,7 +50,11 @@ impl object::Object for ClientObject {
         match wire_object::WireObject::call(self, id, args) {
             Ok(v) => v,
             Err(e) => {
-                log::error!("object {} (protocol {}) call error: {e}", self.id, self.protocol_name);
+                log::error!(
+                    "object {} (protocol {}) call error: {e}",
+                    self.id,
+                    self.protocol_name
+                );
                 0
             }
         }
@@ -55,8 +72,9 @@ impl object::Object for ClientObject {
         self.client.as_ref().and_then(|weak| weak.upgrade())
     }
 
-    fn set_data(&mut self, data: *mut raw::c_void) {
+    fn set_data(&mut self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>) {
         self.data = Some(data);
+        self.data_destructor = destructor;
     }
 
     fn get_data(&self) -> *mut raw::c_void {

@@ -1,0 +1,7 @@
+[package]
+name = "hyprwire-scanner"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+quick-xml = "0.37"

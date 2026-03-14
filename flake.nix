@@ -9,6 +9,7 @@
           pkgs.lib.fix (finalAttrs: {
             buildInputs = builtins.attrValues {
               inherit (pkgs)
+                cargo-insta
                 rustToolchain
                 rust-analyzer-unwrapped
                 nixd
