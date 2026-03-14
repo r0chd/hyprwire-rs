@@ -1,3 +1,4 @@
+use nix::{libc, poll};
 use std::os::unix::net;
 use std::{cell, fs, io, path, rc};
 
@@ -12,7 +13,8 @@ pub struct ServerSocket {
     exit_fd: net::UnixStream,
     exit_write_fd: net::UnixStream,
     is_empty_listener: bool,
-    impls: Vec<Box<dyn implementation::server::ProtocolImplementations>>,
+    pub(crate) impls: Vec<Box<dyn implementation::server::ProtocolImplementations>>,
+    pollfds: Vec<poll::PollFd<'static>>,
     _self: rc::Weak<cell::RefCell<Self>>,
 }
 
@@ -48,6 +50,7 @@ impl ServerSocket {
                         exit_write_fd: exit_pipes.1,
                         is_empty_listener: false,
                         impls: Vec::new(),
+                        pollfds: Vec::new(),
                         _self: weak_self.clone(),
                     })
                 }))
@@ -63,6 +66,7 @@ impl ServerSocket {
                     exit_write_fd: exit_pipes.1,
                     is_empty_listener: true,
                     impls: Vec::new(),
+                    pollfds: Vec::new(),
                     _self: weak_self.clone(),
                 })
             })),
@@ -74,5 +78,27 @@ impl ServerSocket {
         implementation: Box<dyn implementation::server::ProtocolImplementations>,
     ) {
         self.impls.push(implementation);
+    }
+
+    pub fn dispatch_pending(&mut self) {
+        poll::poll(&mut self.pollfds, poll::PollTimeout::NONE);
+    }
+
+    pub fn dispatch_new_connections(&self) -> bool {
+        if self.is_empty_listener {
+            return false;
+        }
+
+        let revents = match self.pollfds[0].revents() {
+            Some(r) => r,
+            None => return false,
+        };
+
+        if !revents.contains(poll::PollFlags::POLLIN) {
+            return false;
+        }
+
+        // TODO: accept new connections
+        true
     }
 }
