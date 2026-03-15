@@ -135,7 +135,7 @@ impl ServerSocket {
 
         let mut data = {
             let stream = state.stream.lock().unwrap();
-            match socket::SocketRawParsedMessage::read_from_socket(&*stream) {
+            match socket::SocketRawParsedMessage::read_from_socket(&stream) {
                 Ok(d) => d,
                 Err(_) => {
                     state.send_message(&message::FatalProtocolError::new(
@@ -153,7 +153,7 @@ impl ServerSocket {
             return;
         }
 
-        if message::handle_message(&mut data, message::Role::Server(&mut client.borrow_mut()))
+        if message::handle_message(&mut data, message::Role::Server(&client.borrow()))
             .is_err()
         {
             state.send_message(&message::FatalProtocolError::new(
@@ -165,10 +165,10 @@ impl ServerSocket {
             return;
         }
 
-        let scheduled_seq = client.borrow().scheduled_roundtrip_seq;
+        let scheduled_seq = client.borrow().scheduled_roundtrip_seq.get();
         if scheduled_seq > 0 {
             state.send_message(&message::RoundtripDone::new(scheduled_seq));
-            client.borrow_mut().scheduled_roundtrip_seq = 0;
+            client.borrow().scheduled_roundtrip_seq.set(0);
         }
     }
 

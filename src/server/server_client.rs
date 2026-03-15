@@ -7,13 +7,13 @@ use std::ops;
 use std::{cell, rc, sync};
 
 pub(crate) struct ServerClient {
-    pub(crate) pid: i32,
-    pub(crate) first_poll_done: bool,
-    pub(crate) version: u32,
-    pub(crate) max_id: u32,
+    pub(crate) pid: cell::Cell<i32>,
+    pub(crate) first_poll_done: cell::Cell<bool>,
+    pub(crate) version: cell::Cell<u32>,
+    pub(crate) max_id: cell::Cell<u32>,
     pub(crate) state: sync::Arc<SharedState>,
-    pub(crate) scheduled_roundtrip_seq: u32,
-    pub(crate) objects: Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>>,
+    pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
+    pub(crate) objects: cell::RefCell<Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>>>,
     server: sync::Weak<sync::RwLock<server_socket::ServerSocket>>,
 }
 
@@ -23,37 +23,37 @@ impl ServerClient {
         server: sync::Weak<sync::RwLock<server_socket::ServerSocket>>,
     ) -> Self {
         Self {
-            pid: 0,
-            first_poll_done: false,
-            version: 0,
-            max_id: 1,
+            pid: cell::Cell::new(0),
+            first_poll_done: cell::Cell::new(false),
+            version: cell::Cell::new(0),
+            max_id: cell::Cell::new(1),
             state,
-            scheduled_roundtrip_seq: 0,
-            objects: Vec::new(),
+            scheduled_roundtrip_seq: cell::Cell::new(0),
+            objects: cell::RefCell::new(Vec::new()),
             server,
         }
     }
 
     pub fn get_pid(&self) -> i32 {
-        self.pid
+        self.pid.get()
     }
 
-    pub fn dispatch_first_poll(&mut self) {
-        if self.first_poll_done {
+    pub fn dispatch_first_poll(&self) {
+        if self.first_poll_done.get() {
             return;
         }
-        self.first_poll_done = true;
+        self.first_poll_done.set(true);
 
         let stream = self.state.stream.lock().unwrap();
         match sys::socket::getsockopt(&*stream, sys::socket::sockopt::PeerCredentials) {
             Ok(cred) => {
-                self.pid = cred.pid();
+                self.pid.set(cred.pid());
                 trace! {
                     log::debug!(
                         "[{} @ {:.3}] peer pid: {}",
                         self.state.fd,
                         steady_millis(),
-                        self.pid
+                        self.pid.get()
                     )
                 }
             }
@@ -86,15 +86,16 @@ impl ServerClient {
     }
 
     pub fn create_object(
-        &mut self,
+        &self,
         protocol: &str,
         object_name: &str,
         version: u32,
         seq: u32,
     ) -> rc::Rc<cell::RefCell<server_object::ServerObject>> {
         let mut server_obj = server_object::ServerObject::new(sync::Arc::clone(&self.state));
-        server_obj.id = self.max_id;
-        self.max_id += 1;
+        let id = self.max_id.get();
+        server_obj.id = id;
+        self.max_id.set(id + 1);
         server_obj.version = version;
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();
@@ -112,7 +113,7 @@ impl ServerClient {
         }
 
         let obj = rc::Rc::new(cell::RefCell::new(server_obj));
-        self.objects.push(rc::Rc::clone(&obj));
+        self.objects.borrow_mut().push(rc::Rc::clone(&obj));
 
         let new_obj_msg = message::NewObject::new(seq, obj.borrow().id);
         self.state.send_message(&new_obj_msg);
@@ -149,12 +150,9 @@ impl ServerClient {
         }
     }
 
-    pub fn on_generic(&mut self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
-        if let Some(obj) = self
-            .objects
-            .iter()
-            .find(|obj| obj.borrow().id == msg.object())
-        {
+    pub fn on_generic(&self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
+        let objects = self.objects.borrow();
+        if let Some(obj) = objects.iter().find(|obj| obj.borrow().id == msg.object()) {
             if let Err(e) = obj
                 .borrow_mut()
                 .called(msg.method(), msg.data_span(), msg.fds())

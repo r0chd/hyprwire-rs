@@ -14,12 +14,12 @@ use std::{cell, io, ops, path, rc, sync, time};
 
 pub struct ClientSocket {
     impls: Vec<Box<dyn implementation::client::ProtocolImplementations>>,
-    server_specs: Vec<server_spec::ServerSpec>,
-    objects: Vec<rc::Rc<cell::RefCell<client_object::ClientObject>>>,
+    server_specs: cell::RefCell<Vec<server_spec::ServerSpec>>,
+    objects: cell::RefCell<Vec<rc::Rc<cell::RefCell<client_object::ClientObject>>>>,
     handshake_begin: time::Instant,
     pub(crate) state: sync::Arc<SharedState>,
-    pub(crate) handshake_done: bool,
-    pub(crate) last_ackd_roundtrip_seq: u32,
+    pub(crate) handshake_done: cell::Cell<bool>,
+    pub(crate) last_ackd_roundtrip_seq: cell::Cell<u32>,
     last_sent_roundtrip_seq: u32,
     pub(crate) seq: u32,
     pub(crate) pending_outgoing: Vec<message::GenericProtocolMessage<ops::Range<usize>>>,
@@ -33,14 +33,14 @@ impl ClientSocket {
         let state = sync::Arc::new(SharedState::new(stream));
         let client_socket = rc::Rc::new_cyclic(|weak_self| {
             cell::RefCell::new(Self {
-                last_ackd_roundtrip_seq: 0,
+                last_ackd_roundtrip_seq: cell::Cell::new(0),
                 last_sent_roundtrip_seq: 0,
                 seq: 0,
                 impls: Vec::new(),
-                server_specs: Vec::new(),
+                server_specs: cell::RefCell::new(Vec::new()),
                 state: sync::Arc::clone(&state),
-                objects: Vec::new(),
-                handshake_done: false,
+                objects: cell::RefCell::new(Vec::new()),
+                handshake_done: cell::Cell::new(false),
                 handshake_begin: time::Instant::now(),
                 pending_outgoing: Vec::new(),
                 _self: weak_self.clone(),
@@ -71,7 +71,7 @@ impl ClientSocket {
     pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
         self.handshake_begin = time::Instant::now();
 
-        while !self.state.error.load(atomic::Ordering::Relaxed) && !self.handshake_done {
+        while !self.state.error.load(atomic::Ordering::Relaxed) && !self.handshake_done.get() {
             self.dispatch_events(true)?;
         }
 
@@ -85,10 +85,12 @@ impl ClientSocket {
         Ok(())
     }
 
-    pub fn get_spec(&self, name: &str) -> Option<&server_spec::ServerSpec> {
+    pub fn get_spec(&self, name: &str) -> Option<server_spec::ServerSpec> {
         self.server_specs
+            .borrow()
             .iter()
             .find(|spec| spec.spec_name() == name)
+            .cloned()
     }
 
     pub fn bind_protocol(
@@ -122,7 +124,7 @@ impl ClientSocket {
         object.protocol_name = spec.spec_name().to_string();
 
         let object = rc::Rc::new(cell::RefCell::new(object));
-        self.objects.push(rc::Rc::clone(&object));
+        self.objects.borrow_mut().push(rc::Rc::clone(&object));
 
         let bind_message = message::BindProtocol::new(spec.spec_name(), self.seq, version);
         self.state.send_message(&bind_message);
@@ -151,7 +153,7 @@ impl ClientSocket {
     }
 
     pub fn make_object(
-        &mut self,
+        &self,
         protocol_name: &str,
         object_name: &str,
         seq: u32,
@@ -182,7 +184,7 @@ impl ClientSocket {
         object.set_version(0); // TODO: client version doesn't matter that much, but for verification's sake we could fix this
 
         let object = rc::Rc::new(cell::RefCell::new(object));
-        self.objects.push(rc::Rc::clone(&object));
+        self.objects.borrow_mut().push(rc::Rc::clone(&object));
         Ok(object)
     }
 
@@ -190,7 +192,8 @@ impl ClientSocket {
         self.state.fd
     }
 
-    pub fn server_specs(&mut self, specs: &[rc::Rc<str>]) {
+    pub fn server_specs(&self, specs: &[rc::Rc<str>]) {
+        let mut server_specs = self.server_specs.borrow_mut();
         for spec in specs.iter() {
             let at_pos = spec.rfind('@').unwrap();
 
@@ -198,7 +201,7 @@ impl ClientSocket {
                 spec[0..at_pos].to_string(),
                 spec[at_pos + 1..].parse().unwrap(),
             );
-            self.server_specs.push(s);
+            server_specs.push(s);
         }
     }
 
@@ -225,7 +228,7 @@ impl ClientSocket {
         self.state
             .send_message(&message::RoundtripRequest::new(next_seq));
 
-        while self.last_ackd_roundtrip_seq < next_seq {
+        while self.last_ackd_roundtrip_seq.get() < next_seq {
             self.dispatch_events(true)?;
         }
 
@@ -242,7 +245,7 @@ impl ClientSocket {
 
         let borrowed_fd = unsafe { BorrowedFd::borrow_raw(self.state.fd) };
 
-        if !self.handshake_done {
+        if !self.handshake_done.get() {
             let elapsed_ms = self.handshake_begin.elapsed().as_millis() as u64;
             let max_ms = HANDSHAKE_MAX_MS.saturating_sub(elapsed_ms);
 
@@ -289,7 +292,7 @@ impl ClientSocket {
             }
         }
 
-        if self.handshake_done {
+        if self.handshake_done.get() {
             let timeout = if block {
                 poll::PollTimeout::NONE
             } else {
@@ -404,22 +407,16 @@ impl ClientSocket {
         Ok(())
     }
 
-    pub fn on_seq(&mut self, seq: u32, id: u32) {
-        if let Some(object) = self
-            .objects
-            .iter()
-            .find(|object| object.borrow().seq == seq)
-        {
+    pub fn on_seq(&self, seq: u32, id: u32) {
+        let objects = self.objects.borrow();
+        if let Some(object) = objects.iter().find(|object| object.borrow().seq == seq) {
             object.borrow_mut().id = id;
         }
     }
 
-    pub fn on_generic(&mut self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
-        if let Some(obj) = self
-            .objects
-            .iter()
-            .find(|obj| obj.borrow().id == msg.object())
-        {
+    pub fn on_generic(&self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
+        let objects = self.objects.borrow();
+        if let Some(obj) = objects.iter().find(|obj| obj.borrow().id == msg.object()) {
             if let Err(e) = obj
                 .borrow_mut()
                 .called(msg.method(), msg.data_span(), msg.fds())
@@ -447,6 +444,7 @@ impl ClientSocket {
         id: u32,
     ) -> Option<rc::Rc<cell::RefCell<client_object::ClientObject>>> {
         self.objects
+            .borrow()
             .iter()
             .find(|object| object.borrow().id == id)
             .map(rc::Rc::clone)
@@ -457,6 +455,7 @@ impl ClientSocket {
         seq: u32,
     ) -> Option<rc::Rc<cell::RefCell<client_object::ClientObject>>> {
         self.objects
+            .borrow()
             .iter()
             .find(|object| object.borrow().seq == seq)
             .map(rc::Rc::clone)

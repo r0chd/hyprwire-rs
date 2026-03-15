@@ -70,7 +70,7 @@ impl Client {
     }
 
     pub fn get_spec(&self, name: &str) -> Option<server_spec::ServerSpec> {
-        self.0.borrow().get_spec(name).cloned()
+        self.0.borrow().get_spec(name)
     }
 
     pub fn disconnect_on_error(&self) {

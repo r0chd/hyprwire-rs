@@ -120,8 +120,8 @@ impl TryFrom<u8> for MessageType {
 }
 
 pub enum Role<'a> {
-    Client(&'a mut client_socket::ClientSocket),
-    Server(&'a mut server_client::ServerClient),
+    Client(&'a client_socket::ClientSocket),
+    Server(&'a server_client::ServerClient),
 }
 
 pub fn handle_message(
@@ -167,16 +167,13 @@ pub fn handle_message(
 fn parse_single_message_client(
     raw: &mut socket::SocketRawParsedMessage,
     off: usize,
-    client: &mut client_socket::ClientSocket,
+    client: &client_socket::ClientSocket,
 ) -> Result<usize, MessageError> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {
             MessageType::HandshakeBegin => {
                 let msg = HandshakeBegin::from_bytes(&raw.data, off).inspect_err(|_| {
-                    log::error!(
-                        "server at fd {:?} core protocol error...",
-                        client.state.fd
-                    );
+                    log::error!("server at fd {:?} core protocol error...", client.state.fd);
                 })?;
 
                 // TODO: make it globally accessible ig
@@ -200,7 +197,9 @@ fn parse_single_message_client(
                     log::debug!("[{} @ {:.3}] -> parse error: {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
-                client.state.send_message(&HandshakeAck::new(protocol_version));
+                client
+                    .state
+                    .send_message(&HandshakeAck::new(protocol_version));
 
                 return Ok(msg.data().len());
             }
@@ -217,7 +216,7 @@ fn parse_single_message_client(
                 }
 
                 client.server_specs(msg.protocols());
-                client.handshake_done = true;
+                client.handshake_done.set(true);
 
                 return Ok(msg.data().len());
             }
@@ -286,7 +285,7 @@ fn parse_single_message_client(
                     log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
-                client.last_ackd_roundtrip_seq = msg.seq();
+                client.last_ackd_roundtrip_seq.set(msg.seq());
 
                 return Ok(msg.data().len());
             }
@@ -316,7 +315,7 @@ fn parse_single_message_client(
 fn parse_single_message_server(
     raw: &mut socket::SocketRawParsedMessage,
     off: usize,
-    client: &mut server_client::ServerClient,
+    client: &server_client::ServerClient,
 ) -> Result<usize, MessageError> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {
@@ -357,11 +356,13 @@ fn parse_single_message_server(
                     log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
-                client.version = msg.version();
+                client.version.set(msg.version());
 
                 let protocol_names = client.protocol_names();
                 let protocol_refs: Vec<&str> = protocol_names.iter().map(|s| s.as_str()).collect();
-                client.state.send_message(&HandshakeProtocols::new(&protocol_refs));
+                client
+                    .state
+                    .send_message(&HandshakeProtocols::new(&protocol_refs));
 
                 return Ok(msg.data().len());
             }
@@ -434,7 +435,7 @@ fn parse_single_message_server(
                     log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
-                client.scheduled_roundtrip_seq = msg.seq();
+                client.scheduled_roundtrip_seq.set(msg.seq());
 
                 return Ok(msg.data().len());
             }
