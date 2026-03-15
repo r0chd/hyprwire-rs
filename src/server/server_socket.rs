@@ -142,7 +142,7 @@ impl ServerSocket {
                             u32::MAX,
                             "fatal: invalid message on wire",
                         ));
-                    client.borrow_mut().error = true;
+                    client.borrow_mut().state.error.store(true, sync::atomic::Ordering::Relaxed);
                     return;
                 }
             };
@@ -161,7 +161,7 @@ impl ServerSocket {
                     u32::MAX,
                     "fatal: failed to handle message on wire",
                 ));
-            client.borrow_mut().error = true;
+            client.borrow_mut().state.error.store(true, sync::atomic::Ordering::Relaxed);
             return;
         }
 
@@ -196,7 +196,7 @@ impl ServerSocket {
             had_any = true;
 
             if revents.contains(poll::PollFlags::POLLHUP) {
-                self.clients[client_idx].borrow_mut().error = true;
+                self.clients[client_idx].borrow_mut().state.error.store(true, sync::atomic::Ordering::Relaxed);
                 needs_poll_recheck = true;
                 trace! {
                     log::debug!(
@@ -208,7 +208,7 @@ impl ServerSocket {
                 continue;
             }
 
-            if self.clients[client_idx].borrow().error {
+            if self.clients[client_idx].borrow().state.error.load(sync::atomic::Ordering::Relaxed) {
                 trace! {
                     log::debug!(
                         "[{} @ {:.3}] Dropping client (protocol error)",
@@ -220,7 +220,7 @@ impl ServerSocket {
         }
 
         if needs_poll_recheck {
-            self.clients.retain(|c| !c.borrow().error);
+            self.clients.retain(|c| !c.borrow().state.error.load(sync::atomic::Ordering::Relaxed));
             self.recheck_pollfds();
         }
 
@@ -258,7 +258,6 @@ impl ServerSocket {
             }
         };
 
-        let server_ptr: *const Self = self;
         let client = rc::Rc::new_cyclic(|weak_client| {
             cell::RefCell::new(server_client::ServerClient::new(
                 stream,

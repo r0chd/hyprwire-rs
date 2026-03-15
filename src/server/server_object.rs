@@ -1,12 +1,13 @@
 use super::server_client;
 use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
-use crate::{message, trace};
+use crate::{message, trace, SharedState};
 use std::os::raw;
 use std::{cell, rc, sync};
 
 pub(crate) struct ServerObject {
     client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
+    pub(crate) state: sync::Arc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
@@ -29,9 +30,13 @@ impl Drop for ServerObject {
 }
 
 impl ServerObject {
-    pub fn new(server_client: rc::Weak<cell::RefCell<server_client::ServerClient>>) -> Self {
+    pub fn new(
+        server_client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
+        state: sync::Arc<SharedState>,
+    ) -> Self {
         Self {
             client: server_client,
+            state,
             spec: None,
             data: None,
             data_destructor: None,
@@ -128,13 +133,11 @@ impl wire_object::WireObject for ServerObject {
             .unwrap_or_default()
     }
 
-    fn errd(&mut self) {
-        if let Some(client) = self.client.upgrade() {
-            client.borrow_mut().error = true;
-        }
+    fn errd(&self) {
+        self.state.error.store(true, sync::atomic::Ordering::Relaxed);
     }
 
-    fn send_message(&mut self, msg: &dyn message::Message) {
+    fn send_message(&self, msg: &dyn message::Message) {
         if let Some(client) = self.client.upgrade() {
             client.borrow().send_message(msg);
         }

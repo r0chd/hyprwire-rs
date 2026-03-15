@@ -16,9 +16,9 @@ pub trait WireObject: object::Object {
 
     fn methods_in(&self) -> &[types::Method];
 
-    fn errd(&mut self);
+    fn errd(&self);
 
-    fn send_message(&mut self, msg: &dyn message::Message);
+    fn send_message(&self, msg: &dyn message::Message);
 
     fn protocol_name(&self) -> &str;
 

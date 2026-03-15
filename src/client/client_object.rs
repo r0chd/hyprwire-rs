@@ -1,12 +1,13 @@
 use crate::client::client_socket;
 use crate::implementation::{object, types, wire_object};
-use crate::{client, message, trace};
+use crate::{client, message, trace, SharedState};
 use std::os::raw;
-use std::{cell, rc, sync::Arc};
+use std::{cell, rc, sync};
 
 pub struct ClientObject {
     client: rc::Weak<cell::RefCell<client_socket::ClientSocket>>,
-    pub(crate) spec: Option<Arc<dyn types::ProtocolObjectSpec>>,
+    pub(crate) state: sync::Arc<SharedState>,
+    pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
     listeners: Vec<*mut raw::c_void>,
@@ -28,9 +29,13 @@ impl Drop for ClientObject {
 }
 
 impl ClientObject {
-    pub fn new(client_socket: rc::Weak<cell::RefCell<client_socket::ClientSocket>>) -> Self {
+    pub fn new(
+        client_socket: rc::Weak<cell::RefCell<client_socket::ClientSocket>>,
+        state: sync::Arc<SharedState>,
+    ) -> Self {
         Self {
             client: client_socket,
+            state,
             spec: None,
             data: None,
             data_destructor: None,
@@ -128,15 +133,13 @@ impl wire_object::WireObject for ClientObject {
             .unwrap_or_default()
     }
 
-    fn errd(&mut self) {
-        if let Some(client) = self.client.upgrade() {
-            client.borrow_mut().error = true;
-        }
+    fn errd(&self) {
+        self.state.error.store(true, sync::atomic::Ordering::Relaxed);
     }
 
-    fn send_message(&mut self, msg: &dyn message::Message) {
+    fn send_message(&self, msg: &dyn message::Message) {
         if let Some(client) = self.client.upgrade() {
-            client.borrow_mut().send_message(msg);
+            client.borrow().send_message(msg);
         }
     }
 

@@ -10,7 +10,7 @@ pub mod roundtrip_done;
 pub mod roundtrip_request;
 
 use super::{MessageError, MessageType};
-use crate::implementation::types::MessageMagic;
+use crate::implementation::types;
 use crate::message;
 use std::{mem, result};
 
@@ -35,12 +35,12 @@ pub trait Message {
         let mut needle: usize = 1;
         while needle < data.len() {
             // SAFETY: Message was already validated
-            let magic: MessageMagic = unsafe { mem::transmute(data[needle]) };
+            let magic: types::MessageMagic = unsafe { mem::transmute(data[needle]) };
             needle += 1;
 
             match magic {
-                MessageMagic::End => {}
-                MessageMagic::TypeSeq => {
+                types::MessageMagic::End => {}
+                types::MessageMagic::TypeSeq => {
                     if !first {
                         result.push_str(", ");
                     }
@@ -50,7 +50,7 @@ pub trait Message {
                     result.push_str(&format!("seq: {value}"));
                     needle += 4;
                 }
-                MessageMagic::TypeUint => {
+                types::MessageMagic::TypeUint => {
                     if !first {
                         result.push_str(", ");
                     }
@@ -60,7 +60,7 @@ pub trait Message {
                     result.push_str(&format!("{value}"));
                     needle += 4;
                 }
-                MessageMagic::TypeInt => {
+                types::MessageMagic::TypeInt => {
                     if !first {
                         result.push_str(", ");
                     }
@@ -70,7 +70,7 @@ pub trait Message {
                     result.push_str(&format!("{value}"));
                     needle += 4;
                 }
-                MessageMagic::TypeF32 => {
+                types::MessageMagic::TypeF32 => {
                     if !first {
                         result.push_str(", ");
                     }
@@ -80,7 +80,7 @@ pub trait Message {
                     result.push_str(&format!("{value}"));
                     needle += 4;
                 }
-                MessageMagic::TypeVarchar => {
+                types::MessageMagic::TypeVarchar => {
                     if !first {
                         result.push_str(", ");
                     }
@@ -95,13 +95,13 @@ pub trait Message {
                     }
                     needle += int_len + len;
                 }
-                MessageMagic::TypeArray => {
+                types::MessageMagic::TypeArray => {
                     if !first {
                         result.push_str(", ");
                     }
                     first = false;
                     let type_byte = data[needle];
-                    let this_type = MessageMagic::try_from(type_byte).unwrap();
+                    let this_type = types::MessageMagic::try_from(type_byte).unwrap();
                     needle += 1;
 
                     let (els, int_len) = message::parse_var_int(data, needle);
@@ -120,7 +120,7 @@ pub trait Message {
 
                     result.push_str(" }");
                 }
-                MessageMagic::TypeObject => {
+                types::MessageMagic::TypeObject => {
                     if !first {
                         result.push_str(", ");
                     }
@@ -130,7 +130,7 @@ pub trait Message {
                     result.push_str(&format!("object({id})"));
                     needle += 4;
                 }
-                MessageMagic::TypeFd => {
+                types::MessageMagic::TypeFd => {
                     if !first {
                         result.push_str(", ");
                     }
@@ -146,9 +146,9 @@ pub trait Message {
     }
 }
 
-fn format_primitive_type(s: &[u8], r#type: MessageMagic) -> Result<(String, usize)> {
+fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(String, usize)> {
     match r#type {
-        MessageMagic::TypeUint => {
+        types::MessageMagic::TypeUint => {
             let bytes: [u8; 4] = s
                 .get(0..4)
                 .ok_or(MessageError::UnexpectedEof)?
@@ -157,7 +157,7 @@ fn format_primitive_type(s: &[u8], r#type: MessageMagic) -> Result<(String, usiz
             let value = u32::from_le_bytes(bytes);
             Ok((value.to_string(), 4))
         }
-        MessageMagic::TypeInt => {
+        types::MessageMagic::TypeInt => {
             let bytes: [u8; 4] = s
                 .get(0..4)
                 .ok_or(MessageError::UnexpectedEof)?
@@ -166,7 +166,7 @@ fn format_primitive_type(s: &[u8], r#type: MessageMagic) -> Result<(String, usiz
             let value = i32::from_le_bytes(bytes);
             Ok((value.to_string(), 4))
         }
-        MessageMagic::TypeF32 => {
+        types::MessageMagic::TypeF32 => {
             let bytes: [u8; 4] = s
                 .get(0..4)
                 .ok_or(MessageError::UnexpectedEof)?
@@ -175,8 +175,8 @@ fn format_primitive_type(s: &[u8], r#type: MessageMagic) -> Result<(String, usiz
             let value = f32::from_le_bytes(bytes);
             Ok((value.to_string(), 4))
         }
-        MessageMagic::TypeFd => Ok(("<fd>".to_string(), 0)),
-        MessageMagic::TypeObject => {
+        types::MessageMagic::TypeFd => Ok(("<fd>".to_string(), 0)),
+        types::MessageMagic::TypeObject => {
             let bytes: [u8; 4] = s
                 .get(0..4)
                 .ok_or(MessageError::UnexpectedEof)?
@@ -190,7 +190,7 @@ fn format_primitive_type(s: &[u8], r#type: MessageMagic) -> Result<(String, usiz
             };
             Ok((format!("object: {obj_str}"), 4))
         }
-        MessageMagic::TypeVarchar => {
+        types::MessageMagic::TypeVarchar => {
             let (len, int_len) = crate::message::parse_var_int(s, 0);
             let str_data = s
                 .get(int_len..int_len + len)
@@ -206,7 +206,7 @@ fn format_primitive_type(s: &[u8], r#type: MessageMagic) -> Result<(String, usiz
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::implementation::types::MessageMagic;
+    use crate::implementation::types;
 
     struct TestMessage<'a> {
         data: &'a [u8],
@@ -226,22 +226,22 @@ mod tests {
     fn parse_data_integer_types() {
         let bytes: &[u8] = &[
             MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeSeq as u8,
+            types::MessageMagic::TypeSeq as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeInt as u8,
+            types::MessageMagic::TypeInt as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeF32 as u8,
+            types::MessageMagic::TypeF32 as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let msg = TestMessage {
             data: bytes,
@@ -259,9 +259,9 @@ mod tests {
     fn parse_data_varchar_empty() {
         let bytes: &[u8] = &[
             MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeVarchar as u8,
+            types::MessageMagic::TypeVarchar as u8,
             0x00,
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let msg = TestMessage {
             data: bytes,

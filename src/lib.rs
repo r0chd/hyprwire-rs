@@ -7,7 +7,20 @@ pub mod server;
 pub(crate) mod socket;
 
 use implementation::object;
+use std::sync::atomic;
 use std::{cell, ffi, sync, time};
+
+pub struct SharedState {
+    pub error: atomic::AtomicBool,
+}
+
+impl SharedState {
+    pub fn new() -> Self {
+        Self {
+            error: atomic::AtomicBool::new(false),
+        }
+    }
+}
 
 #[macro_export]
 macro_rules! include_protocol {

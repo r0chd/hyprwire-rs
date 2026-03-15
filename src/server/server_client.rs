@@ -1,7 +1,7 @@
 use super::{server_object, server_socket};
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
-use crate::{message, steady_millis, trace};
+use crate::{message, steady_millis, trace, SharedState};
 use nix::{errno, poll, sys};
 use std::ops;
 use std::os::fd::{AsFd, AsRawFd};
@@ -14,7 +14,7 @@ pub(crate) struct ServerClient {
     pub(crate) first_poll_done: bool,
     pub(crate) version: u32,
     pub(crate) max_id: u32,
-    pub(crate) error: bool,
+    pub(crate) state: sync::Arc<SharedState>,
     pub(crate) scheduled_roundtrip_seq: u32,
     pub(crate) objects: Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>>,
     server: sync::Weak<sync::RwLock<server_socket::ServerSocket>>,
@@ -33,7 +33,7 @@ impl ServerClient {
             first_poll_done: false,
             version: 0,
             max_id: 1,
-            error: false,
+            state: sync::Arc::new(SharedState::new()),
             scheduled_roundtrip_seq: 0,
             objects: Vec::new(),
             server,
@@ -98,7 +98,8 @@ impl ServerClient {
         version: u32,
         seq: u32,
     ) -> rc::Rc<cell::RefCell<server_object::ServerObject>> {
-        let mut server_obj = server_object::ServerObject::new(self._self.clone());
+        let mut server_obj =
+            server_object::ServerObject::new(self._self.clone(), sync::Arc::clone(&self.state));
         server_obj.id = self.max_id;
         self.max_id += 1;
         server_obj.version = version;
