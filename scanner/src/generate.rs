@@ -1,6 +1,8 @@
 use super::parse::{ArgType, Method, Protocol};
 use std::fmt::Write;
 
+const SCANNER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn snake_to_pascal(s: &str) -> String {
     s.split('_')
         .map(|part| {
@@ -49,6 +51,47 @@ impl W {
     fn dedent(&mut self) {
         self.indent -= 1;
     }
+}
+
+fn write_header(w: &mut W, protocol: &Protocol) {
+    w.line(&format!(
+        "// Generated with hyprwire-scanner {}. Made with pure malice and hatred by r0chd.",
+        SCANNER_VERSION
+    ));
+    w.line(&format!("// {}", protocol.name));
+    w.line("");
+
+    if let Some(copyright) = protocol.copyright.as_deref() {
+        write_copyright(w, copyright);
+        w.line("");
+    }
+
+}
+
+fn write_copyright(w: &mut W, raw: &str) {
+    w.line("/*");
+    w.line(" This protocol's authors' copyright notice is:");
+    w.line("");
+
+    let mut lines: Vec<&str> = raw.lines().collect();
+    while matches!(lines.first(), Some(l) if l.trim().is_empty()) {
+        lines.remove(0);
+    }
+    while matches!(lines.last(), Some(l) if l.trim().is_empty()) {
+        lines.pop();
+    }
+
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            w.line("");
+        } else {
+            w.line(&format!("    {trimmed}"));
+        }
+    }
+
+    w.line("");
+    w.line("*/");
 }
 
 fn magic_for_arg(arg_type: &ArgType) -> Vec<&'static str> {
@@ -152,6 +195,7 @@ fn call_arg_expr(name: &str, arg_type: &ArgType) -> String {
 // --- Spec module ---
 
 fn generate_spec(w: &mut W, protocol: &Protocol) {
+    w.line("#[allow(dead_code)]");
     w.line("pub mod spec {");
     w.indent();
 
@@ -327,9 +371,10 @@ fn write_method_spec(w: &mut W, idx: usize, m: &Method) {
 // --- Server module ---
 
 fn generate_server(w: &mut W, protocol: &Protocol) {
+    w.line("#[allow(dead_code)]");
     w.line("pub mod server {");
     w.indent();
-    w.line("use std::{cell, ffi, rc};");
+    w.line("use std::{ffi, rc};");
     w.line("");
 
     // Structs for all objects
@@ -524,9 +569,10 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
 // --- Client module ---
 
 fn generate_client(w: &mut W, protocol: &Protocol) {
+    w.line("#[allow(dead_code)]");
     w.line("pub mod client {");
     w.indent();
-    w.line("use std::{cell, ffi, rc};");
+    w.line("use std::{ffi, rc};");
     w.line("");
 
     // Structs for all objects
@@ -948,6 +994,8 @@ fn write_call_with_args(w: &mut W, idx: usize, args: &[super::parse::Arg], is_se
 
 pub fn generate(protocol: &Protocol) -> String {
     let mut w = W::new();
+
+    write_header(&mut w, protocol);
 
     generate_server(&mut w, protocol);
     w.line("");

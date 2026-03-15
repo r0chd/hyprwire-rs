@@ -3,11 +3,11 @@ use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
 use crate::{message, trace};
 use std::os::raw;
-use std::{cell, rc, sync::Arc};
+use std::{cell, rc, sync};
 
 pub(crate) struct ServerObject {
     client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
-    pub(crate) spec: Option<Arc<dyn types::ProtocolObjectSpec>>,
+    pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
     listeners: Vec<*mut raw::c_void>,

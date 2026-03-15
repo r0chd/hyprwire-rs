@@ -10,6 +10,7 @@ pub struct Protocol {
     pub version: u32,
     pub objects: Vec<Object>,
     pub enums: Vec<Enum>,
+    pub copyright: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -140,13 +141,37 @@ fn parse_method(
     })
 }
 
+fn read_text_to_end(
+    reader: &mut Reader<&[u8]>,
+    end: &quick_xml::events::BytesStart<'_>,
+) -> Result<String, Box<dyn Error>> {
+    let mut out = String::new();
+    loop {
+        match reader.read_event()? {
+            Event::Text(t) => {
+                out.push_str(&t.unescape()?);
+            }
+            Event::CData(t) => {
+                let cdata = t.into_inner();
+                out.push_str(&String::from_utf8_lossy(cdata.as_ref()));
+            }
+            Event::End(e) if e.name() == end.name() => break,
+            Event::Eof => return Err("unexpected EOF in copyright".into()),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
 pub fn parse_protocol(xml: &str) -> Result<Protocol, Box<dyn Error>> {
     let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
 
     let mut protocol_name = String::new();
     let mut protocol_version = 0u32;
     let mut objects = Vec::new();
     let mut enums = Vec::new();
+    let mut copyright = None;
 
     loop {
         match reader.read_event()? {
@@ -156,6 +181,12 @@ pub fn parse_protocol(xml: &str) -> Result<Protocol, Box<dyn Error>> {
                     b"protocol" => {
                         protocol_name = attr_required(e, b"name")?;
                         protocol_version = attr_required(e, b"version")?.parse()?;
+                    }
+                    b"copyright" => {
+                        let text = read_text_to_end(&mut reader, e)?;
+                        if !text.trim().is_empty() {
+                            copyright = Some(text);
+                        }
                     }
                     b"object" => {
                         let obj_name = attr_required(e, b"name")?;
@@ -235,5 +266,6 @@ pub fn parse_protocol(xml: &str) -> Result<Protocol, Box<dyn Error>> {
         version: protocol_version,
         objects,
         enums,
+        copyright,
     })
 }

@@ -6,8 +6,6 @@ use std::{cell, rc, sync::Arc};
 
 pub struct ClientObject {
     client: rc::Weak<cell::RefCell<client_socket::ClientSocket>>,
-    // SAFETY: spec points into ClientSocket.impls which outlives ClientSocket.objects.
-    // Only accessed while the parent ClientSocket is alive.
     pub(crate) spec: Option<Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
