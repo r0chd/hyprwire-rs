@@ -1,7 +1,7 @@
 use super::server_object;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
-use crate::{message, steady_millis, trace, SharedState};
+use crate::{SharedState, message, steady_millis, trace};
 use nix::sys;
 use std::ops;
 use std::{cell, rc, sync};
@@ -14,19 +14,23 @@ pub(crate) struct ServerClient {
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
     pub(crate) objects: cell::RefCell<Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>>>,
+    _self: rc::Weak<cell::RefCell<Self>>,
 }
 
 impl ServerClient {
-    pub fn new(state: rc::Rc<SharedState>) -> Self {
-        Self {
-            pid: cell::Cell::new(0),
-            first_poll_done: cell::Cell::new(false),
-            version: cell::Cell::new(0),
-            max_id: cell::Cell::new(1),
-            state,
-            scheduled_roundtrip_seq: cell::Cell::new(0),
-            objects: cell::RefCell::new(Vec::new()),
-        }
+    pub fn new(state: rc::Rc<SharedState>) -> rc::Rc<cell::RefCell<Self>> {
+        rc::Rc::new_cyclic(|weak_self| {
+            cell::RefCell::new(Self {
+                pid: cell::Cell::new(0),
+                first_poll_done: cell::Cell::new(false),
+                version: cell::Cell::new(0),
+                max_id: cell::Cell::new(1),
+                state,
+                scheduled_roundtrip_seq: cell::Cell::new(0),
+                objects: cell::RefCell::new(Vec::new()),
+                _self: weak_self.clone(),
+            })
+        })
     }
 
     pub fn get_pid(&self) -> i32 {
@@ -83,7 +87,8 @@ impl ServerClient {
         version: u32,
         seq: u32,
     ) -> rc::Rc<cell::RefCell<server_object::ServerObject>> {
-        let mut server_obj = server_object::ServerObject::new(rc::Rc::clone(&self.state));
+        let mut server_obj =
+            server_object::ServerObject::new(self._self.clone(), rc::Rc::clone(&self.state));
         let id = self.max_id.get();
         server_obj.id = id;
         self.max_id.set(id + 1);
@@ -144,27 +149,35 @@ impl ServerClient {
     }
 
     pub fn on_generic(&self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
-        let objects = self.objects.borrow();
-        if let Some(obj) = objects.iter().find(|obj| obj.borrow().id == msg.object()) {
-            if let Err(e) = obj
-                .borrow_mut()
-                .called(msg.method(), msg.data_span(), msg.fds())
-            {
-                log::error!(
-                    "[{} @ {:.3}] object {} called method error: {e}",
+        let obj = self
+            .objects
+            .borrow()
+            .iter()
+            .find(|obj| obj.borrow().id == msg.object())
+            .map(rc::Rc::clone);
+
+        match obj {
+            Some(obj) => {
+                if let Err(e) = obj
+                    .borrow()
+                    .called(msg.method(), msg.data_span(), msg.fds())
+                {
+                    log::error!(
+                        "[{} @ {:.3}] object {} called method error: {e}",
+                        self.state.fd,
+                        steady_millis(),
+                        msg.object(),
+                    );
+                }
+            }
+            None => {
+                log::debug!(
+                    "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
                     self.state.fd,
                     steady_millis(),
                     msg.object(),
                 );
             }
-            return;
         }
-
-        log::debug!(
-            "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-            self.state.fd,
-            steady_millis(),
-            msg.object(),
-        );
     }
 }

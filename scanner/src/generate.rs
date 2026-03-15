@@ -65,7 +65,6 @@ fn write_header(w: &mut W, protocol: &Protocol) {
         write_copyright(w, copyright);
         w.line("");
     }
-
 }
 
 fn write_copyright(w: &mut W, raw: &str) {
@@ -454,7 +453,14 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         w.line("");
         w.line("pub fn error(&self, error_id: u32, error_msg: &str) {");
         w.indent();
-        w.line("self.object.inner().borrow_mut().error(error_id, error_msg);");
+        w.line("self.object.inner().borrow().error(error_id, error_msg);");
+        w.dedent();
+        w.line("}");
+        w.line("");
+        w.line("pub fn create_object(&self, object_name: &str, seq: u32) -> Option<hyprwire::implementation::types::Object> {");
+        w.indent();
+        w.line("let obj = self.object.inner().borrow().create_object(object_name, seq)?;");
+        w.line("Some(hyprwire::implementation::types::Object::from_raw(obj))");
         w.dedent();
         w.line("}");
 

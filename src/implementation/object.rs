@@ -1,6 +1,7 @@
 use crate::implementation::types;
 use crate::{client, server};
 use std::os::raw;
+use std::{cell, rc};
 
 pub trait Object {
     fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32;
@@ -15,9 +16,17 @@ pub trait Object {
         None
     }
 
+    fn create_object(
+        &self,
+        _object_name: &str,
+        _seq: u32,
+    ) -> Option<rc::Rc<cell::RefCell<dyn Object>>> {
+        None
+    }
+
     fn set_data(&mut self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>);
 
     fn get_data(&self) -> *mut raw::c_void;
 
-    fn error(&mut self, error_id: u32, error_msg: &str);
+    fn error(&self, error_id: u32, error_msg: &str);
 }

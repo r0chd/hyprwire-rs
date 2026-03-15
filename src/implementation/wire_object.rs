@@ -27,7 +27,7 @@ pub trait WireObject: object::Object {
 
     fn seq(&self) -> u32;
 
-    fn called(&mut self, id: u32, data: &[u8], fds: &[i32]) -> Result<(), message::MessageError> {
+    fn called(&self, id: u32, data: &[u8], fds: &[i32]) -> Result<(), message::MessageError> {
         let methods = self.methods_in();
 
         if methods.len() <= id as usize {

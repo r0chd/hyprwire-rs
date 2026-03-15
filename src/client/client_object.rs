@@ -1,6 +1,6 @@
 use crate::client::client_socket;
 use crate::implementation::{object, types, wire_object};
-use crate::{client, message, trace, SharedState};
+use crate::{SharedState, client, message, trace};
 use std::os::raw;
 use std::{cell, rc, sync};
 
@@ -88,7 +88,7 @@ impl object::Object for ClientObject {
         self.data.unwrap_or(std::ptr::null_mut())
     }
 
-    fn error(&mut self, error_id: u32, error_msg: &str) {
+    fn error(&self, error_id: u32, error_msg: &str) {
         _ = error_id;
         _ = error_msg;
     }

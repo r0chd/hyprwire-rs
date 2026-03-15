@@ -18,6 +18,7 @@ fn socket_path() -> path::PathBuf {
 #[derive(Default)]
 struct App {
     manager: Option<test_protocol_v1::server::MyManagerV1Object>,
+    object: Option<test_protocol_v1::server::MyObjectV1Object>,
 }
 
 impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for App {
@@ -48,9 +49,22 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for App {
                 let data = String::from_utf8_lossy(&buf[..n]);
                 println!("Recvd fd {} with data: {}", message, data);
             }
-            test_protocol_v1::server::MyManagerV1Event::SendMessageArray { message } => {}
-            test_protocol_v1::server::MyManagerV1Event::SendMessageArrayUint { message } => {}
-            test_protocol_v1::server::MyManagerV1Event::MakeObject { seq } => {}
+            test_protocol_v1::server::MyManagerV1Event::SendMessageArray { message } => {
+                let conct: Vec<&str> = message.iter().map(|s| s.to_str().unwrap_or("")).collect();
+                println!("Got array message: \"{}\"", conct.join(", "));
+            }
+            test_protocol_v1::server::MyManagerV1Event::SendMessageArrayUint { message } => {
+                let conct: Vec<String> = message.iter().map(|v| v.to_string()).collect();
+                println!("Got uint array message: \"{}\"", conct.join(", "));
+            }
+            test_protocol_v1::server::MyManagerV1Event::MakeObject { seq } => {
+                let obj = _proxy
+                    .create_object("my_object_v1", seq)
+                    .expect("failed to create object");
+                let obj = test_protocol_v1::server::MyObjectV1Object::new::<Self>(obj);
+                obj.send_send_message("Hello object");
+                self.object = Some(obj);
+            }
         }
     }
 }

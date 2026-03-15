@@ -1,5 +1,5 @@
 use super::server_client;
-use crate::{message, socket, steady_millis, trace, SharedState};
+use crate::{SharedState, message, socket, steady_millis, trace};
 use nix::poll;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::os::unix::net;
@@ -146,9 +146,7 @@ impl ServerSocket {
             return;
         }
 
-        if message::handle_message(&mut data, message::Role::Server(&client.borrow()))
-            .is_err()
-        {
+        if message::handle_message(&mut data, message::Role::Server(&client.borrow())).is_err() {
             state.send_message(&message::FatalProtocolError::new(
                 0,
                 u32::MAX,
@@ -249,10 +247,11 @@ impl ServerSocket {
             }
         };
 
-        let state = rc::Rc::new(SharedState::with_impls(stream, sync::Arc::clone(&self.impls)));
-        let client = rc::Rc::new(cell::RefCell::new(server_client::ServerClient::new(
-            rc::Rc::clone(&state),
-        )));
+        let state = rc::Rc::new(SharedState::with_impls(
+            stream,
+            sync::Arc::clone(&self.impls),
+        ));
+        let client = server_client::ServerClient::new(rc::Rc::clone(&state));
 
         self.clients.push(client);
         self.recheck_pollfds();

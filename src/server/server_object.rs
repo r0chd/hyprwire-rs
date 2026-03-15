@@ -1,10 +1,12 @@
+use super::server_client;
 use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
-use crate::{message, trace, SharedState};
+use crate::{SharedState, message, trace};
 use std::os::raw;
-use std::{rc, sync};
+use std::{cell, rc, sync};
 
 pub(crate) struct ServerObject {
+    pub(crate) client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
@@ -29,9 +31,11 @@ impl Drop for ServerObject {
 
 impl ServerObject {
     pub fn new(
+        client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
         state: rc::Rc<SharedState>,
     ) -> Self {
         Self {
+            client,
             state,
             spec: None,
             data: None,
@@ -68,6 +72,19 @@ impl object::Object for ServerObject {
         self.listeners.push(callback);
     }
 
+    fn create_object(
+        &self,
+        object_name: &str,
+        seq: u32,
+    ) -> Option<rc::Rc<cell::RefCell<dyn object::Object>>> {
+        let client = self.client.upgrade()?;
+        let obj =
+            client
+                .borrow()
+                .create_object(&self.protocol_name, object_name, self.version, seq);
+        Some(obj as rc::Rc<cell::RefCell<dyn object::Object>>)
+    }
+
     fn set_data(
         &mut self,
         data: *mut raw::c_void,
@@ -81,7 +98,7 @@ impl object::Object for ServerObject {
         self.data.unwrap_or(std::ptr::null_mut())
     }
 
-    fn error(&mut self, error_id: u32, error_msg: &str) {
+    fn error(&self, error_id: u32, error_msg: &str) {
         let msg = message::FatalProtocolError::new(self.id, error_id, error_msg);
         self.state.send_message(&msg);
         self.errd();

@@ -3,7 +3,7 @@ use crate::client::server_spec;
 use crate::implementation::types::ProtocolSpec;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
-use crate::{implementation, message, socket, steady_millis, trace, SharedState};
+use crate::{SharedState, implementation, message, socket, steady_millis, trace};
 use nix::sys;
 use nix::{errno, poll};
 use std::os::fd;
@@ -413,28 +413,36 @@ impl ClientSocket {
     }
 
     pub fn on_generic(&self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
-        let objects = self.objects.borrow();
-        if let Some(obj) = objects.iter().find(|obj| obj.borrow().id == msg.object()) {
-            if let Err(e) = obj
-                .borrow_mut()
-                .called(msg.method(), msg.data_span(), msg.fds())
-            {
-                log::error!(
-                    "[{} @ {:.3}] object {} called method error: {e}",
+        let obj = self
+            .objects
+            .borrow()
+            .iter()
+            .find(|obj| obj.borrow().id == msg.object())
+            .map(rc::Rc::clone);
+
+        match obj {
+            Some(obj) => {
+                if let Err(e) = obj
+                    .borrow()
+                    .called(msg.method(), msg.data_span(), msg.fds())
+                {
+                    log::error!(
+                        "[{} @ {:.3}] object {} called method error: {e}",
+                        self.state.fd,
+                        steady_millis(),
+                        msg.object(),
+                    );
+                }
+            }
+            None => {
+                log::debug!(
+                    "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
                     self.state.fd,
                     steady_millis(),
                     msg.object(),
                 );
             }
-            return;
         }
-
-        log::debug!(
-            "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-            self.state.fd,
-            steady_millis(),
-            msg.object(),
-        );
     }
 
     pub fn object_for_id(
