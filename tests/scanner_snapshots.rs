@@ -8,4 +8,9 @@ fn test_scanner_protocol_v1() {
     let protocol = parse::parse_protocol(&xml).unwrap();
     let code = generate::generate(&protocol);
     assert_snapshot!(code);
+
+    let xml = fs::read_to_string("tests/moxlauncher_core.xml").unwrap();
+    let protocol = parse::parse_protocol(&xml).unwrap();
+    let code = generate::generate(&protocol);
+    assert_snapshot!(code);
 }

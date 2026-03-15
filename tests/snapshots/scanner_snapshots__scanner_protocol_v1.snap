@@ -14,7 +14,7 @@ expression: code
 
 #[allow(dead_code)]
 pub mod server {
-    use std::{cell, ffi, rc};
+    use std::{ffi, rc};
 
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
@@ -42,7 +42,7 @@ pub mod server {
         message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
@@ -50,7 +50,7 @@ pub mod server {
             ),
         };
         let message = unsafe { ffi::CStr::from_ptr(message) };
-        state.event(&proxy, MyManagerV1Event::SendMessage { message });
+        __dispatch.event(&proxy, MyManagerV1Event::SendMessage { message });
     }
 
     unsafe extern "C" fn my_manager_v1_method1<D: hyprwire::Dispatch<MyManagerV1Object>>(
@@ -58,14 +58,14 @@ pub mod server {
         message: i32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
         };
-        state.event(&proxy, MyManagerV1Event::SendMessageFd { message });
+        __dispatch.event(&proxy, MyManagerV1Event::SendMessageFd { message });
     }
 
     unsafe extern "C" fn my_manager_v1_method2<D: hyprwire::Dispatch<MyManagerV1Object>>(
@@ -74,7 +74,7 @@ pub mod server {
         message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
@@ -82,7 +82,7 @@ pub mod server {
             ),
         };
         let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
-        state.event(&proxy, MyManagerV1Event::SendMessageArrayFd { message });
+        __dispatch.event(&proxy, MyManagerV1Event::SendMessageArrayFd { message });
     }
 
     unsafe extern "C" fn my_manager_v1_method3<D: hyprwire::Dispatch<MyManagerV1Object>>(
@@ -91,7 +91,7 @@ pub mod server {
         message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
@@ -103,7 +103,7 @@ pub mod server {
             .iter()
             .map(|&p| unsafe { ffi::CStr::from_ptr(p) })
             .collect();
-        state.event(
+        __dispatch.event(
             &proxy,
             MyManagerV1Event::SendMessageArray { message: &strings },
         );
@@ -115,7 +115,7 @@ pub mod server {
         message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
@@ -123,7 +123,7 @@ pub mod server {
             ),
         };
         let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
-        state.event(&proxy, MyManagerV1Event::SendMessageArrayUint { message });
+        __dispatch.event(&proxy, MyManagerV1Event::SendMessageArrayUint { message });
     }
 
     unsafe extern "C" fn my_manager_v1_method5<D: hyprwire::Dispatch<MyManagerV1Object>>(
@@ -131,14 +131,14 @@ pub mod server {
         seq: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
         };
-        state.event(&proxy, MyManagerV1Event::MakeObject { seq });
+        __dispatch.event(&proxy, MyManagerV1Event::MakeObject { seq });
     }
 
     impl MyManagerV1Object {
@@ -168,7 +168,12 @@ pub mod server {
         }
 
         pub fn error(&self, error_id: u32, error_msg: &str) {
-            self.object.inner().borrow_mut().error(error_id, error_msg);
+            self.object.inner().borrow().error(error_id, error_msg);
+        }
+
+        pub fn create_object(&self, object_name: &str, seq: u32) -> Option<hyprwire::implementation::types::Object> {
+            let obj = self.object.inner().borrow().create_object(object_name, seq)?;
+            Some(hyprwire::implementation::types::Object::from_raw(obj))
         }
 
         pub fn send_send_message(&self, message: &str) {
@@ -202,7 +207,7 @@ pub mod server {
         message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
@@ -210,7 +215,7 @@ pub mod server {
             ),
         };
         let message = unsafe { ffi::CStr::from_ptr(message) };
-        state.event(&proxy, MyObjectV1Event::SendMessage { message });
+        __dispatch.event(&proxy, MyObjectV1Event::SendMessage { message });
     }
 
     unsafe extern "C" fn my_object_v1_method1<D: hyprwire::Dispatch<MyObjectV1Object>>(
@@ -218,28 +223,28 @@ pub mod server {
         message: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
         };
-        state.event(&proxy, MyObjectV1Event::SendEnum { message });
+        __dispatch.event(&proxy, MyObjectV1Event::SendEnum { message });
     }
 
     unsafe extern "C" fn my_object_v1_method2<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
         };
-        state.event(&proxy, MyObjectV1Event::Destroy);
+        __dispatch.event(&proxy, MyObjectV1Event::Destroy);
     }
 
     unsafe extern "C" fn my_object_v1_method3<D: hyprwire::Dispatch<MyObjectV1Object>>(
@@ -247,14 +252,14 @@ pub mod server {
         seq: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
                 unsafe { rc::Rc::from_raw(dispatch.object) },
             ),
         };
-        state.event(&proxy, MyObjectV1Event::MakeObject { seq });
+        __dispatch.event(&proxy, MyObjectV1Event::MakeObject { seq });
     }
 
     impl MyObjectV1Object {
@@ -282,7 +287,12 @@ pub mod server {
         }
 
         pub fn error(&self, error_id: u32, error_msg: &str) {
-            self.object.inner().borrow_mut().error(error_id, error_msg);
+            self.object.inner().borrow().error(error_id, error_msg);
+        }
+
+        pub fn create_object(&self, object_name: &str, seq: u32) -> Option<hyprwire::implementation::types::Object> {
+            let obj = self.object.inner().borrow().create_object(object_name, seq)?;
+            Some(hyprwire::implementation::types::Object::from_raw(obj))
         }
 
         pub fn send_send_message(&self, message: &str) {
@@ -343,7 +353,7 @@ pub mod server {
 
 #[allow(dead_code)]
 pub mod client {
-    use std::{cell, ffi, rc};
+    use std::{ffi, rc};
 
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
@@ -369,7 +379,7 @@ pub mod client {
         message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
@@ -378,7 +388,7 @@ pub mod client {
             on_destroy: None,
         };
         let message = unsafe { ffi::CStr::from_ptr(message) };
-        state.event(&proxy, MyManagerV1Event::SendMessage { message });
+        __dispatch.event(&proxy, MyManagerV1Event::SendMessage { message });
     }
 
     unsafe extern "C" fn my_manager_v1_method1<D: hyprwire::Dispatch<MyManagerV1Object>>(
@@ -387,7 +397,7 @@ pub mod client {
         message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
@@ -396,7 +406,7 @@ pub mod client {
             on_destroy: None,
         };
         let message = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
-        state.event(&proxy, MyManagerV1Event::RecvMessageArrayUint { message });
+        __dispatch.event(&proxy, MyManagerV1Event::RecvMessageArrayUint { message });
     }
 
     impl MyManagerV1Object {
@@ -491,7 +501,7 @@ pub mod client {
         message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: hyprwire::implementation::types::Object::from_raw(
@@ -500,7 +510,7 @@ pub mod client {
             on_destroy: None,
         };
         let message = unsafe { ffi::CStr::from_ptr(message) };
-        state.event(&proxy, MyObjectV1Event::SendMessage { message });
+        __dispatch.event(&proxy, MyObjectV1Event::SendMessage { message });
     }
 
     impl MyObjectV1Object {

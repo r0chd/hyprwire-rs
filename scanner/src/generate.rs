@@ -108,6 +108,19 @@ fn magic_for_arg(arg_type: &ArgType) -> Vec<&'static str> {
     }
 }
 
+fn needs_lifetime(arg_type: &ArgType) -> bool {
+    !matches!(
+        arg_type,
+        ArgType::Fd | ArgType::Uint | ArgType::Enum | ArgType::Int | ArgType::F32
+    )
+}
+
+fn methods_need_lifetime(methods: &[Method]) -> bool {
+    methods
+        .iter()
+        .any(|m| m.args.iter().any(|a| needs_lifetime(&a.arg_type)))
+}
+
 fn event_field_type(arg_type: &ArgType) -> &'static str {
     match arg_type {
         ArgType::Varchar => "&'a ffi::CStr",
@@ -394,21 +407,23 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         let event_type = format!("{pascal}Event");
 
         // Event enum for c2s methods (what the server receives)
-        if !obj.c2s.is_empty() {
-            write_event_enum(w, &event_type, &obj.c2s);
+        write_event_enum(w, &event_type, &obj.c2s);
 
-            // Proxy impl
-            w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
-            w.indent();
-            w.line(&format!("type Event<'a> = {event_type}<'a>;"));
-            w.dedent();
-            w.line("}");
-            w.line("");
+        let lifetime = if methods_need_lifetime(&obj.c2s) {
+            "<'a>"
+        } else {
+            ""
+        };
+        w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
+        w.indent();
+        w.line(&format!("type Event<'a> = {event_type}{lifetime};"));
+        w.dedent();
+        w.line("}");
+        w.line("");
 
-            // Dispatch functions for c2s
-            for (idx, m) in obj.c2s.iter().enumerate() {
-                write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m, false);
-            }
+        // Dispatch functions for c2s
+        for (idx, m) in obj.c2s.iter().enumerate() {
+            write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m, false);
         }
 
         // Impl block with new + send methods
@@ -600,21 +615,23 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         let event_type = format!("{pascal}Event");
 
         // Event enum (s2c methods)
-        if !obj.s2c.is_empty() {
-            write_event_enum(w, &event_type, &obj.s2c);
+        write_event_enum(w, &event_type, &obj.s2c);
 
-            // Proxy impl
-            w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
-            w.indent();
-            w.line(&format!("type Event<'a> = {event_type}<'a>;"));
-            w.dedent();
-            w.line("}");
-            w.line("");
+        let lifetime = if methods_need_lifetime(&obj.s2c) {
+            "<'a>"
+        } else {
+            ""
+        };
+        w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
+        w.indent();
+        w.line(&format!("type Event<'a> = {event_type}{lifetime};"));
+        w.dedent();
+        w.line("}");
+        w.line("");
 
-            // Dispatch functions for s2c
-            for (idx, m) in obj.s2c.iter().enumerate() {
-                write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m, true);
-            }
+        // Dispatch functions for s2c
+        for (idx, m) in obj.s2c.iter().enumerate() {
+            write_dispatch_fn(w, &obj.name, &obj_type, &event_type, idx, m, true);
         }
 
         // Impl block with new + send methods
@@ -731,7 +748,12 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
 // --- Shared helpers ---
 
 fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method]) {
-    w.line(&format!("pub enum {event_type}<'a> {{"));
+    let lifetime = if methods_need_lifetime(methods) {
+        "<'a>"
+    } else {
+        ""
+    };
+    w.line(&format!("pub enum {event_type}{lifetime} {{"));
     w.indent();
     for m in methods {
         let variant = snake_to_pascal(&m.name);
@@ -794,7 +816,7 @@ fn write_dispatch_fn(
 
     // Body: standard preamble
     w.line("let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };");
-    w.line("let state = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };");
+    w.line("let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };");
     w.line("unsafe { rc::Rc::increment_strong_count(dispatch.object) };");
     w.line(&format!("let proxy = {obj_type} {{"));
     w.indent();
@@ -856,10 +878,12 @@ fn write_dispatch_fn(
     // state.event call
     let fields_str = event_fields.join(", ");
     if event_fields.is_empty() {
-        w.line(&format!("state.event(&proxy, {event_type}::{variant});"));
+        w.line(&format!(
+            "__dispatch.event(&proxy, {event_type}::{variant});"
+        ));
     } else if event_fields.iter().any(|f| f.contains(':')) {
         // Has renamed fields like "message: &strings"
-        w.line("state.event(");
+        w.line("__dispatch.event(");
         w.indent();
         w.line("&proxy,");
         w.line(&format!("{event_type}::{variant} {{ {fields_str} }},"));
@@ -867,7 +891,7 @@ fn write_dispatch_fn(
         w.line(");");
     } else {
         w.line(&format!(
-            "state.event(&proxy, {event_type}::{variant} {{ {fields_str} }});"
+            "__dispatch.event(&proxy, {event_type}::{variant} {{ {fields_str} }});"
         ));
     }
 
