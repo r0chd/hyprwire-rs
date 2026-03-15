@@ -1,4 +1,4 @@
-use hyprwire::scanner::{generate, parse};
+use hyprwire_scanner::{generate, parse};
 use insta::assert_snapshot;
 use std::fs;
 

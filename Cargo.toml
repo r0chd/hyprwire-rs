@@ -18,7 +18,6 @@ name = "basic-server"
 path = "examples/basic/server.rs"
 
 [dependencies]
-hyprwire-scanner = { path = "scanner" }
 libffi = { version = "5.1.0", default-features = false }
 log = "0.4.29"
 nix = { version = "0.31.1", features = ["poll", "socket", "uio"] }
@@ -27,5 +26,6 @@ nix = { version = "0.31.1", features = ["poll", "socket", "uio"] }
 hyprwire-scanner = { path = "scanner" }
 
 [dev-dependencies]
+hyprwire-scanner = { path = "scanner" }
 insta = "1"
 env_logger = { version = "0.11.9", default-features = false }

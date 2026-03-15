@@ -24,9 +24,11 @@ impl Builder {
             .out_dir
             .unwrap_or_else(|| path::PathBuf::from(env::var("OUT_DIR").unwrap()));
 
+        let manifest_dir = path::PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
         for proto_path in protos {
-            let proto_path = proto_path.as_ref();
-            let xml = fs::read_to_string(proto_path).map_err(|e| {
+            let proto_path = manifest_dir.join(proto_path.as_ref());
+            let xml = fs::read_to_string(&proto_path).map_err(|e| {
                 io::Error::new(
                     e.kind(),
                     format!("failed to read {}: {e}", proto_path.display()),

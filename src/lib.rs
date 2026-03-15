@@ -2,7 +2,6 @@ pub mod client;
 pub(crate) mod helpers;
 pub mod implementation;
 pub(crate) mod message;
-pub mod scanner;
 pub mod server;
 pub(crate) mod socket;
 
