@@ -7,17 +7,63 @@ pub mod server;
 pub(crate) mod socket;
 
 use implementation::object;
+use nix::{errno, poll, sys};
+use std::os::fd::{AsFd, AsRawFd};
+use std::os::unix::net;
 use std::sync::atomic;
-use std::{cell, ffi, sync, time};
+use std::{cell, ffi, io, sync, time};
 
 pub struct SharedState {
     pub error: atomic::AtomicBool,
+    pub stream: sync::Mutex<net::UnixStream>,
+    pub fd: i32,
 }
 
 impl SharedState {
-    pub fn new() -> Self {
+    pub fn new(stream: net::UnixStream) -> Self {
+        let fd = stream.as_raw_fd();
         Self {
             error: atomic::AtomicBool::new(false),
+            stream: sync::Mutex::new(stream),
+            fd,
+        }
+    }
+
+    pub fn send_message(&self, message: &dyn message::Message) {
+        trace! { log::trace!("[{} @ {:.3}] -> {}", self.fd, steady_millis(), message.parse_data()) };
+
+        let stream = self.stream.lock().unwrap();
+        let buf = message.data();
+        let iov = [io::IoSlice::new(buf)];
+        let cmsg = [sys::socket::ControlMessage::ScmRights(message.fds())];
+        loop {
+            match sys::socket::sendmsg::<()>(
+                stream.as_raw_fd(),
+                &iov,
+                &cmsg,
+                sys::socket::MsgFlags::empty(),
+                None,
+            ) {
+                Ok(_) => break,
+                Err(errno::Errno::EAGAIN) => {
+                    let mut pfd = [poll::PollFd::new(
+                        stream.as_fd(),
+                        poll::PollFlags::POLLOUT | poll::PollFlags::POLLWRBAND,
+                    )];
+                    if let Err(e) = poll::poll(&mut pfd, poll::PollTimeout::NONE) {
+                        log::error!(
+                            "[{} @ {:.3}] poll error during send_message: {e}",
+                            self.fd,
+                            steady_millis(),
+                        );
+                        break;
+                    }
+                    continue;
+                }
+                Err(_) => {
+                    break;
+                }
+            }
         }
     }
 }

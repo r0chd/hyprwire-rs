@@ -1,5 +1,5 @@
 use super::server_client;
-use crate::{message, socket, steady_millis, trace};
+use crate::{message, socket, steady_millis, trace, SharedState};
 use nix::poll;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::os::unix::net;
@@ -131,21 +131,23 @@ impl ServerSocket {
     }
 
     fn dispatch_client(&self, client: &rc::Rc<cell::RefCell<server_client::ServerClient>>) {
-        let mut data =
-            match socket::SocketRawParsedMessage::read_from_socket(&client.borrow().stream) {
+        let state = sync::Arc::clone(&client.borrow().state);
+
+        let mut data = {
+            let stream = state.stream.lock().unwrap();
+            match socket::SocketRawParsedMessage::read_from_socket(&*stream) {
                 Ok(d) => d,
                 Err(_) => {
-                    client
-                        .borrow()
-                        .send_message(&message::FatalProtocolError::new(
-                            0,
-                            u32::MAX,
-                            "fatal: invalid message on wire",
-                        ));
-                    client.borrow_mut().state.error.store(true, sync::atomic::Ordering::Relaxed);
+                    state.send_message(&message::FatalProtocolError::new(
+                        0,
+                        u32::MAX,
+                        "fatal: invalid message on wire",
+                    ));
+                    state.error.store(true, sync::atomic::Ordering::Relaxed);
                     return;
                 }
-            };
+            }
+        };
 
         if data.data.is_empty() {
             return;
@@ -154,22 +156,18 @@ impl ServerSocket {
         if message::handle_message(&mut data, message::Role::Server(&mut client.borrow_mut()))
             .is_err()
         {
-            client
-                .borrow()
-                .send_message(&message::FatalProtocolError::new(
-                    0,
-                    u32::MAX,
-                    "fatal: failed to handle message on wire",
-                ));
-            client.borrow_mut().state.error.store(true, sync::atomic::Ordering::Relaxed);
+            state.send_message(&message::FatalProtocolError::new(
+                0,
+                u32::MAX,
+                "fatal: failed to handle message on wire",
+            ));
+            state.error.store(true, sync::atomic::Ordering::Relaxed);
             return;
         }
 
         let scheduled_seq = client.borrow().scheduled_roundtrip_seq;
         if scheduled_seq > 0 {
-            client
-                .borrow()
-                .send_message(&message::RoundtripDone::new(scheduled_seq));
+            state.send_message(&message::RoundtripDone::new(scheduled_seq));
             client.borrow_mut().scheduled_roundtrip_seq = 0;
         }
     }
@@ -201,7 +199,7 @@ impl ServerSocket {
                 trace! {
                     log::debug!(
                         "[{} @ {:.3}] Dropping client (hangup)",
-                        self.clients[client_idx].borrow().stream.as_raw_fd(),
+                        self.clients[client_idx].borrow().state.fd,
                         steady_millis(),
                     )
                 }
@@ -212,7 +210,7 @@ impl ServerSocket {
                 trace! {
                     log::debug!(
                         "[{} @ {:.3}] Dropping client (protocol error)",
-                        self.clients[client_idx].borrow().stream.as_raw_fd(),
+                        self.clients[client_idx].borrow().state.fd,
                         steady_millis(),
                     )
                 }
@@ -258,13 +256,11 @@ impl ServerSocket {
             }
         };
 
-        let client = rc::Rc::new_cyclic(|weak_client| {
-            cell::RefCell::new(server_client::ServerClient::new(
-                stream,
-                self._self.clone(),
-                weak_client.clone(),
-            ))
-        });
+        let state = sync::Arc::new(SharedState::new(stream));
+        let client = rc::Rc::new(cell::RefCell::new(server_client::ServerClient::new(
+            sync::Arc::clone(&state),
+            self._self.clone(),
+        )));
 
         self.clients.push(client);
         self.recheck_pollfds();
@@ -292,8 +288,7 @@ impl ServerSocket {
             .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
 
         for client in &self.clients {
-            let raw_fd = client.borrow().stream.as_raw_fd();
-            let fd = unsafe { BorrowedFd::borrow_raw(raw_fd) };
+            let fd = unsafe { BorrowedFd::borrow_raw(client.borrow().state.fd) };
             self.pollfds
                 .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
         }

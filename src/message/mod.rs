@@ -15,7 +15,6 @@ pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
 pub(crate) use messages::Message;
 use std::fmt;
-use std::os::fd::AsRawFd;
 use std::sync::atomic;
 
 #[derive(Debug)]
@@ -142,7 +141,7 @@ pub fn handle_message(
             }
 
             trace! {
-                log::debug!("[{} @ {}] -- handleMessage: Finished read", client.stream.as_raw_fd(), steady_millis())
+                log::debug!("[{} @ {}] -- handleMessage: Finished read", client.state.fd, steady_millis())
             }
         }
         Role::Server(client) => {
@@ -157,7 +156,7 @@ pub fn handle_message(
             }
 
             trace! {
-                log::debug!("[{} @ {}] -- handleMessage: Finished read", client.stream.as_raw_fd(), steady_millis())
+                log::debug!("[{} @ {}] -- handleMessage: Finished read", client.state.fd, steady_millis())
             }
         }
     }
@@ -176,7 +175,7 @@ fn parse_single_message_client(
                 let msg = HandshakeBegin::from_bytes(&raw.data, off).inspect_err(|_| {
                     log::error!(
                         "server at fd {:?} core protocol error...",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                 })?;
 
@@ -191,17 +190,17 @@ fn parse_single_message_client(
                 if !version_supported {
                     log::error!(
                         "server at fd {} core protocol error: version negotiation failed",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                     client.state.error.store(true, atomic::Ordering::Relaxed);
                     return Err(MessageError::VersionNegotiationFailed);
                 }
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] -> parse error: {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] -> parse error: {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
-                client.send_message(&HandshakeAck::new(protocol_version));
+                client.state.send_message(&HandshakeAck::new(protocol_version));
 
                 return Ok(msg.data().len());
             }
@@ -209,12 +208,12 @@ fn parse_single_message_client(
                 let msg = HandshakeProtocols::from_bytes(&raw.data, off).inspect_err(|_| {
                     log::error!(
                         "server at fd {} core protocol error: malformed message recvd (HandshakeProtocols)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.server_specs(msg.protocols());
@@ -226,12 +225,12 @@ fn parse_single_message_client(
                 let msg = NewObject::from_bytes(&raw.data, off).inspect_err(|_| {
                     log::error!(
                         "server at fd {} core protocol error: malformed message recvd (NewObject)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.on_seq(msg.seq(), msg.id());
@@ -243,12 +242,12 @@ fn parse_single_message_client(
                     .inspect_err(|_| {
                         log::error!(
                         "server at fd {} core protocol error: malformed message recvd (GenericProtocolMessage)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                     })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.on_generic(&msg);
@@ -260,7 +259,7 @@ fn parse_single_message_client(
                     .inspect_err(|_| {
                         log::error!(
                         "server at fd {} core protocol error: malformed message recvd (FatalProtocolError)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                     })?;
 
@@ -279,12 +278,12 @@ fn parse_single_message_client(
                     .inspect_err(|_| {
                         log::error!(
                         "server at fd {} core protocol error: malformed message recvd (RoundtripDone)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                     })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.last_ackd_roundtrip_seq = msg.seq();
@@ -298,7 +297,7 @@ fn parse_single_message_client(
                 client.state.error.store(true, atomic::Ordering::Relaxed);
                 log::error!(
                     "server at fd {} core protocol error: invalid message recvd ({message})",
-                    client.stream.as_raw_fd()
+                    client.state.fd
                 );
                 return Err(MessageError::InvalidMessage);
             }
@@ -308,7 +307,7 @@ fn parse_single_message_client(
 
     log::error!(
         "server at fd {} core protocol error: invalid message recvd (invalid type code)",
-        client.stream.as_raw_fd()
+        client.state.fd
     );
 
     Err(MessageError::InvalidMessage)
@@ -325,16 +324,16 @@ fn parse_single_message_server(
                 let msg = Hello::from_bytes(&raw.data, off).inspect_err(|_| {
                     log::error!(
                         "client at fd {} core protocol error: malformed message recvd (Sup)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.dispatch_first_poll();
-                client.send_message(&HandshakeBegin::new(&[1]));
+                client.state.send_message(&HandshakeBegin::new(&[1]));
 
                 return Ok(msg.data().len());
             }
@@ -342,7 +341,7 @@ fn parse_single_message_server(
                 client.state.error.store(true, atomic::Ordering::Relaxed);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (HandshakeBegin)",
-                    client.stream.as_raw_fd()
+                    client.state.fd
                 );
                 return Err(MessageError::InvalidMessage);
             }
@@ -350,19 +349,19 @@ fn parse_single_message_server(
                 let msg = HandshakeAck::from_bytes(&raw.data, off).inspect_err(|_| {
                     log::error!(
                         "client at fd {} core protocol error: malformed message recvd (HandshakeAck)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.version = msg.version();
 
                 let protocol_names = client.protocol_names();
                 let protocol_refs: Vec<&str> = protocol_names.iter().map(|s| s.as_str()).collect();
-                client.send_message(&HandshakeProtocols::new(&protocol_refs));
+                client.state.send_message(&HandshakeProtocols::new(&protocol_refs));
 
                 return Ok(msg.data().len());
             }
@@ -370,7 +369,7 @@ fn parse_single_message_server(
                 client.state.error.store(true, atomic::Ordering::Relaxed);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (HandshakeProtocols)",
-                    client.stream.as_raw_fd()
+                    client.state.fd
                 );
                 return Err(MessageError::InvalidMessage);
             }
@@ -378,12 +377,12 @@ fn parse_single_message_server(
                 let msg = BindProtocol::from_bytes(&raw.data, off).inspect_err(|_| {
                     log::error!(
                         "client at fd {} core protocol error: malformed message recvd (BindProtocol)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.create_object(msg.protocol(), "", msg.version(), msg.seq());
@@ -394,7 +393,7 @@ fn parse_single_message_server(
                 client.state.error.store(true, atomic::Ordering::Relaxed);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (NewObject)",
-                    client.stream.as_raw_fd()
+                    client.state.fd
                 );
                 return Err(MessageError::InvalidMessage);
             }
@@ -403,12 +402,12 @@ fn parse_single_message_server(
                     .inspect_err(|_| {
                         log::error!(
                             "client at fd {} core protocol error: malformed message recvd (GenericProtocolMessage)",
-                            client.stream.as_raw_fd()
+                            client.state.fd
                         );
                     })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.on_generic(&msg);
@@ -419,7 +418,7 @@ fn parse_single_message_server(
                 client.state.error.store(true, atomic::Ordering::Relaxed);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (FatalProtocolError)",
-                    client.stream.as_raw_fd()
+                    client.state.fd
                 );
                 return Err(MessageError::InvalidMessage);
             }
@@ -427,12 +426,12 @@ fn parse_single_message_server(
                 let msg = RoundtripRequest::from_bytes(&raw.data, off).inspect_err(|_| {
                     log::error!(
                         "client at fd {} core protocol error: malformed message recvd (RoundtripRequest)",
-                        client.stream.as_raw_fd()
+                        client.state.fd
                     );
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.scheduled_roundtrip_seq = msg.seq();
@@ -443,7 +442,7 @@ fn parse_single_message_server(
                 client.state.error.store(true, atomic::Ordering::Relaxed);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (RoundtripDone)",
-                    client.stream.as_raw_fd()
+                    client.state.fd
                 );
                 return Err(MessageError::InvalidMessage);
             }
@@ -453,7 +452,7 @@ fn parse_single_message_server(
 
     log::error!(
         "client at fd {} core protocol error: malformed message recvd (invalid type code)",
-        client.stream.as_raw_fd()
+        client.state.fd
     );
     client.state.error.store(true, atomic::Ordering::Relaxed);
 

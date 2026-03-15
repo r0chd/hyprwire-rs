@@ -7,13 +7,12 @@ use crate::{implementation, message, socket, steady_millis, trace, SharedState};
 use nix::sys;
 use nix::{errno, poll};
 use std::os::fd;
-use std::os::fd::{AsFd, AsRawFd, FromRawFd};
+use std::os::fd::{BorrowedFd, FromRawFd};
 use std::os::unix::net;
 use std::sync::atomic;
 use std::{cell, io, ops, path, rc, sync, time};
 
 pub struct ClientSocket {
-    pub(crate) stream: net::UnixStream,
     impls: Vec<Box<dyn implementation::client::ProtocolImplementations>>,
     server_specs: Vec<server_spec::ServerSpec>,
     objects: Vec<rc::Rc<cell::RefCell<client_object::ClientObject>>>,
@@ -31,15 +30,15 @@ const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
     fn new(stream: net::UnixStream) -> rc::Rc<cell::RefCell<Self>> {
+        let state = sync::Arc::new(SharedState::new(stream));
         let client_socket = rc::Rc::new_cyclic(|weak_self| {
             cell::RefCell::new(Self {
                 last_ackd_roundtrip_seq: 0,
                 last_sent_roundtrip_seq: 0,
                 seq: 0,
-                stream,
                 impls: Vec::new(),
                 server_specs: Vec::new(),
-                state: sync::Arc::new(SharedState::new()),
+                state: sync::Arc::clone(&state),
                 objects: Vec::new(),
                 handshake_done: false,
                 handshake_begin: time::Instant::now(),
@@ -47,7 +46,7 @@ impl ClientSocket {
                 _self: weak_self.clone(),
             })
         });
-        client_socket.borrow().send_message(&message::Hello::new());
+        state.send_message(&message::Hello::new());
 
         client_socket
     }
@@ -126,7 +125,7 @@ impl ClientSocket {
         self.objects.push(rc::Rc::clone(&object));
 
         let bind_message = message::BindProtocol::new(spec.spec_name(), self.seq, version);
-        self.send_message(&bind_message);
+        self.state.send_message(&bind_message);
 
         self.wait_for_object(&object)?;
 
@@ -149,46 +148,6 @@ impl ClientSocket {
         }
 
         Ok(())
-    }
-
-    pub fn send_message<T>(&self, message: &T)
-    where
-        T: Message + ?Sized,
-    {
-        trace! { log::trace!("[{} @ {:.3}] -> {}", self.stream.as_raw_fd(), steady_millis(), message.parse_data()) };
-
-        let buf = message.data();
-        let iov = [io::IoSlice::new(buf)];
-        let cmsg = [sys::socket::ControlMessage::ScmRights(message.fds())];
-        loop {
-            match sys::socket::sendmsg::<()>(
-                self.stream.as_raw_fd(),
-                &iov,
-                &cmsg,
-                sys::socket::MsgFlags::empty(),
-                None,
-            ) {
-                Ok(_) => break,
-                Err(errno::Errno::EAGAIN) => {
-                    let mut pfd = [poll::PollFd::new(
-                        self.stream.as_fd(),
-                        poll::PollFlags::POLLOUT | poll::PollFlags::POLLWRBAND,
-                    )];
-                    if let Err(e) = poll::poll(&mut pfd, poll::PollTimeout::NONE) {
-                        log::error!(
-                            "[{} @ {:.3}] poll error during send_message: {e}",
-                            self.stream.as_raw_fd(),
-                            steady_millis(),
-                        );
-                        break;
-                    }
-                    continue;
-                }
-                Err(_) => {
-                    break;
-                }
-            }
-        }
     }
 
     pub fn make_object(
@@ -228,7 +187,7 @@ impl ClientSocket {
     }
 
     pub fn extract_loop_fd(&self) -> i32 {
-        self.stream.as_raw_fd()
+        self.state.fd
     }
 
     pub fn server_specs(&mut self, specs: &[rc::Rc<str>]) {
@@ -245,7 +204,12 @@ impl ClientSocket {
 
     pub fn disconnect_on_error(&self) {
         self.state.error.store(true, atomic::Ordering::Relaxed);
-        self.stream.shutdown(std::net::Shutdown::Both).unwrap();
+        self.state
+            .stream
+            .lock()
+            .unwrap()
+            .shutdown(std::net::Shutdown::Both)
+            .unwrap();
     }
 
     pub fn roundtrip(&mut self) -> Result<(), io::Error> {
@@ -258,7 +222,8 @@ impl ClientSocket {
 
         self.last_sent_roundtrip_seq += 1;
         let next_seq = self.last_sent_roundtrip_seq;
-        self.send_message(&message::RoundtripRequest::new(next_seq));
+        self.state
+            .send_message(&message::RoundtripRequest::new(next_seq));
 
         while self.last_ackd_roundtrip_seq < next_seq {
             self.dispatch_events(true)?;
@@ -275,6 +240,8 @@ impl ClientSocket {
             ));
         }
 
+        let borrowed_fd = unsafe { BorrowedFd::borrow_raw(self.state.fd) };
+
         if !self.handshake_done {
             let elapsed_ms = self.handshake_begin.elapsed().as_millis() as u64;
             let max_ms = HANDSHAKE_MAX_MS.saturating_sub(elapsed_ms);
@@ -285,10 +252,7 @@ impl ClientSocket {
                 poll::PollTimeout::ZERO
             };
 
-            let mut pfd = [poll::PollFd::new(
-                self.stream.as_fd(),
-                poll::PollFlags::POLLIN,
-            )];
+            let mut pfd = [poll::PollFd::new(borrowed_fd, poll::PollFlags::POLLIN)];
 
             let ready = poll::poll(&mut pfd, timeout)
                 .map_err(|e| io::Error::from_raw_os_error(e as i32))?;
@@ -307,7 +271,7 @@ impl ClientSocket {
             // peek to check for HUP (0 bytes = connection closed)
             let mut peek_buf = [0u8; 1];
             match sys::socket::recv(
-                self.stream.as_raw_fd(),
+                self.state.fd,
                 &mut peek_buf,
                 sys::socket::MsgFlags::MSG_PEEK,
             ) {
@@ -332,10 +296,7 @@ impl ClientSocket {
                 poll::PollTimeout::ZERO
             };
 
-            let mut pfd = [poll::PollFd::new(
-                self.stream.as_fd(),
-                poll::PollFlags::POLLIN,
-            )];
+            let mut pfd = [poll::PollFd::new(borrowed_fd, poll::PollFlags::POLLIN)];
 
             let ready = poll::poll(&mut pfd, timeout)
                 .map_err(|e| io::Error::from_raw_os_error(e as i32))?;
@@ -353,7 +314,7 @@ impl ClientSocket {
             // peek to check for HUP (0 bytes = connection closed)
             let mut peek_buf = [0u8; 1];
             match sys::socket::recv(
-                self.stream.as_raw_fd(),
+                self.state.fd,
                 &mut peek_buf,
                 sys::socket::MsgFlags::MSG_PEEK,
             ) {
@@ -379,16 +340,20 @@ impl ClientSocket {
 
         // dispatch
 
-        let mut data = match socket::SocketRawParsedMessage::read_from_socket(&self.stream) {
-            Err(_) => {
-                log::debug!("fatal: received malformed message from server");
-                self.disconnect_on_error();
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "received malformed message from server",
-                ));
+        let mut data = {
+            let stream = self.state.stream.lock().unwrap();
+            match socket::SocketRawParsedMessage::read_from_socket(&*stream) {
+                Err(_) => {
+                    drop(stream);
+                    log::debug!("fatal: received malformed message from server");
+                    self.disconnect_on_error();
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "received malformed message from server",
+                    ));
+                }
+                Ok(data) => data,
             }
-            Ok(data) => data,
         };
 
         if data.data.is_empty() {
@@ -421,12 +386,12 @@ impl ClientSocket {
                 Some(id) => {
                     msg.resolve_seq(id);
                     trace! {
-                        log::debug!("[{} @ {:.3}] -> Handle deferred {}", self.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                        log::debug!("[{} @ {:.3}] -> Handle deferred {}", self.state.fd, steady_millis(), msg.parse_data())
                     }
                 }
             }
 
-            self.send_message(&msg);
+            self.state.send_message(&msg);
         }
 
         if self.state.error.load(atomic::Ordering::Relaxed) {
@@ -461,7 +426,7 @@ impl ClientSocket {
             {
                 log::error!(
                     "[{} @ {:.3}] object {} called method error: {e}",
-                    self.stream.as_raw_fd(),
+                    self.state.fd,
                     steady_millis(),
                     msg.object(),
                 );
@@ -471,7 +436,7 @@ impl ClientSocket {
 
         log::debug!(
             "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-            self.stream.as_raw_fd(),
+            self.state.fd,
             steady_millis(),
             msg.object(),
         );

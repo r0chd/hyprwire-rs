@@ -138,9 +138,7 @@ impl wire_object::WireObject for ClientObject {
     }
 
     fn send_message(&self, msg: &dyn message::Message) {
-        if let Some(client) = self.client.upgrade() {
-            client.borrow().send_message(msg);
-        }
+        self.state.send_message(msg);
     }
 
     fn listeners(&self) -> &[*mut std::os::raw::c_void] {

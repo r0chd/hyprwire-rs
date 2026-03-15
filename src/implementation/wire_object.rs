@@ -2,7 +2,6 @@ use super::types;
 use crate::implementation::object;
 use crate::{message, steady_millis, trace};
 use libffi::low as ffi;
-use std::os::fd::AsRawFd;
 use std::os::raw;
 
 pub trait WireObject: object::Object {
@@ -443,7 +442,7 @@ pub trait WireObject: object::Object {
         if !method_returns_type.is_empty() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    log::trace!("[{} @ {:.3}] -- call {}: returnsType has {}", client.0.borrow().stream.as_raw_fd(), steady_millis(), id, method_returns_type);
+                    log::trace!("[{} @ {:.3}] -- call {}: returnsType has {}", client.0.borrow().state.fd, steady_millis(), id, method_returns_type);
                 }
             }
 
@@ -587,7 +586,7 @@ pub trait WireObject: object::Object {
         if self.id() == 0 && !self.server() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    log::debug!("[{} @ {:.3}] -- call: waiting on object of type {}", client.0.borrow().stream.as_raw_fd(), steady_millis(), method_returns_type);
+                    log::debug!("[{} @ {:.3}] -- call: waiting on object of type {}", client.0.borrow().state.fd, steady_millis(), method_returns_type);
                 }
             }
 
