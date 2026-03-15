@@ -1,4 +1,4 @@
-use super::{server_object, server_socket};
+use super::server_object;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
 use crate::{message, steady_millis, trace, SharedState};
@@ -11,17 +11,13 @@ pub(crate) struct ServerClient {
     pub(crate) first_poll_done: cell::Cell<bool>,
     pub(crate) version: cell::Cell<u32>,
     pub(crate) max_id: cell::Cell<u32>,
-    pub(crate) state: sync::Arc<SharedState>,
+    pub(crate) state: rc::Rc<SharedState>,
     pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
     pub(crate) objects: cell::RefCell<Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>>>,
-    server: sync::Weak<sync::RwLock<server_socket::ServerSocket>>,
 }
 
 impl ServerClient {
-    pub fn new(
-        state: sync::Arc<SharedState>,
-        server: sync::Weak<sync::RwLock<server_socket::ServerSocket>>,
-    ) -> Self {
+    pub fn new(state: rc::Rc<SharedState>) -> Self {
         Self {
             pid: cell::Cell::new(0),
             first_poll_done: cell::Cell::new(false),
@@ -30,7 +26,6 @@ impl ServerClient {
             state,
             scheduled_roundtrip_seq: cell::Cell::new(0),
             objects: cell::RefCell::new(Vec::new()),
-            server,
         }
     }
 
@@ -44,7 +39,7 @@ impl ServerClient {
         }
         self.first_poll_done.set(true);
 
-        let stream = self.state.stream.lock().unwrap();
+        let stream = self.state.stream.borrow();
         match sys::socket::getsockopt(&*stream, sys::socket::sockopt::PeerCredentials) {
             Ok(cred) => {
                 self.pid.set(cred.pid());
@@ -68,12 +63,8 @@ impl ServerClient {
     }
 
     pub fn protocol_names(&self) -> Vec<String> {
-        self.server
-            .upgrade()
-            .unwrap()
-            .read()
-            .unwrap()
-            .impls
+        let impls = self.state.impls.as_ref().unwrap();
+        impls
             .iter()
             .map(|imp| {
                 format!(
@@ -92,7 +83,7 @@ impl ServerClient {
         version: u32,
         seq: u32,
     ) -> rc::Rc<cell::RefCell<server_object::ServerObject>> {
-        let mut server_obj = server_object::ServerObject::new(sync::Arc::clone(&self.state));
+        let mut server_obj = server_object::ServerObject::new(rc::Rc::clone(&self.state));
         let id = self.max_id.get();
         server_obj.id = id;
         self.max_id.set(id + 1);
@@ -100,7 +91,8 @@ impl ServerClient {
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();
 
-        for imp in &self.server.upgrade().unwrap().read().unwrap().impls {
+        let impls = self.state.impls.as_ref().unwrap();
+        for imp in impls.iter() {
             if imp.protocol().spec_name() == protocol {
                 for spec in imp.protocol().objects() {
                     if object_name.is_empty() || spec.object_name() == object_name {
@@ -134,7 +126,8 @@ impl ServerClient {
             (obj_ref.protocol_name.clone(), object_name)
         };
 
-        for imp in &self.server.upgrade().unwrap().read().unwrap().impls {
+        let impls = self.state.impls.as_ref().unwrap();
+        for imp in impls.iter() {
             if imp.protocol().spec_name() == protocol_name {
                 if let Some(obj_impl) = imp
                     .implementation()

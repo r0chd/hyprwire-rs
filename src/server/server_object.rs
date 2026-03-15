@@ -2,10 +2,10 @@ use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
 use crate::{message, trace, SharedState};
 use std::os::raw;
-use std::sync;
+use std::{rc, sync};
 
 pub(crate) struct ServerObject {
-    pub(crate) state: sync::Arc<SharedState>,
+    pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
@@ -29,7 +29,7 @@ impl Drop for ServerObject {
 
 impl ServerObject {
     pub fn new(
-        state: sync::Arc<SharedState>,
+        state: rc::Rc<SharedState>,
     ) -> Self {
         Self {
             state,
@@ -128,7 +128,7 @@ impl wire_object::WireObject for ServerObject {
     }
 
     fn errd(&self) {
-        self.state.error.store(true, sync::atomic::Ordering::Relaxed);
+        self.state.error.set(true);
     }
 
     fn send_message(&self, msg: &dyn message::Message) {

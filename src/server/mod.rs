@@ -4,9 +4,9 @@ mod server_socket;
 
 use crate::implementation::server;
 use std::os::fd::RawFd;
-use std::{io, path, sync};
+use std::{io, path};
 
-pub struct Server(pub(crate) sync::Arc<sync::RwLock<server_socket::ServerSocket>>);
+pub struct Server(server_socket::ServerSocket);
 
 impl Server {
     pub fn open(path: Option<&path::Path>) -> io::Result<Self> {
@@ -17,12 +17,12 @@ impl Server {
     where
         T: server::ProtocolImplementations + 'static,
     {
-        self.0.write().unwrap().add_implementation(Box::new(p_impl));
+        self.0.add_implementation(Box::new(p_impl));
     }
 
-    pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> bool {
+    pub fn dispatch_events<D>(&mut self, state: &mut D, block: bool) -> bool {
         crate::set_dispatch_state(state as *mut D as *mut std::ffi::c_void);
-        let result = self.0.write().unwrap().dispatch_events(block);
+        let result = self.0.dispatch_events(block);
         crate::set_dispatch_state(std::ptr::null_mut());
         result
     }
@@ -31,11 +31,11 @@ impl Server {
         todo!("extract_loop_fd")
     }
 
-    pub fn add_client(&self, fd: RawFd) {
+    pub fn add_client(&self, _fd: RawFd) {
         todo!("add_client")
     }
 
-    pub fn remove_client(&self, fd: RawFd) -> bool {
+    pub fn remove_client(&self, _fd: RawFd) -> bool {
         todo!("remove_client")
     }
 }

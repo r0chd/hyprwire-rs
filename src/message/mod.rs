@@ -15,7 +15,6 @@ pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
 pub(crate) use messages::Message;
 use std::fmt;
-use std::sync::atomic;
 
 #[derive(Debug)]
 pub enum MessageError {
@@ -189,7 +188,7 @@ fn parse_single_message_client(
                         "server at fd {} core protocol error: version negotiation failed",
                         client.state.fd
                     );
-                    client.state.error.store(true, atomic::Ordering::Relaxed);
+                    client.state.error.set(true);
                     return Err(MessageError::VersionNegotiationFailed);
                 }
 
@@ -268,7 +267,7 @@ fn parse_single_message_client(
                     msg.error_id(),
                     msg.error_msg()
                 );
-                client.state.error.store(true, atomic::Ordering::Relaxed);
+                client.state.error.set(true);
 
                 return Ok(msg.data().len());
             }
@@ -293,7 +292,7 @@ fn parse_single_message_client(
             | MessageType::HandshakeAck
             | MessageType::RoundtripRequest
             | MessageType::Sup => {
-                client.state.error.store(true, atomic::Ordering::Relaxed);
+                client.state.error.set(true);
                 log::error!(
                     "server at fd {} core protocol error: invalid message recvd ({message})",
                     client.state.fd
@@ -337,7 +336,7 @@ fn parse_single_message_server(
                 return Ok(msg.data().len());
             }
             MessageType::HandshakeBegin => {
-                client.state.error.store(true, atomic::Ordering::Relaxed);
+                client.state.error.set(true);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (HandshakeBegin)",
                     client.state.fd
@@ -367,7 +366,7 @@ fn parse_single_message_server(
                 return Ok(msg.data().len());
             }
             MessageType::HandshakeProtocols => {
-                client.state.error.store(true, atomic::Ordering::Relaxed);
+                client.state.error.set(true);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (HandshakeProtocols)",
                     client.state.fd
@@ -391,7 +390,7 @@ fn parse_single_message_server(
                 return Ok(msg.data().len());
             }
             MessageType::NewObject => {
-                client.state.error.store(true, atomic::Ordering::Relaxed);
+                client.state.error.set(true);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (NewObject)",
                     client.state.fd
@@ -416,7 +415,7 @@ fn parse_single_message_server(
                 return Ok(msg.data().len());
             }
             MessageType::FatalProtocolError => {
-                client.state.error.store(true, atomic::Ordering::Relaxed);
+                client.state.error.set(true);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (FatalProtocolError)",
                     client.state.fd
@@ -440,7 +439,7 @@ fn parse_single_message_server(
                 return Ok(msg.data().len());
             }
             MessageType::RoundtripDone => {
-                client.state.error.store(true, atomic::Ordering::Relaxed);
+                client.state.error.set(true);
                 log::error!(
                     "client at fd {} core protocol error: invalid message recvd (RoundtripDone)",
                     client.state.fd
@@ -455,7 +454,7 @@ fn parse_single_message_server(
         "client at fd {} core protocol error: malformed message recvd (invalid type code)",
         client.state.fd
     );
-    client.state.error.store(true, atomic::Ordering::Relaxed);
+    client.state.error.set(true);
 
     Err(MessageError::InvalidMessage)
 }

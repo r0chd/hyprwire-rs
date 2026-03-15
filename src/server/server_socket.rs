@@ -17,18 +17,17 @@ pub struct ServerSocket {
     exit_fd: net::UnixStream,
     exit_write_fd: net::UnixStream,
     is_empty_listener: bool,
-    pub(crate) impls: Vec<Box<dyn implementation::server::ProtocolImplementations>>,
+    impls: sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
     clients: Vec<rc::Rc<cell::RefCell<server_client::ServerClient>>>,
     pollfds: Vec<poll::PollFd<'static>>,
-    _self: sync::Weak<sync::RwLock<Self>>,
 }
 
 impl ServerSocket {
-    pub fn open(path: Option<&path::Path>) -> io::Result<sync::Arc<sync::RwLock<Self>>> {
+    pub fn open(path: Option<&path::Path>) -> io::Result<Self> {
         let wake_pipes = net::UnixStream::pair()?;
         let exit_pipes = net::UnixStream::pair()?;
 
-        match path {
+        let mut this = match path {
             Some(path) => {
                 if fs::exists(path)? {
                     match net::UnixStream::connect(path) {
@@ -45,53 +44,46 @@ impl ServerSocket {
 
                 let socket = net::UnixListener::bind(path)?;
                 socket.set_nonblocking(true)?;
-                let arc = sync::Arc::new_cyclic(|weak_self| {
-                    sync::RwLock::new(Self {
-                        server: Some(socket),
-                        export_fd: None,
-                        export_write_fd: None,
-                        wakeup_fd: wake_pipes.0,
-                        wakeup_write_fd: wake_pipes.1,
-                        exit_fd: exit_pipes.0,
-                        exit_write_fd: exit_pipes.1,
-                        is_empty_listener: false,
-                        impls: Vec::new(),
-                        clients: Vec::new(),
-                        pollfds: Vec::new(),
-                        _self: weak_self.clone(),
-                    })
-                });
-                arc.write().unwrap().recheck_pollfds();
-                Ok(arc)
+                Self {
+                    server: Some(socket),
+                    export_fd: None,
+                    export_write_fd: None,
+                    wakeup_fd: wake_pipes.0,
+                    wakeup_write_fd: wake_pipes.1,
+                    exit_fd: exit_pipes.0,
+                    exit_write_fd: exit_pipes.1,
+                    is_empty_listener: false,
+                    impls: sync::Arc::new(Vec::new()),
+                    clients: Vec::new(),
+                    pollfds: Vec::new(),
+                }
             }
-            None => {
-                let arc = sync::Arc::new_cyclic(|weak_self| {
-                    sync::RwLock::new(Self {
-                        server: None,
-                        export_fd: None,
-                        export_write_fd: None,
-                        wakeup_fd: wake_pipes.0,
-                        wakeup_write_fd: wake_pipes.1,
-                        exit_fd: exit_pipes.0,
-                        exit_write_fd: exit_pipes.1,
-                        is_empty_listener: true,
-                        impls: Vec::new(),
-                        clients: Vec::new(),
-                        pollfds: Vec::new(),
-                        _self: weak_self.clone(),
-                    })
-                });
-                arc.write().unwrap().recheck_pollfds();
-                Ok(arc)
-            }
-        }
+            None => Self {
+                server: None,
+                export_fd: None,
+                export_write_fd: None,
+                wakeup_fd: wake_pipes.0,
+                wakeup_write_fd: wake_pipes.1,
+                exit_fd: exit_pipes.0,
+                exit_write_fd: exit_pipes.1,
+                is_empty_listener: true,
+                impls: sync::Arc::new(Vec::new()),
+                clients: Vec::new(),
+                pollfds: Vec::new(),
+            },
+        };
+
+        this.recheck_pollfds();
+        Ok(this)
     }
 
     pub fn add_implementation(
         &mut self,
         implementation: Box<dyn implementation::server::ProtocolImplementations>,
     ) {
-        self.impls.push(implementation);
+        sync::Arc::get_mut(&mut self.impls)
+            .expect("cannot add implementations after clients connect")
+            .push(implementation);
     }
 
     pub fn dispatch_pending(&mut self) -> bool {
@@ -131,19 +123,20 @@ impl ServerSocket {
     }
 
     fn dispatch_client(&self, client: &rc::Rc<cell::RefCell<server_client::ServerClient>>) {
-        let state = sync::Arc::clone(&client.borrow().state);
+        let state = rc::Rc::clone(&client.borrow().state);
 
         let mut data = {
-            let stream = state.stream.lock().unwrap();
+            let stream = state.stream.borrow();
             match socket::SocketRawParsedMessage::read_from_socket(&stream) {
                 Ok(d) => d,
                 Err(_) => {
+                    drop(stream);
                     state.send_message(&message::FatalProtocolError::new(
                         0,
                         u32::MAX,
                         "fatal: invalid message on wire",
                     ));
-                    state.error.store(true, sync::atomic::Ordering::Relaxed);
+                    state.error.set(true);
                     return;
                 }
             }
@@ -161,7 +154,7 @@ impl ServerSocket {
                 u32::MAX,
                 "fatal: failed to handle message on wire",
             ));
-            state.error.store(true, sync::atomic::Ordering::Relaxed);
+            state.error.set(true);
             return;
         }
 
@@ -194,7 +187,7 @@ impl ServerSocket {
             had_any = true;
 
             if revents.contains(poll::PollFlags::POLLHUP) {
-                self.clients[client_idx].borrow_mut().state.error.store(true, sync::atomic::Ordering::Relaxed);
+                self.clients[client_idx].borrow().state.error.set(true);
                 needs_poll_recheck = true;
                 trace! {
                     log::debug!(
@@ -206,7 +199,7 @@ impl ServerSocket {
                 continue;
             }
 
-            if self.clients[client_idx].borrow().state.error.load(sync::atomic::Ordering::Relaxed) {
+            if self.clients[client_idx].borrow().state.error.get() {
                 trace! {
                     log::debug!(
                         "[{} @ {:.3}] Dropping client (protocol error)",
@@ -218,7 +211,7 @@ impl ServerSocket {
         }
 
         if needs_poll_recheck {
-            self.clients.retain(|c| !c.borrow().state.error.load(sync::atomic::Ordering::Relaxed));
+            self.clients.retain(|c| !c.borrow().state.error.get());
             self.recheck_pollfds();
         }
 
@@ -256,10 +249,9 @@ impl ServerSocket {
             }
         };
 
-        let state = sync::Arc::new(SharedState::new(stream));
+        let state = rc::Rc::new(SharedState::with_impls(stream, sync::Arc::clone(&self.impls)));
         let client = rc::Rc::new(cell::RefCell::new(server_client::ServerClient::new(
-            sync::Arc::clone(&state),
-            self._self.clone(),
+            rc::Rc::clone(&state),
         )));
 
         self.clients.push(client);

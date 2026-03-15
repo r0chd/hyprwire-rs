@@ -10,29 +10,43 @@ use implementation::object;
 use nix::{errno, poll, sys};
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
-use std::sync::atomic;
 use std::{cell, ffi, io, sync, time};
 
 pub struct SharedState {
-    pub error: atomic::AtomicBool,
-    pub stream: sync::Mutex<net::UnixStream>,
+    pub error: cell::Cell<bool>,
+    pub stream: cell::RefCell<net::UnixStream>,
     pub fd: i32,
+    pub impls: Option<sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
 impl SharedState {
     pub fn new(stream: net::UnixStream) -> Self {
         let fd = stream.as_raw_fd();
         Self {
-            error: atomic::AtomicBool::new(false),
-            stream: sync::Mutex::new(stream),
+            error: cell::Cell::new(false),
+            stream: cell::RefCell::new(stream),
             fd,
+            impls: None,
+        }
+    }
+
+    pub fn with_impls(
+        stream: net::UnixStream,
+        impls: sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
+    ) -> Self {
+        let fd = stream.as_raw_fd();
+        Self {
+            error: cell::Cell::new(false),
+            stream: cell::RefCell::new(stream),
+            fd,
+            impls: Some(impls),
         }
     }
 
     pub fn send_message(&self, message: &dyn message::Message) {
         trace! { log::trace!("[{} @ {:.3}] -> {}", self.fd, steady_millis(), message.parse_data()) };
 
-        let stream = self.stream.lock().unwrap();
+        let stream = self.stream.borrow();
         let buf = message.data();
         let iov = [io::IoSlice::new(buf)];
         let cmsg = [sys::socket::ControlMessage::ScmRights(message.fds())];

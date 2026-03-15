@@ -6,7 +6,7 @@ use std::{cell, rc, sync};
 
 pub struct ClientObject {
     client: rc::Weak<cell::RefCell<client_socket::ClientSocket>>,
-    pub(crate) state: sync::Arc<SharedState>,
+    pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
@@ -31,7 +31,7 @@ impl Drop for ClientObject {
 impl ClientObject {
     pub fn new(
         client_socket: rc::Weak<cell::RefCell<client_socket::ClientSocket>>,
-        state: sync::Arc<SharedState>,
+        state: rc::Rc<SharedState>,
     ) -> Self {
         Self {
             client: client_socket,
@@ -134,7 +134,7 @@ impl wire_object::WireObject for ClientObject {
     }
 
     fn errd(&self) {
-        self.state.error.store(true, sync::atomic::Ordering::Relaxed);
+        self.state.error.set(true);
     }
 
     fn send_message(&self, msg: &dyn message::Message) {

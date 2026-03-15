@@ -9,7 +9,6 @@ use nix::{errno, poll};
 use std::os::fd;
 use std::os::fd::{BorrowedFd, FromRawFd};
 use std::os::unix::net;
-use std::sync::atomic;
 use std::{cell, io, ops, path, rc, sync, time};
 
 pub struct ClientSocket {
@@ -17,7 +16,7 @@ pub struct ClientSocket {
     server_specs: cell::RefCell<Vec<server_spec::ServerSpec>>,
     objects: cell::RefCell<Vec<rc::Rc<cell::RefCell<client_object::ClientObject>>>>,
     handshake_begin: time::Instant,
-    pub(crate) state: sync::Arc<SharedState>,
+    pub(crate) state: rc::Rc<SharedState>,
     pub(crate) handshake_done: cell::Cell<bool>,
     pub(crate) last_ackd_roundtrip_seq: cell::Cell<u32>,
     last_sent_roundtrip_seq: u32,
@@ -30,7 +29,7 @@ const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
     fn new(stream: net::UnixStream) -> rc::Rc<cell::RefCell<Self>> {
-        let state = sync::Arc::new(SharedState::new(stream));
+        let state = rc::Rc::new(SharedState::new(stream));
         let client_socket = rc::Rc::new_cyclic(|weak_self| {
             cell::RefCell::new(Self {
                 last_ackd_roundtrip_seq: cell::Cell::new(0),
@@ -38,7 +37,7 @@ impl ClientSocket {
                 seq: 0,
                 impls: Vec::new(),
                 server_specs: cell::RefCell::new(Vec::new()),
-                state: sync::Arc::clone(&state),
+                state: rc::Rc::clone(&state),
                 objects: cell::RefCell::new(Vec::new()),
                 handshake_done: cell::Cell::new(false),
                 handshake_begin: time::Instant::now(),
@@ -71,11 +70,11 @@ impl ClientSocket {
     pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
         self.handshake_begin = time::Instant::now();
 
-        while !self.state.error.load(atomic::Ordering::Relaxed) && !self.handshake_done.get() {
+        while !self.state.error.get() && !self.handshake_done.get() {
             self.dispatch_events(true)?;
         }
 
-        if self.state.error.load(atomic::Ordering::Relaxed) {
+        if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
                 "handshake failed",
@@ -115,7 +114,7 @@ impl ClientSocket {
         }
 
         let mut object =
-            client_object::ClientObject::new(self._self.clone(), sync::Arc::clone(&self.state));
+            client_object::ClientObject::new(self._self.clone(), rc::Rc::clone(&self.state));
         let objects = spec.objects();
         object.spec = Some(sync::Arc::clone(&objects[0]));
         self.seq += 1;
@@ -138,11 +137,11 @@ impl ClientSocket {
         &mut self,
         object: &rc::Rc<cell::RefCell<client_object::ClientObject>>,
     ) -> Result<(), io::Error> {
-        while object.borrow().id == 0 && !self.state.error.load(atomic::Ordering::Relaxed) {
+        while object.borrow().id == 0 && !self.state.error.get() {
             self.dispatch_events(true)?;
         }
 
-        if self.state.error.load(atomic::Ordering::Relaxed) {
+        if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
                 "connection error while waiting for object",
@@ -159,7 +158,7 @@ impl ClientSocket {
         seq: u32,
     ) -> Result<rc::Rc<cell::RefCell<client_object::ClientObject>>, message::MessageError> {
         let mut object =
-            client_object::ClientObject::new(self._self.clone(), sync::Arc::clone(&self.state));
+            client_object::ClientObject::new(self._self.clone(), rc::Rc::clone(&self.state));
         object.protocol_name = protocol_name.to_string();
 
         if let Some(obj) = self
@@ -206,17 +205,16 @@ impl ClientSocket {
     }
 
     pub fn disconnect_on_error(&self) {
-        self.state.error.store(true, atomic::Ordering::Relaxed);
+        self.state.error.set(true);
         self.state
             .stream
-            .lock()
-            .unwrap()
+            .borrow()
             .shutdown(std::net::Shutdown::Both)
             .unwrap();
     }
 
     pub fn roundtrip(&mut self) -> Result<(), io::Error> {
-        if self.state.error.load(atomic::Ordering::Relaxed) {
+        if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
                 "connection closed",
@@ -236,7 +234,7 @@ impl ClientSocket {
     }
 
     pub fn dispatch_events(&mut self, block: bool) -> Result<(), io::Error> {
-        if self.state.error.load(atomic::Ordering::Relaxed) {
+        if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
                 "connection closed",
@@ -344,7 +342,7 @@ impl ClientSocket {
         // dispatch
 
         let mut data = {
-            let stream = self.state.stream.lock().unwrap();
+            let stream = self.state.stream.borrow();
             match socket::SocketRawParsedMessage::read_from_socket(&*stream) {
                 Err(_) => {
                     drop(stream);
@@ -397,7 +395,7 @@ impl ClientSocket {
             self.state.send_message(&msg);
         }
 
-        if self.state.error.load(atomic::Ordering::Relaxed) {
+        if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
                 "connection closed",
