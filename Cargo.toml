@@ -18,7 +18,6 @@ name = "basic-server"
 path = "examples/basic/server.rs"
 
 [dependencies]
-env_logger = { version = "0.11.9", default-features = false }
 hyprwire-scanner = { path = "scanner" }
 libffi = { version = "5.1.0", default-features = false }
 log = "0.4.29"
@@ -29,3 +28,4 @@ hyprwire-scanner = { path = "scanner" }
 
 [dev-dependencies]
 insta = "1"
+env_logger = { version = "0.11.9", default-features = false }
