@@ -1,6 +1,6 @@
 use crate::message::MessageError;
 use libffi::low;
-use std::{cell, rc};
+use std::{cell, rc, sync::Arc};
 
 /// A user-facing handle to a protocol object. Wraps the internal
 /// `Rc<RefCell<dyn Object>>` so callers never deal with those types directly.
@@ -105,7 +105,7 @@ pub struct Method {
     pub since: u32,
 }
 
-pub trait ProtocolObjectSpec {
+pub trait ProtocolObjectSpec: Send + Sync {
     fn object_name(&self) -> &str;
 
     fn c2s(&self) -> &[Method];
@@ -118,5 +118,5 @@ pub trait ProtocolSpec {
 
     fn spec_ver(&self) -> u32;
 
-    fn objects(&self) -> &[&dyn ProtocolObjectSpec];
+    fn objects(&self) -> &[Arc<dyn ProtocolObjectSpec>];
 }

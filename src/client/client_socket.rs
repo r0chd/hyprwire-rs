@@ -9,7 +9,7 @@ use nix::{errno, poll};
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 use std::os::unix::net;
-use std::{cell, io, ops, path, rc, time};
+use std::{cell, io, ops, path, rc, sync, time};
 
 pub struct ClientSocket {
     pub(crate) stream: net::UnixStream,
@@ -22,7 +22,6 @@ pub struct ClientSocket {
     pub(crate) last_ackd_roundtrip_seq: u32,
     last_sent_roundtrip_seq: u32,
     pub(crate) seq: u32,
-    pending_socket_data: Vec<socket::SocketRawParsedMessage>,
     pub(crate) pending_outgoing: Vec<message::GenericProtocolMessage<ops::Range<usize>>>,
     _self: rc::Weak<cell::RefCell<Self>>,
 }
@@ -43,7 +42,6 @@ impl ClientSocket {
                 objects: Vec::new(),
                 handshake_done: false,
                 handshake_begin: time::Instant::now(),
-                pending_socket_data: Vec::new(),
                 pending_outgoing: Vec::new(),
                 _self: weak_self.clone(),
             })
@@ -116,8 +114,7 @@ impl ClientSocket {
 
         let mut object = client_object::ClientObject::new(self._self.clone());
         let objects = spec.objects();
-        // SAFETY: spec reference comes from static protocol definitions that outlive the socket.
-        object.spec = Some(unsafe { std::mem::transmute(objects[0]) });
+        object.spec = Some(sync::Arc::clone(&objects[0]));
         self.seq += 1;
         object.seq = self.seq;
         object.version = version;
@@ -210,12 +207,9 @@ impl ClientSocket {
                     .objects()
                     .iter()
                     .find(|obj| obj.object_name() == object_name)
-                    .copied()
             })
         {
-            // SAFETY: The spec reference comes from self.impls which outlives self.objects.
-            // ClientObject only accesses spec while ClientSocket is alive.
-            object.spec = Some(unsafe { std::mem::transmute(obj) });
+            object.spec = Some(sync::Arc::clone(obj));
         }
 
         if object.spec.is_none() {

@@ -1,14 +1,14 @@
-use crate::client::{self, client_socket};
+use crate::client::client_socket;
 use crate::implementation::{object, types, wire_object};
-use crate::{message, trace};
+use crate::{client, message, trace};
 use std::os::raw;
-use std::{cell, rc};
+use std::{cell, rc, sync::Arc};
 
 pub struct ClientObject {
-    client: Option<rc::Weak<cell::RefCell<client_socket::ClientSocket>>>,
+    client: rc::Weak<cell::RefCell<client_socket::ClientSocket>>,
     // SAFETY: spec points into ClientSocket.impls which outlives ClientSocket.objects.
     // Only accessed while the parent ClientSocket is alive.
-    pub(crate) spec: Option<*const dyn types::ProtocolObjectSpec>,
+    pub(crate) spec: Option<Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
     listeners: Vec<*mut raw::c_void>,
@@ -21,7 +21,9 @@ pub struct ClientObject {
 impl Drop for ClientObject {
     fn drop(&mut self) {
         trace! {log::debug!("destroying object {}", self.id)}
-        if let Some(destructor) = self.data_destructor && let Some(data) = self.data {
+        if let Some(destructor) = self.data_destructor
+            && let Some(data) = self.data
+        {
             unsafe { destructor(data) };
         }
     }
@@ -30,7 +32,7 @@ impl Drop for ClientObject {
 impl ClientObject {
     pub fn new(client_socket: rc::Weak<cell::RefCell<client_socket::ClientSocket>>) -> Self {
         Self {
-            client: Some(client_socket),
+            client: client_socket,
             spec: None,
             data: None,
             data_destructor: None,
@@ -67,9 +69,7 @@ impl object::Object for ClientObject {
     }
 
     fn client_sock(&self) -> Option<client::Client> {
-        self.client
-            .as_ref()
-            .and_then(|weak| weak.upgrade().map(client::Client))
+        self.client.upgrade().map(client::Client)
     }
 
     fn set_data(
@@ -85,7 +85,7 @@ impl object::Object for ClientObject {
         self.data.unwrap_or(std::ptr::null_mut())
     }
 
-    fn error(&self, error_id: u32, error_msg: &str) {
+    fn error(&mut self, error_id: u32, error_msg: &str) {
         _ = error_id;
         _ = error_msg;
     }
@@ -118,24 +118,26 @@ impl wire_object::WireObject for ClientObject {
 
     fn methods_out(&self) -> &[types::Method] {
         self.spec
-            .map(|spec| unsafe { &*spec }.c2s())
+            .as_ref()
+            .map(|spec| spec.c2s())
             .unwrap_or_default()
     }
 
     fn methods_in(&self) -> &[types::Method] {
         self.spec
-            .map(|spec| unsafe { &*spec }.s2c())
+            .as_ref()
+            .map(|spec| spec.s2c())
             .unwrap_or_default()
     }
 
     fn errd(&mut self) {
-        if let Some(client) = self.client.as_ref().and_then(|weak| weak.upgrade()) {
+        if let Some(client) = self.client.upgrade() {
             client.borrow_mut().error = true;
         }
     }
 
     fn send_message(&mut self, msg: &dyn message::Message) {
-        if let Some(client) = self.client.as_ref().and_then(|weak| weak.upgrade()) {
+        if let Some(client) = self.client.upgrade() {
             client.borrow_mut().send_message(msg);
         }
     }

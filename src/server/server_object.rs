@@ -1,12 +1,13 @@
 use super::server_client;
+use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
 use crate::{message, trace};
 use std::os::raw;
-use std::{cell, rc};
+use std::{cell, rc, sync::Arc};
 
 pub(crate) struct ServerObject {
-    client: Option<rc::Weak<cell::RefCell<server_client::ServerClient>>>,
-    pub(crate) spec: Option<*const dyn types::ProtocolObjectSpec>,
+    client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
+    pub(crate) spec: Option<Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
     listeners: Vec<*mut raw::c_void>,
@@ -14,25 +15,23 @@ pub(crate) struct ServerObject {
     pub(crate) version: u32,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
-    _self: rc::Weak<cell::RefCell<Self>>,
 }
 
 impl Drop for ServerObject {
     fn drop(&mut self) {
         trace! {log::debug!("destroying server object {}", self.id)}
-        if let Some(destructor) = self.data_destructor && let Some(data) = self.data {
+        if let Some(destructor) = self.data_destructor
+            && let Some(data) = self.data
+        {
             unsafe { destructor(data) };
         }
     }
 }
 
 impl ServerObject {
-    pub fn new(
-        server_client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
-        weak_self: rc::Weak<cell::RefCell<Self>>,
-    ) -> Self {
+    pub fn new(server_client: rc::Weak<cell::RefCell<server_client::ServerClient>>) -> Self {
         Self {
-            client: Some(server_client),
+            client: server_client,
             spec: None,
             data: None,
             data_destructor: None,
@@ -41,12 +40,7 @@ impl ServerObject {
             version: 0,
             seq: 0,
             protocol_name: String::new(),
-            _self: weak_self,
         }
-    }
-
-    pub fn self_ref(&self) -> Option<rc::Rc<cell::RefCell<Self>>> {
-        self._self.upgrade()
     }
 }
 
@@ -86,11 +80,11 @@ impl object::Object for ServerObject {
         self.data.unwrap_or(std::ptr::null_mut())
     }
 
-    fn error(&self, error_id: u32, error_msg: &str) {
-        if let Some(client) = self.client.as_ref().and_then(|weak| weak.upgrade()) {
+    fn error(&mut self, error_id: u32, error_msg: &str) {
+        if let Some(client) = self.client.upgrade() {
             let msg = message::FatalProtocolError::new(self.id, error_id, error_msg);
             client.borrow().send_message(&msg);
-            client.borrow_mut().error = true;
+            self.errd();
         }
     }
 }
@@ -122,24 +116,26 @@ impl wire_object::WireObject for ServerObject {
 
     fn methods_out(&self) -> &[types::Method] {
         self.spec
-            .map(|spec| unsafe { &*spec }.s2c())
+            .as_ref()
+            .map(|spec| spec.s2c())
             .unwrap_or_default()
     }
 
     fn methods_in(&self) -> &[types::Method] {
         self.spec
-            .map(|spec| unsafe { &*spec }.c2s())
+            .as_ref()
+            .map(|spec| spec.c2s())
             .unwrap_or_default()
     }
 
     fn errd(&mut self) {
-        if let Some(client) = self.client.as_ref().and_then(|weak| weak.upgrade()) {
+        if let Some(client) = self.client.upgrade() {
             client.borrow_mut().error = true;
         }
     }
 
     fn send_message(&mut self, msg: &dyn message::Message) {
-        if let Some(client) = self.client.as_ref().and_then(|weak| weak.upgrade()) {
+        if let Some(client) = self.client.upgrade() {
             client.borrow().send_message(msg);
         }
     }

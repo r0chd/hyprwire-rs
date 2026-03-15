@@ -1,4 +1,5 @@
 use crate::implementation::types;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ServerSpec {
@@ -21,7 +22,7 @@ impl types::ProtocolSpec for ServerSpec {
         self.version
     }
 
-    fn objects(&self) -> &[&dyn types::ProtocolObjectSpec] {
+    fn objects(&self) -> &[Arc<dyn types::ProtocolObjectSpec>] {
         &[]
     }
 }

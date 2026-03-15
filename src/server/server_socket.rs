@@ -111,7 +111,9 @@ impl ServerSocket {
         loop {
             let _ = poll::poll(&mut pfd, poll::PollTimeout::ZERO);
 
-            if let Some(revents) = pfd[0].revents() && revents.contains(poll::PollFlags::POLLIN) {
+            if let Some(revents) = pfd[0].revents()
+                && revents.contains(poll::PollFlags::POLLIN)
+            {
                 let _ = io::Read::read(&mut &*fd, &mut buf);
                 continue;
             }
@@ -129,32 +131,28 @@ impl ServerSocket {
     }
 
     fn dispatch_client(&self, client: &rc::Rc<cell::RefCell<server_client::ServerClient>>) {
-        let mut data = match socket::SocketRawParsedMessage::read_from_socket(
-            &client.borrow().stream,
-        ) {
-            Ok(d) => d,
-            Err(_) => {
-                client
-                    .borrow()
-                    .send_message(&message::FatalProtocolError::new(
-                        0,
-                        u32::MAX,
-                        "fatal: invalid message on wire",
-                    ));
-                client.borrow_mut().error = true;
-                return;
-            }
-        };
+        let mut data =
+            match socket::SocketRawParsedMessage::read_from_socket(&client.borrow().stream) {
+                Ok(d) => d,
+                Err(_) => {
+                    client
+                        .borrow()
+                        .send_message(&message::FatalProtocolError::new(
+                            0,
+                            u32::MAX,
+                            "fatal: invalid message on wire",
+                        ));
+                    client.borrow_mut().error = true;
+                    return;
+                }
+            };
 
         if data.data.is_empty() {
             return;
         }
 
-        if message::handle_message(
-            &mut data,
-            message::Role::Server(&mut client.borrow_mut()),
-        )
-        .is_err()
+        if message::handle_message(&mut data, message::Role::Server(&mut client.borrow_mut()))
+            .is_err()
         {
             client
                 .borrow()
@@ -165,13 +163,6 @@ impl ServerSocket {
                 ));
             client.borrow_mut().error = true;
             return;
-        }
-
-        let pending_binds = client.borrow_mut().take_pending_binds();
-        if !pending_binds.is_empty() {
-            for obj in pending_binds {
-                client.borrow().on_bind(obj);
-            }
         }
 
         let scheduled_seq = client.borrow().scheduled_roundtrip_seq;
@@ -271,7 +262,7 @@ impl ServerSocket {
         let client = rc::Rc::new_cyclic(|weak_client| {
             cell::RefCell::new(server_client::ServerClient::new(
                 stream,
-                server_ptr,
+                self._self.clone(),
                 weak_client.clone(),
             ))
         });
@@ -285,10 +276,12 @@ impl ServerSocket {
     fn recheck_pollfds(&mut self) {
         self.pollfds.clear();
 
-        if !self.is_empty_listener && let Some(server) = &self.server {
-                let fd = unsafe { BorrowedFd::borrow_raw(server.as_fd().as_raw_fd()) };
-                self.pollfds
-                    .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
+        if !self.is_empty_listener
+            && let Some(server) = &self.server
+        {
+            let fd = unsafe { BorrowedFd::borrow_raw(server.as_fd().as_raw_fd()) };
+            self.pollfds
+                .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
         }
 
         let fd = unsafe { BorrowedFd::borrow_raw(self.exit_fd.as_fd().as_raw_fd()) };

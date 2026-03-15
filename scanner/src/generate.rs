@@ -183,7 +183,9 @@ fn generate_spec(w: &mut W, protocol: &Protocol) {
         w.line("}");
         w.line("");
 
-        w.line(&format!("static {screaming}: {spec_name} = {spec_name} {{"));
+        w.line(&format!(
+            "static {screaming}: std::sync::LazyLock<std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>> = std::sync::LazyLock::new(|| std::sync::Arc::new({spec_name} {{"
+        ));
         w.indent();
 
         // c2s methods
@@ -205,7 +207,7 @@ fn generate_spec(w: &mut W, protocol: &Protocol) {
         w.line("],");
 
         w.dedent();
-        w.line("};");
+        w.line("}));");
         w.line("");
 
         // ProtocolObjectSpec impl
@@ -231,11 +233,11 @@ fn generate_spec(w: &mut W, protocol: &Protocol) {
     let proto_spec = format!("{proto_pascal}ProtocolSpec");
     let num_objects = protocol.objects.len();
 
-    w.line("#[derive(Copy, Clone)]");
+    w.line("#[derive(Clone)]");
     w.line(&format!("pub struct {proto_spec} {{"));
     w.indent();
     w.line(&format!(
-        "objects: [&'static dyn hyprwire::implementation::types::ProtocolObjectSpec; {num_objects}],"
+        "objects: [std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>; {num_objects}],"
     ));
     w.dedent();
     w.line("}");
@@ -251,7 +253,7 @@ fn generate_spec(w: &mut W, protocol: &Protocol) {
     let obj_refs: Vec<String> = protocol
         .objects
         .iter()
-        .map(|o| format!("&{}", snake_to_screaming(&o.name)))
+        .map(|o| format!("std::sync::Arc::clone(&{})", snake_to_screaming(&o.name)))
         .collect();
     w.line(&format!("objects: [{}],", obj_refs.join(", ")));
     w.dedent();
@@ -278,7 +280,7 @@ fn generate_spec(w: &mut W, protocol: &Protocol) {
     ));
     w.line("");
     w.line(
-        "fn objects(&self) -> &[&dyn hyprwire::implementation::types::ProtocolObjectSpec] { &self.objects }",
+        "fn objects(&self) -> &[std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>] { &self.objects }",
     );
     w.dedent();
     w.line("}");
@@ -407,7 +409,7 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         w.line("");
         w.line("pub fn error(&self, error_id: u32, error_msg: &str) {");
         w.indent();
-        w.line("self.object.inner().borrow().error(error_id, error_msg);");
+        w.line("self.object.inner().borrow_mut().error(error_id, error_msg);");
         w.dedent();
         w.line("}");
 
@@ -640,7 +642,7 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
 
     // Protocol impl struct
     let proto_pascal = snake_to_pascal(&protocol.name);
-    w.line("#[derive(Default, Copy, Clone)]");
+    w.line("#[derive(Default, Clone)]");
     w.line(&format!("pub struct {proto_pascal}Impl {{"));
     w.indent();
     w.line(&format!(

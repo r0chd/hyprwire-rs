@@ -19,5 +19,5 @@ pub trait Object {
 
     fn get_data(&self) -> *mut raw::c_void;
 
-    fn error(&self, error_id: u32, error_msg: &str);
+    fn error(&mut self, error_id: u32, error_msg: &str);
 }

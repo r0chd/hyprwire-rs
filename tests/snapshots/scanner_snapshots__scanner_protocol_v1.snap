@@ -157,7 +157,7 @@ pub mod server {
         }
 
         pub fn error(&self, error_id: u32, error_msg: &str) {
-            self.object.inner().borrow().error(error_id, error_msg);
+            self.object.inner().borrow_mut().error(error_id, error_msg);
         }
 
         pub fn send_send_message(&self, message: &str) {
@@ -271,7 +271,7 @@ pub mod server {
         }
 
         pub fn error(&self, error_id: u32, error_msg: &str) {
-            self.object.inner().borrow().error(error_id, error_msg);
+            self.object.inner().borrow_mut().error(error_id, error_msg);
         }
 
         pub fn send_send_message(&self, message: &str) {
@@ -554,7 +554,7 @@ pub mod client {
         }
     }
 
-    #[derive(Default, Copy, Clone)]
+    #[derive(Default, Clone)]
     pub struct TestProtocolV1Impl {
         protocol: super::spec::TestProtocolV1ProtocolSpec,
     }
@@ -588,7 +588,7 @@ pub mod spec {
         s2c_methods: &'static [hyprwire::implementation::types::Method],
     }
 
-    static MY_MANAGER_V1: MyManagerV1Spec = MyManagerV1Spec {
+    static MY_MANAGER_V1: std::sync::LazyLock<std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>> = std::sync::LazyLock::new(|| std::sync::Arc::new(MyManagerV1Spec {
         c2s_methods: &[
             hyprwire::implementation::types::Method {
                 idx: 0,
@@ -653,7 +653,7 @@ pub mod spec {
                 since: 0,
             },
         ],
-    };
+    }));
 
     impl hyprwire::implementation::types::ProtocolObjectSpec for MyManagerV1Spec {
         fn object_name(&self) -> &str { "my_manager_v1" }
@@ -668,7 +668,7 @@ pub mod spec {
         s2c_methods: &'static [hyprwire::implementation::types::Method],
     }
 
-    static MY_OBJECT_V1: MyObjectV1Spec = MyObjectV1Spec {
+    static MY_OBJECT_V1: std::sync::LazyLock<std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>> = std::sync::LazyLock::new(|| std::sync::Arc::new(MyObjectV1Spec {
         c2s_methods: &[
             hyprwire::implementation::types::Method {
                 idx: 0,
@@ -703,7 +703,7 @@ pub mod spec {
                 since: 0,
             },
         ],
-    };
+    }));
 
     impl hyprwire::implementation::types::ProtocolObjectSpec for MyObjectV1Spec {
         fn object_name(&self) -> &str { "my_object_v1" }
@@ -713,15 +713,15 @@ pub mod spec {
         fn s2c(&self) -> &[hyprwire::implementation::types::Method] { self.s2c_methods }
     }
 
-    #[derive(Copy, Clone)]
+    #[derive(Clone)]
     pub struct TestProtocolV1ProtocolSpec {
-        objects: [&'static dyn hyprwire::implementation::types::ProtocolObjectSpec; 2],
+        objects: [std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>; 2],
     }
 
     impl Default for TestProtocolV1ProtocolSpec {
         fn default() -> Self {
             Self {
-                objects: [&MY_MANAGER_V1, &MY_OBJECT_V1],
+                objects: [std::sync::Arc::clone(&MY_MANAGER_V1), std::sync::Arc::clone(&MY_OBJECT_V1)],
             }
         }
     }
@@ -731,6 +731,6 @@ pub mod spec {
 
         fn spec_ver(&self) -> u32 { 1 }
 
-        fn objects(&self) -> &[&dyn hyprwire::implementation::types::ProtocolObjectSpec] { &self.objects }
+        fn objects(&self) -> &[std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>] { &self.objects }
     }
 }

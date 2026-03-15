@@ -59,7 +59,7 @@ fn main() {
     let mut socket = client::Client::open(&path);
 
     let implementation = test_protocol_v1::client::TestProtocolV1Impl::default();
-    socket.add_implementation(implementation);
+    socket.add_implementation(implementation.clone());
     socket.wait_for_handshake().unwrap();
 
     let spec = socket
