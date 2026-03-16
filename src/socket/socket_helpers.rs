@@ -2,13 +2,13 @@ use nix::sys::socket::{self, ControlMessageOwned};
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
 
-pub struct SocketRawParsedMessage {
-    pub data: Box<[u8]>,
-    pub fds: Vec<i32>,
+pub(crate) struct SocketRawParsedMessage {
+    pub(crate) data: Box<[u8]>,
+    pub(crate) fds: Vec<i32>,
 }
 
 impl SocketRawParsedMessage {
-    pub fn read_from_socket(stream: &net::UnixStream) -> nix::Result<Self> {
+    pub(crate) fn read_from_socket(stream: &net::UnixStream) -> nix::Result<Self> {
         const BUFFER_SIZE: usize = 8192;
         const MAX_FDS_PER_MSG: usize = 255;
 

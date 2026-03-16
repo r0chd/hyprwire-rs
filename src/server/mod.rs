@@ -27,8 +27,8 @@ impl Server {
         result
     }
 
-    pub fn extract_loop_fd(&self) -> RawFd {
-        todo!("extract_loop_fd")
+    pub fn extract_loop_fd(&mut self) -> io::Result<RawFd> {
+        self.0.extract_loop_fd()
     }
 
     pub fn add_client(&self, _fd: RawFd) {
@@ -37,5 +37,15 @@ impl Server {
 
     pub fn remove_client(&self, _fd: RawFd) -> bool {
         todo!("remove_client")
+    }
+
+    pub fn create_object(
+        &self,
+        _client: &server_client::ServerClient,
+        _reference: &dyn crate::implementation::object::Object,
+        _object: &str,
+        _seq: u32,
+    ) -> Option<std::rc::Rc<std::cell::RefCell<dyn crate::implementation::object::Object>>> {
+        todo!("create_object")
     }
 }

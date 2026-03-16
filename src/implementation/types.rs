@@ -49,7 +49,7 @@ pub enum MessageMagic {
 }
 
 impl MessageMagic {
-    pub fn to_ffi_type(self) -> *mut low::ffi_type {
+    pub(crate) fn to_ffi_type(self) -> *mut low::ffi_type {
         match self {
             Self::TypeUint | Self::TypeObject | Self::TypeSeq => &raw mut low::types::uint32,
             Self::TypeInt => &raw mut low::types::sint32,

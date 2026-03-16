@@ -4,7 +4,7 @@ use nix::poll;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::os::unix::net;
 use std::sync;
-use std::{cell, fs, io, path, rc};
+use std::{cell, fs, io, path, rc, thread};
 
 use crate::implementation;
 
@@ -20,12 +20,23 @@ pub struct ServerSocket {
     impls: sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
     clients: Vec<rc::Rc<cell::RefCell<server_client::ServerClient>>>,
     pollfds: Vec<poll::PollFd<'static>>,
+    poll_thread: Option<thread::JoinHandle<()>>,
+    poll_mtx: sync::Arc<sync::Mutex<()>>,
+    export_poll_mtx: sync::Arc<sync::Mutex<bool>>,
+    export_poll_cv: sync::Arc<sync::Condvar>,
+    thread_exit_fd: Option<net::UnixStream>,
+    thread_exit_write_fd: Option<net::UnixStream>,
+    thread_client_fds: sync::Arc<sync::Mutex<Vec<i32>>>,
 }
 
 impl ServerSocket {
     pub fn open(path: Option<&path::Path>) -> io::Result<Self> {
         let wake_pipes = net::UnixStream::pair()?;
         let exit_pipes = net::UnixStream::pair()?;
+
+        let poll_mtx = sync::Arc::new(sync::Mutex::new(()));
+        let export_poll_mtx = sync::Arc::new(sync::Mutex::new(false));
+        let export_poll_cv = sync::Arc::new(sync::Condvar::new());
 
         let mut this = match path {
             Some(path) => {
@@ -56,6 +67,13 @@ impl ServerSocket {
                     impls: sync::Arc::new(Vec::new()),
                     clients: Vec::new(),
                     pollfds: Vec::new(),
+                    poll_thread: None,
+                    poll_mtx,
+                    export_poll_mtx,
+                    export_poll_cv,
+                    thread_exit_fd: None,
+                    thread_exit_write_fd: None,
+                    thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
                 }
             }
             None => Self {
@@ -70,6 +88,13 @@ impl ServerSocket {
                 impls: sync::Arc::new(Vec::new()),
                 clients: Vec::new(),
                 pollfds: Vec::new(),
+                poll_thread: None,
+                poll_mtx,
+                export_poll_mtx,
+                export_poll_cv,
+                thread_exit_fd: None,
+                thread_exit_write_fd: None,
+                thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
             },
         };
 
@@ -283,9 +308,18 @@ impl ServerSocket {
             self.pollfds
                 .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
         }
+
+        // sync client fds for the poll thread
+        if self.poll_thread.is_some() {
+            let mut cfds = self.thread_client_fds.lock().unwrap();
+            *cfds = self.clients.iter().map(|c| c.borrow().state.fd).collect();
+        }
     }
 
     pub fn dispatch_events(&mut self, block: bool) -> bool {
+        let mtx = sync::Arc::clone(&self.poll_mtx);
+        let _poll_guard = mtx.lock().unwrap();
+
         while self.dispatch_pending() {}
 
         self.clear_exit_fd();
@@ -296,6 +330,127 @@ impl ServerSocket {
             while self.dispatch_pending() {}
         }
 
+        drop(_poll_guard);
+
+        let export_mtx = sync::Arc::clone(&self.export_poll_mtx);
+        let export_cv = sync::Arc::clone(&self.export_poll_cv);
+        let mut poll_event = export_mtx.lock().unwrap();
+        *poll_event = false;
+        export_cv.notify_all();
+
         true
+    }
+
+    pub fn extract_loop_fd(&mut self) -> io::Result<i32> {
+        if let Some(export_fd) = self.export_fd.as_ref() {
+            return Ok(export_fd.as_raw_fd());
+        }
+
+        let export_pipes = net::UnixStream::pair()?;
+        let exit_pipes = net::UnixStream::pair()?;
+
+        self.export_fd = Some(export_pipes.0);
+        self.export_write_fd = Some(export_pipes.1);
+        self.thread_exit_fd = Some(exit_pipes.0);
+        self.thread_exit_write_fd = Some(exit_pipes.1);
+
+        self.recheck_pollfds();
+
+        let poll_mtx = sync::Arc::clone(&self.poll_mtx);
+        let export_poll_mtx = sync::Arc::clone(&self.export_poll_mtx);
+        let export_poll_cv = sync::Arc::clone(&self.export_poll_cv);
+
+        let export_write_fd = self.export_write_fd.as_ref().unwrap().as_raw_fd();
+        let thread_exit_fd = self.thread_exit_fd.as_ref().unwrap().as_raw_fd();
+
+        let server_fd = self
+            .server
+            .as_ref()
+            .map(|s| s.as_fd().as_raw_fd());
+        let is_empty_listener = self.is_empty_listener;
+        let exit_fd = self.exit_fd.as_raw_fd();
+        let wakeup_fd = self.wakeup_fd.as_raw_fd();
+
+        let client_fds = sync::Arc::clone(&self.thread_client_fds);
+
+        self.poll_thread = Some(thread::spawn(move || {
+            loop {
+                let mut pollfds = Vec::new();
+
+                {
+                    let _guard = poll_mtx.lock().unwrap();
+
+                    if !is_empty_listener && let Some(fd) = server_fd {
+                        pollfds.push(poll::PollFd::new(
+                            unsafe { BorrowedFd::borrow_raw(fd) },
+                            poll::PollFlags::POLLIN,
+                        ));
+                    }
+
+                    pollfds.push(poll::PollFd::new(
+                        unsafe { BorrowedFd::borrow_raw(exit_fd) },
+                        poll::PollFlags::POLLIN,
+                    ));
+                    pollfds.push(poll::PollFd::new(
+                        unsafe { BorrowedFd::borrow_raw(wakeup_fd) },
+                        poll::PollFlags::POLLIN,
+                    ));
+                    pollfds.push(poll::PollFd::new(
+                        unsafe { BorrowedFd::borrow_raw(thread_exit_fd) },
+                        poll::PollFlags::POLLIN,
+                    ));
+
+                    let cfds = client_fds.lock().unwrap();
+                    for &fd in cfds.iter() {
+                        pollfds.push(poll::PollFd::new(
+                            unsafe { BorrowedFd::borrow_raw(fd) },
+                            poll::PollFlags::POLLIN,
+                        ));
+                    }
+                }
+
+                let _ = poll::poll(&mut pollfds, poll::PollTimeout::NONE);
+
+                // check thread exit fd
+                for pfd in &pollfds {
+                    if let Some(revents) = pfd.revents() && revents.contains(poll::PollFlags::POLLIN)
+                            && pfd.as_fd().as_raw_fd() == thread_exit_fd
+                        {
+                            return;
+                    }
+                }
+
+                {
+                    let mut poll_event = export_poll_mtx.lock().unwrap();
+                    *poll_event = true;
+                    let _ = nix::unistd::write(
+                        unsafe { BorrowedFd::borrow_raw(export_write_fd) },
+                        b"x",
+                    );
+
+                    let result = export_poll_cv.wait_timeout_while(
+                        poll_event,
+                        std::time::Duration::from_secs(5),
+                        |event| *event,
+                    );
+                    if let Ok((guard, timeout)) = result && timeout.timed_out() && *guard {
+                        continue;
+                    }
+                }
+            }
+        }));
+
+        Ok(self.export_fd.as_ref().unwrap().as_raw_fd())
+    }
+}
+
+impl Drop for ServerSocket {
+    fn drop(&mut self) {
+        if let Some(exit_write) = &self.thread_exit_write_fd {
+            let _ = io::Write::write(&mut &*exit_write, b"x");
+        }
+        if let Some(thread) = self.poll_thread.take() {
+            let _ = thread.join();
+        }
     }
 }

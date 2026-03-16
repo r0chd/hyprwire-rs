@@ -11,15 +11,15 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
 use std::{cell, ffi, io, sync, time};
 
-pub struct SharedState {
-    pub error: cell::Cell<bool>,
-    pub stream: cell::RefCell<net::UnixStream>,
-    pub fd: i32,
-    pub impls: Option<sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+pub(crate) struct SharedState {
+    pub(crate) error: cell::Cell<bool>,
+    pub(crate) stream: cell::RefCell<net::UnixStream>,
+    pub(crate) fd: i32,
+    pub(crate) impls: Option<sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
 impl SharedState {
-    pub fn new(stream: net::UnixStream) -> Self {
+    pub(crate) fn new(stream: net::UnixStream) -> Self {
         let fd = stream.as_raw_fd();
         Self {
             error: cell::Cell::new(false),
@@ -29,7 +29,7 @@ impl SharedState {
         }
     }
 
-    pub fn with_impls(
+    pub(crate) fn with_impls(
         stream: net::UnixStream,
         impls: sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
     ) -> Self {
@@ -42,7 +42,7 @@ impl SharedState {
         }
     }
 
-    pub fn send_message(&self, message: &dyn message::Message) {
+    pub(crate) fn send_message(&self, message: &dyn message::Message) {
         trace! { log::trace!("[{} @ {:.3}] -> {}", self.fd, steady_millis(), message.parse_data()) };
 
         let stream = self.stream.borrow();
@@ -114,7 +114,7 @@ pub fn get_dispatch_state() -> *mut ffi::c_void {
 
 static START: sync::OnceLock<time::Instant> = sync::OnceLock::new();
 
-pub fn steady_millis() -> f64 {
+pub(crate) fn steady_millis() -> f64 {
     let start = START.get_or_init(time::Instant::now);
     start.elapsed().as_nanos() as f64 / 1_000_000.0
 }

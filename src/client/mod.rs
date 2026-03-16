@@ -47,6 +47,10 @@ impl Client {
         self.0.borrow().extract_loop_fd()
     }
 
+    pub fn is_handshake_done(&self) -> bool {
+        self.0.borrow().handshake_done.get()
+    }
+
     pub fn make_object(
         &self,
         protocol_name: &str,
