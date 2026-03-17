@@ -36,7 +36,7 @@ impl Client {
         self.0.borrow().extract_loop_fd()
     }
 
-    pub fn make_object(
+    pub(crate) fn make_object(
         &mut self,
         protocol_name: &str,
         object_name: &str,
@@ -50,7 +50,7 @@ impl Client {
         Ok(obj)
     }
 
-    pub fn bind_protocol(
+    pub(crate) fn bind_protocol(
         &mut self,
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,

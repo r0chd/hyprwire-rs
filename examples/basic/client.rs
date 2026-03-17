@@ -4,7 +4,6 @@ mod test_protocol_v1 {
 
 use hyprwire::client;
 use hyprwire::implementation::client::ProtocolImplementations;
-use hyprwire::implementation::types;
 use hyprwire::implementation::types::ProtocolSpec;
 use std::io::Write;
 use std::os::fd::AsRawFd;
@@ -73,9 +72,7 @@ fn main() {
 
     let mut state = App::default();
 
-    let obj = socket.bind_protocol(implementation.protocol(), 1).unwrap();
-    let obj = types::Object::from_raw(obj);
-    let manager = test_protocol_v1::client::MyManagerV1Object::new::<App>(obj);
+    let manager = socket.bind::<test_protocol_v1::client::MyManagerV1Object, App>(implementation.protocol(), 1).unwrap();
 
     println!("Bound!");
 

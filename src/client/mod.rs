@@ -55,7 +55,7 @@ impl Client {
         self.0.borrow().handshake_done.get()
     }
 
-    pub fn make_object(
+    pub(crate) fn make_object(
         &self,
         protocol_name: &str,
         object_name: &str,
@@ -69,12 +69,27 @@ impl Client {
         Ok(obj)
     }
 
-    pub fn bind_protocol(
+    pub fn make<T: crate::Proxy, D: crate::Dispatch<T>>(
+        &self,
+        protocol_name: &str,
+        seq: u32,
+    ) -> Result<T, message::MessageError> {
+        let obj = self
+            .0
+            .borrow_mut()
+            .make_object(protocol_name, T::NAME, seq)?;
+        let obj = implementation::types::Object::from_raw(obj);
+        Ok(T::from_object::<D>(obj))
+    }
+
+    pub fn bind<T: crate::Proxy, D: crate::Dispatch<T>>(
         &self,
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,
-    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::Object>>, io::Error> {
-        self.0.borrow_mut().bind_protocol(spec, version)
+    ) -> Result<T, io::Error> {
+        let obj = self.0.borrow_mut().bind_protocol(spec, version)?;
+        let obj = implementation::types::Object::from_raw(obj);
+        Ok(T::from_object::<D>(obj))
     }
 
     #[must_use]
