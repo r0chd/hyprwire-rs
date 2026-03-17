@@ -17,15 +17,13 @@ pub struct ServerSocket {
     exit_fd: net::UnixStream,
     exit_write_fd: net::UnixStream,
     is_empty_listener: bool,
-    impls: sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
+    impls: rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
     clients: Vec<rc::Rc<cell::RefCell<server_client::ServerClient>>>,
     pollfds: Vec<poll::PollFd<'static>>,
     poll_thread: Option<thread::JoinHandle<()>>,
     poll_mtx: sync::Arc<sync::Mutex<()>>,
     export_poll_mtx: sync::Arc<sync::Mutex<bool>>,
     export_poll_cv: sync::Arc<sync::Condvar>,
-    thread_exit_fd: Option<net::UnixStream>,
-    thread_exit_write_fd: Option<net::UnixStream>,
     thread_client_fds: sync::Arc<sync::Mutex<Vec<i32>>>,
 }
 
@@ -64,15 +62,13 @@ impl ServerSocket {
                     exit_fd: exit_pipes.0,
                     exit_write_fd: exit_pipes.1,
                     is_empty_listener: false,
-                    impls: sync::Arc::new(Vec::new()),
+                    impls: rc::Rc::new(Vec::new()),
                     clients: Vec::new(),
                     pollfds: Vec::new(),
                     poll_thread: None,
                     poll_mtx,
                     export_poll_mtx,
                     export_poll_cv,
-                    thread_exit_fd: None,
-                    thread_exit_write_fd: None,
                     thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
                 }
             }
@@ -85,15 +81,13 @@ impl ServerSocket {
                 exit_fd: exit_pipes.0,
                 exit_write_fd: exit_pipes.1,
                 is_empty_listener: true,
-                impls: sync::Arc::new(Vec::new()),
+                impls: rc::Rc::new(Vec::new()),
                 clients: Vec::new(),
                 pollfds: Vec::new(),
                 poll_thread: None,
                 poll_mtx,
                 export_poll_mtx,
                 export_poll_cv,
-                thread_exit_fd: None,
-                thread_exit_write_fd: None,
                 thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
             },
         };
@@ -106,7 +100,7 @@ impl ServerSocket {
         &mut self,
         implementation: Box<dyn implementation::server::ProtocolImplementations>,
     ) {
-        sync::Arc::get_mut(&mut self.impls)
+        rc::Rc::get_mut(&mut self.impls)
             .expect("cannot add implementations after clients connect")
             .push(implementation);
     }
@@ -278,10 +272,7 @@ impl ServerSocket {
             }
         };
 
-        let state = rc::Rc::new(SharedState::with_impls(
-            stream,
-            sync::Arc::clone(&self.impls),
-        ));
+        let state = rc::Rc::new(SharedState::with_impls(stream, rc::Rc::clone(&self.impls)));
         let client = server_client::ServerClient::new(rc::Rc::clone(&state));
 
         self.clients.push(client);
@@ -353,10 +344,7 @@ impl ServerSocket {
         fd: i32,
     ) -> Option<rc::Rc<cell::RefCell<server_client::ServerClient>>> {
         let stream = unsafe { net::UnixStream::from_raw_fd(fd) };
-        let state = rc::Rc::new(SharedState::with_impls(
-            stream,
-            sync::Arc::clone(&self.impls),
-        ));
+        let state = rc::Rc::new(SharedState::with_impls(stream, rc::Rc::clone(&self.impls)));
         let client = server_client::ServerClient::new(rc::Rc::clone(&state));
 
         self.clients.push(rc::Rc::clone(&client));
@@ -386,12 +374,9 @@ impl ServerSocket {
         }
 
         let export_pipes = net::UnixStream::pair()?;
-        let exit_pipes = net::UnixStream::pair()?;
 
         self.export_fd = Some(export_pipes.0);
         self.export_write_fd = Some(export_pipes.1);
-        self.thread_exit_fd = Some(exit_pipes.0);
-        self.thread_exit_write_fd = Some(exit_pipes.1);
 
         self.recheck_pollfds();
 
@@ -400,7 +385,6 @@ impl ServerSocket {
         let export_poll_cv = sync::Arc::clone(&self.export_poll_cv);
 
         let export_write_fd = self.export_write_fd.as_ref().unwrap().as_raw_fd();
-        let thread_exit_fd = self.thread_exit_fd.as_ref().unwrap().as_raw_fd();
 
         let server_fd = self.server.as_ref().map(|s| s.as_fd().as_raw_fd());
         let is_empty_listener = self.is_empty_listener;
@@ -431,10 +415,6 @@ impl ServerSocket {
                         unsafe { BorrowedFd::borrow_raw(wakeup_fd) },
                         poll::PollFlags::POLLIN,
                     ));
-                    pollfds.push(poll::PollFd::new(
-                        unsafe { BorrowedFd::borrow_raw(thread_exit_fd) },
-                        poll::PollFlags::POLLIN,
-                    ));
 
                     let cfds = client_fds.lock().unwrap();
                     for &fd in cfds.iter() {
@@ -447,11 +427,11 @@ impl ServerSocket {
 
                 let _ = poll::poll(&mut pollfds, poll::PollTimeout::NONE);
 
-                // check thread exit fd
+                // check exit fd
                 for pfd in &pollfds {
                     if let Some(revents) = pfd.revents()
                         && revents.contains(poll::PollFlags::POLLIN)
-                        && pfd.as_fd().as_raw_fd() == thread_exit_fd
+                        && pfd.as_fd().as_raw_fd() == exit_fd
                     {
                         return;
                     }
@@ -486,8 +466,8 @@ impl ServerSocket {
 
 impl Drop for ServerSocket {
     fn drop(&mut self) {
-        if let Some(exit_write) = &self.thread_exit_write_fd {
-            let _ = io::Write::write(&mut &*exit_write, b"x");
+        if self.poll_thread.is_some() {
+            let _ = io::Write::write(&mut &self.exit_write_fd, b"x");
         }
         if let Some(thread) = self.poll_thread.take() {
             let _ = thread.join();

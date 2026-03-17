@@ -90,4 +90,14 @@ impl Client {
             .object_for_seq(seq)
             .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::Object>>)
     }
+
+    pub fn object_for_id(
+        &self,
+        id: u32,
+    ) -> Option<rc::Rc<cell::RefCell<dyn implementation::object::Object>>> {
+        self.0
+            .borrow()
+            .object_for_id(id)
+            .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::Object>>)
+    }
 }

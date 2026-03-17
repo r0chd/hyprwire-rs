@@ -1,10 +1,12 @@
 use super::{object, types};
 use std::{cell, rc};
 
+type OnBind<'a> = Box<dyn Fn(rc::Rc<cell::RefCell<dyn object::Object>>) + 'a>;
+
 pub struct ObjectImplementation<'a> {
     pub object_name: &'a str,
     pub version: u32,
-    pub on_bind: Box<dyn Fn(rc::Rc<cell::RefCell<dyn object::Object>>) + 'a>,
+    pub on_bind: OnBind<'a>,
 }
 
 pub trait ProtocolImplementations {

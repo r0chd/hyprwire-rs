@@ -24,7 +24,7 @@ struct App {
 impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for App {
     fn event(
         &mut self,
-        _proxy: &test_protocol_v1::server::MyManagerV1Object,
+        proxy: &test_protocol_v1::server::MyManagerV1Object,
         event: test_protocol_v1::server::MyManagerV1Event<'_>,
     ) {
         match event {
@@ -58,10 +58,9 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for App {
                 println!("Got uint array message: \"{}\"", conct.join(", "));
             }
             test_protocol_v1::server::MyManagerV1Event::MakeObject { seq } => {
-                let obj = _proxy
-                    .create_object("my_object_v1", seq)
+                let obj = proxy
+                    .create_object::<test_protocol_v1::server::MyObjectV1Object, Self>(seq)
                     .expect("failed to create object");
-                let obj = test_protocol_v1::server::MyObjectV1Object::new::<Self>(obj);
                 obj.send_send_message("Hello object");
                 self.object = Some(obj);
             }

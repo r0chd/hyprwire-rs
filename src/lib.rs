@@ -9,14 +9,13 @@ use implementation::object;
 use nix::{errno, poll, sys};
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
-use std::{cell, ffi, io, sync, time};
+use std::{cell, ffi, io, rc, sync, time};
 
 pub(crate) struct SharedState {
     pub(crate) error: cell::Cell<bool>,
     pub(crate) stream: cell::RefCell<net::UnixStream>,
     pub(crate) fd: i32,
-    pub(crate) impls:
-        Option<sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+    pub(crate) impls: Option<rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
 impl SharedState {
@@ -32,7 +31,7 @@ impl SharedState {
 
     pub(crate) fn with_impls(
         stream: net::UnixStream,
-        impls: sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
+        impls: rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
     ) -> Self {
         let fd = stream.as_raw_fd();
         Self {
@@ -89,8 +88,12 @@ macro_rules! include_protocol {
     };
 }
 
-pub trait Proxy {
+pub trait Proxy: Sized {
     type Event<'a>;
+
+    const NAME: &str;
+
+    fn from_object<D: Dispatch<Self>>(object: implementation::types::Object) -> Self;
 }
 
 pub trait Dispatch<I: Proxy> {

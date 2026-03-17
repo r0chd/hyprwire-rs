@@ -33,6 +33,7 @@ impl ServerClient {
         })
     }
 
+    #[allow(dead_code)]
     pub fn get_pid(&self) -> i32 {
         self.pid.get()
     }

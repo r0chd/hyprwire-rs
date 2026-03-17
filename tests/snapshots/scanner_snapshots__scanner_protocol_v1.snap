@@ -2,7 +2,7 @@
 source: tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.0.0. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.1.0. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 
 /*
@@ -35,6 +35,12 @@ pub mod server {
 
     impl hyprwire::Proxy for MyManagerV1Object {
         type Event<'a> = MyManagerV1Event<'a>;
+
+        const NAME: &str = "my_manager_v1";
+
+        fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
+            Self::new::<D>(object)
+        }
     }
 
     unsafe extern "C" fn my_manager_v1_method0<D: hyprwire::Dispatch<MyManagerV1Object>>(
@@ -171,9 +177,10 @@ pub mod server {
             self.object.inner().borrow().error(error_id, error_msg);
         }
 
-        pub fn create_object(&self, object_name: &str, seq: u32) -> Option<hyprwire::implementation::types::Object> {
-            let obj = self.object.inner().borrow().create_object(object_name, seq)?;
-            Some(hyprwire::implementation::types::Object::from_raw(obj))
+        pub fn create_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(&self, seq: u32) -> Option<T> {
+            let obj = self.object.inner().borrow().create_object(T::NAME, seq)?;
+            let obj = hyprwire::implementation::types::Object::from_raw(obj);
+            Some(T::from_object::<D>(obj))
         }
 
         pub fn send_send_message(&self, message: &str) {
@@ -200,6 +207,12 @@ pub mod server {
 
     impl hyprwire::Proxy for MyObjectV1Object {
         type Event<'a> = MyObjectV1Event<'a>;
+
+        const NAME: &str = "my_object_v1";
+
+        fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
+            Self::new::<D>(object)
+        }
     }
 
     unsafe extern "C" fn my_object_v1_method0<D: hyprwire::Dispatch<MyObjectV1Object>>(
@@ -290,9 +303,10 @@ pub mod server {
             self.object.inner().borrow().error(error_id, error_msg);
         }
 
-        pub fn create_object(&self, object_name: &str, seq: u32) -> Option<hyprwire::implementation::types::Object> {
-            let obj = self.object.inner().borrow().create_object(object_name, seq)?;
-            Some(hyprwire::implementation::types::Object::from_raw(obj))
+        pub fn create_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(&self, seq: u32) -> Option<T> {
+            let obj = self.object.inner().borrow().create_object(T::NAME, seq)?;
+            let obj = hyprwire::implementation::types::Object::from_raw(obj);
+            Some(T::from_object::<D>(obj))
         }
 
         pub fn send_send_message(&self, message: &str) {
@@ -372,6 +386,12 @@ pub mod client {
 
     impl hyprwire::Proxy for MyManagerV1Object {
         type Event<'a> = MyManagerV1Event<'a>;
+
+        const NAME: &str = "my_manager_v1";
+
+        fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
+            Self::new::<D>(object)
+        }
     }
 
     unsafe extern "C" fn my_manager_v1_method0<D: hyprwire::Dispatch<MyManagerV1Object>>(
@@ -494,6 +514,12 @@ pub mod client {
 
     impl hyprwire::Proxy for MyObjectV1Object {
         type Event<'a> = MyObjectV1Event<'a>;
+
+        const NAME: &str = "my_object_v1";
+
+        fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
+            Self::new::<D>(object)
+        }
     }
 
     unsafe extern "C" fn my_object_v1_method0<D: hyprwire::Dispatch<MyObjectV1Object>>(

@@ -38,13 +38,4 @@ impl Server {
     pub fn remove_client(&mut self, fd: RawFd) -> bool {
         self.0.remove_client(fd)
     }
-
-    pub fn create_object(
-        &self,
-        reference: &dyn crate::implementation::object::Object,
-        object: &str,
-        seq: u32,
-    ) -> Option<std::rc::Rc<std::cell::RefCell<dyn crate::implementation::object::Object>>> {
-        reference.create_object(object, seq)
-    }
 }

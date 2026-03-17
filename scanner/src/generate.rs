@@ -417,6 +417,14 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
         w.indent();
         w.line(&format!("type Event<'a> = {event_type}{lifetime};"));
+        w.line("");
+        w.line(&format!("const NAME: &str = \"{}\";", obj.name));
+        w.line("");
+        w.line("fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {");
+        w.indent();
+        w.line("Self::new::<D>(object)");
+        w.dedent();
+        w.line("}");
         w.dedent();
         w.line("}");
         w.line("");
@@ -472,10 +480,11 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         w.dedent();
         w.line("}");
         w.line("");
-        w.line("pub fn create_object(&self, object_name: &str, seq: u32) -> Option<hyprwire::implementation::types::Object> {");
+        w.line("pub fn create_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(&self, seq: u32) -> Option<T> {");
         w.indent();
-        w.line("let obj = self.object.inner().borrow().create_object(object_name, seq)?;");
-        w.line("Some(hyprwire::implementation::types::Object::from_raw(obj))");
+        w.line("let obj = self.object.inner().borrow().create_object(T::NAME, seq)?;");
+        w.line("let obj = hyprwire::implementation::types::Object::from_raw(obj);");
+        w.line("Some(T::from_object::<D>(obj))");
         w.dedent();
         w.line("}");
 
@@ -625,6 +634,14 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.line(&format!("impl hyprwire::Proxy for {obj_type} {{"));
         w.indent();
         w.line(&format!("type Event<'a> = {event_type}{lifetime};"));
+        w.line("");
+        w.line(&format!("const NAME: &str = \"{}\";", obj.name));
+        w.line("");
+        w.line("fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {");
+        w.indent();
+        w.line("Self::new::<D>(object)");
+        w.dedent();
+        w.line("}");
         w.dedent();
         w.line("}");
         w.line("");

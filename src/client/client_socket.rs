@@ -343,7 +343,7 @@ impl ClientSocket {
 
         let mut data = {
             let stream = self.state.stream.borrow();
-            match socket::SocketRawParsedMessage::read_from_socket(&*stream) {
+            match socket::SocketRawParsedMessage::read_from_socket(&stream) {
                 Err(_) => {
                     drop(stream);
                     log::error!("fatal: received malformed message from server");

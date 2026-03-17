@@ -1,8 +1,9 @@
 use super::types;
 
+#[allow(dead_code)]
 pub struct ObjectImplementation<'a> {
-    object_name: &'a str,
-    version: u32,
+    pub object_name: &'a str,
+    pub version: u32,
 }
 
 pub trait ProtocolImplementations {
