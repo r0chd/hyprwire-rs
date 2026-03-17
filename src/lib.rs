@@ -15,7 +15,8 @@ pub(crate) struct SharedState {
     pub(crate) error: cell::Cell<bool>,
     pub(crate) stream: cell::RefCell<net::UnixStream>,
     pub(crate) fd: i32,
-    pub(crate) impls: Option<sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+    pub(crate) impls:
+        Option<sync::Arc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
 impl SharedState {

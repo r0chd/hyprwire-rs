@@ -1,7 +1,7 @@
 use super::server_client;
 use crate::{SharedState, message, socket, steady_millis, trace};
 use nix::poll;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd};
 use std::os::unix::net;
 use std::sync;
 use std::{cell, fs, io, path, rc, thread};
@@ -341,6 +341,38 @@ impl ServerSocket {
         true
     }
 
+    pub fn add_client(
+        &mut self,
+        fd: i32,
+    ) -> Option<rc::Rc<cell::RefCell<server_client::ServerClient>>> {
+        let stream = unsafe { net::UnixStream::from_raw_fd(fd) };
+        let state = rc::Rc::new(SharedState::with_impls(
+            stream,
+            sync::Arc::clone(&self.impls),
+        ));
+        let client = server_client::ServerClient::new(rc::Rc::clone(&state));
+
+        self.clients.push(rc::Rc::clone(&client));
+        self.recheck_pollfds();
+
+        // wake up any poller
+        let _ = io::Write::write(&mut &self.wakeup_write_fd, b"x");
+
+        Some(client)
+    }
+
+    pub fn remove_client(&mut self, fd: i32) -> bool {
+        let before = self.clients.len();
+        self.clients.retain(|c| c.borrow().state.fd != fd);
+        let removed = self.clients.len() < before;
+
+        if removed {
+            self.recheck_pollfds();
+        }
+
+        removed
+    }
+
     pub fn extract_loop_fd(&mut self) -> io::Result<i32> {
         if let Some(export_fd) = self.export_fd.as_ref() {
             return Ok(export_fd.as_raw_fd());
@@ -363,10 +395,7 @@ impl ServerSocket {
         let export_write_fd = self.export_write_fd.as_ref().unwrap().as_raw_fd();
         let thread_exit_fd = self.thread_exit_fd.as_ref().unwrap().as_raw_fd();
 
-        let server_fd = self
-            .server
-            .as_ref()
-            .map(|s| s.as_fd().as_raw_fd());
+        let server_fd = self.server.as_ref().map(|s| s.as_fd().as_raw_fd());
         let is_empty_listener = self.is_empty_listener;
         let exit_fd = self.exit_fd.as_raw_fd();
         let wakeup_fd = self.wakeup_fd.as_raw_fd();
@@ -413,10 +442,11 @@ impl ServerSocket {
 
                 // check thread exit fd
                 for pfd in &pollfds {
-                    if let Some(revents) = pfd.revents() && revents.contains(poll::PollFlags::POLLIN)
-                            && pfd.as_fd().as_raw_fd() == thread_exit_fd
-                        {
-                            return;
+                    if let Some(revents) = pfd.revents()
+                        && revents.contains(poll::PollFlags::POLLIN)
+                        && pfd.as_fd().as_raw_fd() == thread_exit_fd
+                    {
+                        return;
                     }
                 }
 
@@ -433,7 +463,10 @@ impl ServerSocket {
                         std::time::Duration::from_secs(5),
                         |event| *event,
                     );
-                    if let Ok((guard, timeout)) = result && timeout.timed_out() && *guard {
+                    if let Ok((guard, timeout)) = result
+                        && timeout.timed_out()
+                        && *guard
+                    {
                         continue;
                     }
                 }

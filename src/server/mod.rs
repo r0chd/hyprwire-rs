@@ -31,21 +31,20 @@ impl Server {
         self.0.extract_loop_fd()
     }
 
-    pub fn add_client(&self, _fd: RawFd) {
-        todo!("add_client")
+    pub fn add_client(&mut self, fd: RawFd) {
+        self.0.add_client(fd);
     }
 
-    pub fn remove_client(&self, _fd: RawFd) -> bool {
-        todo!("remove_client")
+    pub fn remove_client(&mut self, fd: RawFd) -> bool {
+        self.0.remove_client(fd)
     }
 
     pub fn create_object(
         &self,
-        _client_fd: RawFd,
-        _reference: &dyn crate::implementation::object::Object,
-        _object: &str,
-        _seq: u32,
+        reference: &dyn crate::implementation::object::Object,
+        object: &str,
+        seq: u32,
     ) -> Option<std::rc::Rc<std::cell::RefCell<dyn crate::implementation::object::Object>>> {
-        todo!("create_object")
+        reference.create_object(object, seq)
     }
 }
