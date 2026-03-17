@@ -983,7 +983,7 @@ fn write_send_method(w: &mut W, idx: usize, m: &Method) {
             );
         }
         w.line(&format!(
-            "pub fn {method_name}({params_str}) -> Option<hyprwire::implementation::types::Object> {{"
+            "pub fn {method_name}<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>({params_str}) -> Option<T> {{"
         ));
         w.indent();
 
@@ -1004,7 +1004,8 @@ fn write_send_method(w: &mut W, idx: usize, m: &Method) {
         w.line(".client_sock()");
         w.line(".and_then(|sock| sock.object_for_seq(seq));");
         w.dedent();
-        w.line("Some(hyprwire::implementation::types::Object::from_raw(obj?))");
+        w.line("let obj = hyprwire::implementation::types::Object::from_raw(obj?);");
+        w.line("Some(T::from_object::<D>(obj))");
         w.dedent();
         w.line("}");
     } else if m.args.is_empty() {

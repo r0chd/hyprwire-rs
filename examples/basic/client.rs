@@ -72,7 +72,9 @@ fn main() {
 
     let mut state = App::default();
 
-    let manager = socket.bind::<test_protocol_v1::client::MyManagerV1Object, App>(implementation.protocol(), 1).unwrap();
+    let manager = socket
+        .bind::<test_protocol_v1::client::MyManagerV1Object, App>(implementation.protocol(), 1)
+        .unwrap();
 
     println!("Bound!");
 
@@ -100,8 +102,9 @@ fn main() {
 
     socket.roundtrip(&mut state).unwrap();
 
-    let obj = manager.send_make_object().unwrap();
-    let obj = test_protocol_v1::client::MyObjectV1Object::new::<App>(obj);
+    let obj = manager
+        .send_make_object::<test_protocol_v1::client::MyObjectV1Object, App>()
+        .unwrap();
 
     obj.send_send_message("Hello on object");
     obj.send_send_enum(test_protocol_v1::spec::MyEnum::World);
