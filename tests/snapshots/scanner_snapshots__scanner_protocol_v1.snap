@@ -200,7 +200,7 @@ pub mod server {
 
     pub enum MyObjectV1Event<'a> {
         SendMessage { message: &'a ffi::CStr },
-        SendEnum { message: u32 },
+        SendEnum { message: super::spec::MyEnum },
         Destroy,
         MakeObject { seq: u32 },
     }
@@ -233,7 +233,7 @@ pub mod server {
 
     unsafe extern "C" fn my_object_v1_method1<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
-        message: u32,
+        message: super::spec::MyEnum,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
@@ -620,12 +620,14 @@ pub mod client {
 
 #[allow(dead_code)]
 pub mod spec {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[repr(u32)]
     pub enum MyEnum {
         Hello = 0,
         World = 4,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[repr(u32)]
     pub enum MyErrorEnum {
         OhNo = 0,

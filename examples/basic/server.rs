@@ -79,7 +79,7 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyObjectV1Object> for App {
                 println!("Object says hello: {}", message.to_string_lossy());
             }
             test_protocol_v1::server::MyObjectV1Event::SendEnum { message } => {
-                println!("Object sent enum: {}", message);
+                println!("Object sent enum: {:?}", message);
 
                 println!("Erroring out the client!");
 

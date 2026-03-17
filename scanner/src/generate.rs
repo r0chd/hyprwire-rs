@@ -120,29 +120,31 @@ fn methods_need_lifetime(methods: &[Method]) -> bool {
         .any(|m| m.args.iter().any(|a| needs_lifetime(&a.arg_type)))
 }
 
-fn event_field_type(arg_type: &ArgType) -> &'static str {
+fn event_field_type(arg_type: &ArgType, interface: Option<&str>) -> String {
     match arg_type {
-        ArgType::Varchar => "&'a ffi::CStr",
-        ArgType::Fd | ArgType::Int => "i32",
-        ArgType::Uint | ArgType::Enum => "u32",
-        ArgType::F32 => "f32",
-        ArgType::ArrayVarchar => "&'a [&'a ffi::CStr]",
-        ArgType::ArrayFd | ArgType::ArrayInt => "&'a [i32]",
-        ArgType::ArrayUint => "&'a [u32]",
-        ArgType::ArrayF32 => "&'a [f32]",
+        ArgType::Varchar => "&'a ffi::CStr".to_string(),
+        ArgType::Fd | ArgType::Int => "i32".to_string(),
+        ArgType::Uint => "u32".to_string(),
+        ArgType::Enum => format!("super::spec::{}", snake_to_pascal(interface.unwrap())),
+        ArgType::F32 => "f32".to_string(),
+        ArgType::ArrayVarchar => "&'a [&'a ffi::CStr]".to_string(),
+        ArgType::ArrayFd | ArgType::ArrayInt => "&'a [i32]".to_string(),
+        ArgType::ArrayUint => "&'a [u32]".to_string(),
+        ArgType::ArrayF32 => "&'a [f32]".to_string(),
     }
 }
 
-fn dispatch_param_type(arg_type: &ArgType) -> &'static str {
+fn dispatch_param_type(arg_type: &ArgType, interface: Option<&str>) -> String {
     match arg_type {
-        ArgType::Varchar => "*const ffi::c_char",
-        ArgType::Fd | ArgType::Int => "i32",
-        ArgType::Uint | ArgType::Enum => "u32",
-        ArgType::F32 => "f32",
-        ArgType::ArrayVarchar => "*const *const ffi::c_char",
-        ArgType::ArrayFd | ArgType::ArrayInt => "*const i32",
-        ArgType::ArrayUint => "*const u32",
-        ArgType::ArrayF32 => "*const f32",
+        ArgType::Varchar => "*const ffi::c_char".to_string(),
+        ArgType::Fd | ArgType::Int => "i32".to_string(),
+        ArgType::Uint => "u32".to_string(),
+        ArgType::Enum => format!("super::spec::{}", snake_to_pascal(interface.unwrap())),
+        ArgType::F32 => "f32".to_string(),
+        ArgType::ArrayVarchar => "*const *const ffi::c_char".to_string(),
+        ArgType::ArrayFd | ArgType::ArrayInt => "*const i32".to_string(),
+        ArgType::ArrayUint => "*const u32".to_string(),
+        ArgType::ArrayF32 => "*const f32".to_string(),
     }
 }
 
@@ -209,6 +211,7 @@ fn generate_spec(w: &mut W, protocol: &Protocol) {
     // Enums
     for e in &protocol.enums {
         let pascal = snake_to_pascal(&e.name);
+        w.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
         w.line("#[repr(u32)]");
         w.line(&format!("pub enum {pascal} {{"));
         w.indent();
@@ -777,7 +780,13 @@ fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method]) {
             let fields: Vec<String> = m
                 .args
                 .iter()
-                .map(|a| format!("{}: {}", a.name, event_field_type(&a.arg_type)))
+                .map(|a| {
+                    format!(
+                        "{}: {}",
+                        a.name,
+                        event_field_type(&a.arg_type, a.interface.as_deref())
+                    )
+                })
                 .collect();
             w.line(&format!("{variant} {{ {} }},", fields.join(", ")));
         }
@@ -807,7 +816,7 @@ fn write_dispatch_fn(
             params.push(format!(
                 "{}: {}",
                 arg.name,
-                dispatch_param_type(&arg.arg_type)
+                dispatch_param_type(&arg.arg_type, arg.interface.as_deref())
             ));
             if is_array_type(&arg.arg_type) {
                 params.push(format!("{}_len: u32", arg.name));

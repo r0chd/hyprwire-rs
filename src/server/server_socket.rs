@@ -194,7 +194,7 @@ impl ServerSocket {
         let internal_fds = self.internal_fds();
 
         for i in internal_fds..self.pollfds.len() {
-            let Some(revents) = self.pollfds.first().and_then(poll::PollFd::revents) else {
+            let Some(revents) = self.pollfds.get(i).and_then(poll::PollFd::revents) else {
                 continue;
             };
 
