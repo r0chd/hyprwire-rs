@@ -19,6 +19,10 @@ fn snake_to_screaming(s: &str) -> String {
     s.to_uppercase()
 }
 
+fn raw_ident(name: &str) -> String {
+    format!("r#{name}")
+}
+
 struct W {
     buf: String,
     indent: usize,
@@ -174,6 +178,7 @@ fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> String {
 }
 
 fn call_arg_expr(name: &str, arg_type: &ArgType) -> String {
+    let name = raw_ident(name);
     match arg_type {
         ArgType::Varchar => {
             format!("hyprwire::implementation::types::CallArg::Varchar({name}.as_bytes())")
@@ -783,7 +788,7 @@ fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method]) {
                 .map(|a| {
                     format!(
                         "{}: {}",
-                        a.name,
+                        raw_ident(&a.name),
                         event_field_type(&a.arg_type, a.interface.as_deref())
                     )
                 })
@@ -813,13 +818,14 @@ fn write_dispatch_fn(
         params.push("seq: u32".to_string());
     } else {
         for arg in &m.args {
+            let name = raw_ident(&arg.name);
             params.push(format!(
                 "{}: {}",
-                arg.name,
+                name,
                 dispatch_param_type(&arg.arg_type, arg.interface.as_deref())
             ));
             if is_array_type(&arg.arg_type) {
-                params.push(format!("{}_len: u32", arg.name));
+                params.push(format!("{}_len: u32", name));
             }
         }
     }
@@ -860,18 +866,17 @@ fn write_dispatch_fn(
         event_fields.push("seq".to_string());
     } else {
         for arg in &m.args {
+            let name = raw_ident(&arg.name);
             match &arg.arg_type {
                 ArgType::Varchar => {
                     w.line(&format!(
-                        "let {} = unsafe {{ ffi::CStr::from_ptr({}) }};",
-                        arg.name, arg.name
+                        "let {name} = unsafe {{ ffi::CStr::from_ptr({name}) }};",
                     ));
-                    event_fields.push(arg.name.clone());
+                    event_fields.push(name);
                 }
                 ArgType::ArrayVarchar => {
                     w.line(&format!(
-                        "let ptrs = unsafe {{ std::slice::from_raw_parts({}, {}_len as usize) }};",
-                        arg.name, arg.name
+                        "let ptrs = unsafe {{ std::slice::from_raw_parts({name}, {name}_len as usize) }};",
                     ));
                     w.line("let strings: Vec<&ffi::CStr> = ptrs");
                     w.indent();
@@ -879,18 +884,17 @@ fn write_dispatch_fn(
                     w.line(".map(|&p| unsafe { ffi::CStr::from_ptr(p) })");
                     w.line(".collect();");
                     w.dedent();
-                    event_fields.push(format!("{}: &strings", arg.name));
+                    event_fields.push(format!("{name}: &strings"));
                 }
                 t if is_array_type(t) => {
                     w.line(&format!(
-                        "let {} = unsafe {{ std::slice::from_raw_parts({}, {}_len as usize) }};",
-                        arg.name, arg.name, arg.name
+                        "let {name} = unsafe {{ std::slice::from_raw_parts({name}, {name}_len as usize) }};",
                     ));
-                    event_fields.push(arg.name.clone());
+                    event_fields.push(name);
                 }
                 _ => {
                     // fd, uint, int, f32, enum - no conversion needed
-                    event_fields.push(arg.name.clone());
+                    event_fields.push(name);
                 }
             }
         }
@@ -931,7 +935,7 @@ fn write_send_method(w: &mut W, idx: usize, m: &Method) {
             let _ = write!(
                 params_str,
                 ", {}: {}",
-                arg.name,
+                raw_ident(&arg.name),
                 send_param_type(&arg.arg_type, arg.interface.as_deref())
             );
         }
@@ -976,7 +980,7 @@ fn write_send_method(w: &mut W, idx: usize, m: &Method) {
             let _ = write!(
                 params_str,
                 ", {}: {}",
-                arg.name,
+                raw_ident(&arg.name),
                 send_param_type(&arg.arg_type, arg.interface.as_deref())
             );
         }
@@ -990,7 +994,7 @@ fn write_send_method(w: &mut W, idx: usize, m: &Method) {
                 if arg.arg_type == ArgType::ArrayVarchar {
                     w.line(&format!(
                         "let bytes: Vec<&[u8]> = {}.iter().map(|s| s.as_bytes()).collect();",
-                        arg.name
+                        raw_ident(&arg.name)
                     ));
                 }
             }
