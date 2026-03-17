@@ -147,6 +147,12 @@ impl ServerSocket {
         Self::clear_fd(&self.wakeup_fd);
     }
 
+    fn clear_event_fd(&self) {
+        if let Some(fd) = &self.export_fd {
+            Self::clear_fd(fd);
+        }
+    }
+
     fn dispatch_client(&self, client: &rc::Rc<cell::RefCell<server_client::ServerClient>>) {
         let state = rc::Rc::clone(&client.borrow().state);
 
@@ -322,6 +328,7 @@ impl ServerSocket {
 
         while self.dispatch_pending() {}
 
+        self.clear_event_fd();
         self.clear_exit_fd();
         self.clear_wakeup_fd();
 
