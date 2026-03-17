@@ -12,7 +12,7 @@ pub mod roundtrip_request;
 use super::{MessageError, MessageType};
 use crate::implementation::types;
 use crate::message;
-use std::{mem, result};
+use std::{fmt::Write, mem, result};
 
 pub type Result<T> = result::Result<T, MessageError>;
 
@@ -29,7 +29,7 @@ pub trait Message {
         let mut result = String::new();
         let data = self.data();
 
-        result.push_str(&format!("{} ( ", self.message_type()));
+        let _ = write!(result, "{} ( ", self.message_type());
 
         let mut first = true;
         let mut needle: usize = 1;
@@ -39,7 +39,6 @@ pub trait Message {
             needle += 1;
 
             match magic {
-                types::MessageMagic::End => {}
                 types::MessageMagic::TypeSeq => {
                     if !first {
                         result.push_str(", ");
@@ -47,7 +46,7 @@ pub trait Message {
                     first = false;
                     let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
                     let value = u32::from_le_bytes(bytes);
-                    result.push_str(&format!("seq: {value}"));
+                    let _ = write!(result, "seq: {value}");
                     needle += 4;
                 }
                 types::MessageMagic::TypeUint => {
@@ -57,7 +56,7 @@ pub trait Message {
                     first = false;
                     let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
                     let value = u32::from_le_bytes(bytes);
-                    result.push_str(&format!("{value}"));
+                    let _ = write!(result, "{value}");
                     needle += 4;
                 }
                 types::MessageMagic::TypeInt => {
@@ -67,7 +66,7 @@ pub trait Message {
                     first = false;
                     let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
                     let value = i32::from_le_bytes(bytes);
-                    result.push_str(&format!("{value}"));
+                    let _ = write!(result, "{value}");
                     needle += 4;
                 }
                 types::MessageMagic::TypeF32 => {
@@ -77,7 +76,7 @@ pub trait Message {
                     first = false;
                     let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
                     let value = f32::from_le_bytes(bytes);
-                    result.push_str(&format!("{value}"));
+                    let _ = write!(result, "{value}");
                     needle += 4;
                 }
                 types::MessageMagic::TypeVarchar => {
@@ -89,7 +88,7 @@ pub trait Message {
                     if len > 0 {
                         let str_data = &data[needle + int_len..needle + int_len + len];
                         let s = String::from_utf8_lossy(str_data);
-                        result.push_str(&format!("\"{s}\""));
+                        let _ = write!(result, "\"{s}\"");
                     } else {
                         result.push_str("\"\"");
                     }
@@ -127,7 +126,7 @@ pub trait Message {
                     first = false;
                     let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
                     let id = u32::from_le_bytes(bytes);
-                    result.push_str(&format!("object({id})"));
+                    let _ = write!(result, "object({id})");
                     needle += 4;
                 }
                 types::MessageMagic::TypeFd => {
@@ -137,7 +136,7 @@ pub trait Message {
                     first = false;
                     result.push_str("<fd>");
                 }
-                _ => {}
+                types::MessageMagic::End | types::MessageMagic::TypeObjectId => {}
             }
         }
 

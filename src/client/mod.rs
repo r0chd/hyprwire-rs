@@ -5,15 +5,17 @@ mod server_spec;
 use crate::{implementation, message};
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
-use std::{cell, ffi, io, path, rc};
+use std::{cell, ffi, io, path, ptr, rc};
 
 pub struct Client(pub(crate) rc::Rc<cell::RefCell<client_socket::ClientSocket>>);
 
 impl Client {
+    #[must_use]
     pub fn open(path: &path::Path) -> Self {
         Self(client_socket::ClientSocket::open(path))
     }
 
+    #[must_use]
     pub fn from_fd(fd: fd::RawFd) -> Self {
         Self(client_socket::ClientSocket::from_fd(fd))
     }
@@ -30,23 +32,25 @@ impl Client {
     }
 
     pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> Result<(), io::Error> {
-        crate::set_dispatch_state(state as *mut D as *mut ffi::c_void);
+        crate::set_dispatch_state(ptr::from_mut::<D>(state).cast::<ffi::c_void>());
         let result = self.0.borrow_mut().dispatch_events(block);
         crate::set_dispatch_state(std::ptr::null_mut());
         result
     }
 
     pub fn roundtrip<D>(&self, state: &mut D) -> Result<(), io::Error> {
-        crate::set_dispatch_state(state as *mut D as *mut ffi::c_void);
+        crate::set_dispatch_state(ptr::from_mut::<D>(state).cast::<ffi::c_void>());
         let result = self.0.borrow_mut().roundtrip();
         crate::set_dispatch_state(std::ptr::null_mut());
         result
     }
 
+    #[must_use]
     pub fn extract_loop_fd(&self) -> i32 {
         self.0.borrow().extract_loop_fd()
     }
 
+    #[must_use]
     pub fn is_handshake_done(&self) -> bool {
         self.0.borrow().handshake_done.get()
     }
@@ -73,14 +77,16 @@ impl Client {
         self.0.borrow_mut().bind_protocol(spec, version)
     }
 
+    #[must_use]
     pub fn get_spec(&self, name: &str) -> Option<server_spec::ServerSpec> {
         self.0.borrow().get_spec(name)
     }
 
     pub fn disconnect_on_error(&self) {
-        self.0.borrow_mut().disconnect_on_error()
+        self.0.borrow_mut().disconnect_on_error();
     }
 
+    #[must_use]
     pub fn object_for_seq(
         &self,
         seq: u32,
@@ -91,6 +97,7 @@ impl Client {
             .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::Object>>)
     }
 
+    #[must_use]
     pub fn object_for_id(
         &self,
         id: u32,

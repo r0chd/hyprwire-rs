@@ -4,7 +4,7 @@ mod server_socket;
 
 use crate::implementation::server;
 use std::os::fd::RawFd;
-use std::{io, path};
+use std::{io, path, ptr};
 
 pub struct Server(server_socket::ServerSocket);
 
@@ -21,7 +21,7 @@ impl Server {
     }
 
     pub fn dispatch_events<D>(&mut self, state: &mut D, block: bool) -> bool {
-        crate::set_dispatch_state(state as *mut D as *mut std::ffi::c_void);
+        crate::set_dispatch_state(ptr::from_mut::<D>(state).cast());
         let result = self.0.dispatch_events(block);
         crate::set_dispatch_state(std::ptr::null_mut());
         result

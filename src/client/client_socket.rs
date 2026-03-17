@@ -193,7 +193,7 @@ impl ClientSocket {
 
     pub fn server_specs(&self, specs: &[rc::Rc<str>]) {
         let mut server_specs = self.server_specs.borrow_mut();
-        for spec in specs.iter() {
+        for spec in specs {
             let at_pos = spec.rfind('@').unwrap();
 
             let s = server_spec::ServerSpec::new(
@@ -244,11 +244,14 @@ impl ClientSocket {
         let borrowed_fd = unsafe { BorrowedFd::borrow_raw(self.state.fd) };
 
         if !self.handshake_done.get() {
+            #[allow(clippy::cast_possible_truncation)]
             let elapsed_ms = self.handshake_begin.elapsed().as_millis() as u64;
             let max_ms = HANDSHAKE_MAX_MS.saturating_sub(elapsed_ms);
 
             let timeout = if block {
-                poll::PollTimeout::try_from(max_ms as i32).unwrap_or(poll::PollTimeout::ZERO)
+                #[allow(clippy::cast_possible_truncation)]
+                let max_ms_i32 = max_ms as i32;
+                poll::PollTimeout::try_from(max_ms_i32).unwrap_or(poll::PollTimeout::ZERO)
             } else {
                 poll::PollTimeout::ZERO
             };
@@ -364,7 +367,7 @@ impl ClientSocket {
             ));
         }
 
-        if message::handle_message(&mut data, message::Role::Client(self)).is_err() {
+        if message::handle_message(&mut data, &message::Role::Client(self)).is_err() {
             log::error!("fatal: failed to handle message on wire");
             self.disconnect_on_error();
             return Err(io::Error::new(

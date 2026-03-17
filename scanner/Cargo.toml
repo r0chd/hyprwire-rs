@@ -2,6 +2,12 @@
 name = "hyprwire-scanner"
 version = "0.1.0"
 edition = "2024"
+description = "Protocol scanner and code generator for hyprwire"
+license = "BSD-3-Clause"
+repository = "https://git.r0chd.pl/r0chd/hyprwire-rs"
+readme = "../README.md"
+keywords = ["ipc", "wire-protocol", "code-generation"]
+categories = ["development-tools::build-utils"]
 
 [dependencies]
 quick-xml = "0.37"

@@ -1,3 +1,5 @@
+pub const PROTOCOL_VERSION: u32 = 1;
+
 pub mod client;
 pub(crate) mod helpers;
 pub mod implementation;
@@ -71,7 +73,6 @@ impl SharedState {
                         );
                         break;
                     }
-                    continue;
                 }
                 Err(_) => {
                     break;
@@ -112,6 +113,7 @@ pub fn set_dispatch_state(state: *mut ffi::c_void) {
     DISPATCH_STATE.set(state);
 }
 
+#[must_use]
 pub fn get_dispatch_state() -> *mut ffi::c_void {
     DISPATCH_STATE.get()
 }

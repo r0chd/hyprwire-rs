@@ -57,7 +57,7 @@ pub trait WireObject: object::Object {
                 method.since,
                 self.version()
             );
-            log::error!("core protocol error: {}", msg);
+            log::error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Err(message::MessageError::ProtocolVersionTooLow);
         }
@@ -73,10 +73,8 @@ pub trait WireObject: object::Object {
             let wire_param = types::MessageMagic::try_from(data[data_idx])?;
 
             if param != wire_param {
-                let msg = format!(
-                    "method {} param idx {} should be {:?} but was {:?}",
-                    id, i, param, wire_param
-                );
+                let msg =
+                    format!("method {id} param idx {i} should be {param:?} but was {wire_param:?}");
                 log::error!("core protocol error: {msg}");
                 self.error(self.id(), &msg);
                 return Err(message::MessageError::InvalidParameter);
@@ -104,8 +102,7 @@ pub trait WireObject: object::Object {
                     if arr_type != wire_type {
                         // raise protocol error
                         let msg = format!(
-                            "method {} param idx {} should be {:?} but was {:?}",
-                            id, i, arr_type, wire_type
+                            "method {id} param idx {i} should be {arr_type:?} but was {wire_type:?}"
                         );
                         log::error!("core protocol error: {msg}");
                         self.error(self.id(), &msg);
@@ -162,7 +159,7 @@ pub trait WireObject: object::Object {
         let mut cif = ffi::ffi_cif::default();
         unsafe {
             if ffi::prep_cif(
-                &mut cif,
+                &raw mut cif,
                 ffi::ffi_abi_FFI_DEFAULT_ABI,
                 ffi_types.len(),
                 &raw mut libffi::raw::ffi_type_void,
@@ -185,7 +182,7 @@ pub trait WireObject: object::Object {
         let data_ptr = self.get_data();
         let mut data_ptr_slot = vec![0u8; std::mem::size_of::<*mut raw::c_void>()];
         data_ptr_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
-        avalues.push(data_ptr_slot.as_mut_ptr() as *mut raw::c_void);
+        avalues.push(data_ptr_slot.as_mut_ptr().cast::<raw::c_void>());
         other_buffers.push(data_ptr_slot);
 
         let mut i: usize = 0;
@@ -200,21 +197,21 @@ pub trait WireObject: object::Object {
                 | types::MessageMagic::TypeSeq => {
                     let mut storage = vec![0u8; std::mem::size_of::<u32>()];
                     storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<u32>()]);
-                    buf = Some(storage.as_mut_ptr() as *mut raw::c_void);
+                    buf = Some(storage.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(storage);
                     i += std::mem::size_of::<u32>();
                 }
                 types::MessageMagic::TypeF32 => {
                     let mut storage = vec![0u8; std::mem::size_of::<f32>()];
                     storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<f32>()]);
-                    buf = Some(storage.as_mut_ptr() as *mut raw::c_void);
+                    buf = Some(storage.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(storage);
                     i += std::mem::size_of::<f32>();
                 }
                 types::MessageMagic::TypeInt => {
                     let mut storage = vec![0u8; std::mem::size_of::<i32>()];
                     storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<i32>()]);
-                    buf = Some(storage.as_mut_ptr() as *mut raw::c_void);
+                    buf = Some(storage.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(storage);
                     i += std::mem::size_of::<i32>();
                 }
@@ -230,7 +227,7 @@ pub trait WireObject: object::Object {
                     let str_ptr = strings.last().unwrap().as_ptr();
                     let mut slot = vec![0u8; std::mem::size_of::<*const u8>()];
                     slot.copy_from_slice(&(str_ptr as usize).to_ne_bytes());
-                    buf = Some(slot.as_mut_ptr() as *mut raw::c_void);
+                    buf = Some(slot.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(slot);
 
                     i += str_len + len_len;
@@ -262,12 +259,14 @@ pub trait WireObject: object::Object {
 
                             let mut data_slot = vec![0u8; std::mem::size_of::<*mut u8>()];
                             data_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
-                            avalues.push(data_slot.as_mut_ptr() as *mut raw::c_void);
+                            avalues.push(data_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(data_slot);
 
                             let mut size_slot = vec![0u8; std::mem::size_of::<u32>()];
-                            size_slot.copy_from_slice(&(arr_len as u32).to_le_bytes());
-                            avalues.push(size_slot.as_mut_ptr() as *mut raw::c_void);
+                            #[allow(clippy::cast_possible_truncation)]
+                            let arr_len_u32 = arr_len as u32;
+                            size_slot.copy_from_slice(&arr_len_u32.to_le_bytes());
+                            avalues.push(size_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(size_slot);
                         }
                         types::MessageMagic::TypeVarchar => {
@@ -298,12 +297,14 @@ pub trait WireObject: object::Object {
 
                             let mut data_slot = vec![0u8; std::mem::size_of::<*mut u8>()];
                             data_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
-                            avalues.push(data_slot.as_mut_ptr() as *mut raw::c_void);
+                            avalues.push(data_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(data_slot);
 
                             let mut size_slot = vec![0u8; std::mem::size_of::<u32>()];
-                            size_slot.copy_from_slice(&(arr_len as u32).to_le_bytes());
-                            avalues.push(size_slot.as_mut_ptr() as *mut raw::c_void);
+                            #[allow(clippy::cast_possible_truncation)]
+                            let arr_len_u32 = arr_len as u32;
+                            size_slot.copy_from_slice(&arr_len_u32.to_le_bytes());
+                            avalues.push(size_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(size_slot);
                         }
                         types::MessageMagic::TypeFd => {
@@ -328,12 +329,14 @@ pub trait WireObject: object::Object {
 
                             let mut data_slot = vec![0u8; std::mem::size_of::<*mut u8>()];
                             data_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
-                            avalues.push(data_slot.as_mut_ptr() as *mut raw::c_void);
+                            avalues.push(data_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(data_slot);
 
                             let mut size_slot = vec![0u8; std::mem::size_of::<u32>()];
-                            size_slot.copy_from_slice(&(arr_len as u32).to_le_bytes());
-                            avalues.push(size_slot.as_mut_ptr() as *mut raw::c_void);
+                            #[allow(clippy::cast_possible_truncation)]
+                            let arr_len_u32 = arr_len as u32;
+                            size_slot.copy_from_slice(&arr_len_u32.to_le_bytes());
+                            avalues.push(size_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(size_slot);
                         }
                         _ => {
@@ -362,7 +365,7 @@ pub trait WireObject: object::Object {
                     let mut storage = vec![0u8; std::mem::size_of::<i32>()];
                     storage.copy_from_slice(&fds[fd_no].to_le_bytes());
                     fd_no += 1;
-                    buf = Some(storage.as_mut_ptr() as *mut raw::c_void);
+                    buf = Some(storage.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(storage);
                 }
             }
@@ -377,10 +380,10 @@ pub trait WireObject: object::Object {
         let listener = self.listeners()[id as usize];
         unsafe {
             ffi::call::<()>(
-                &mut cif,
+                &raw mut cif,
                 libffi::high::CodePtr::from_ptr(listener),
                 avalues.as_mut_ptr(),
-            )
+            );
         };
 
         Ok(())
@@ -459,9 +462,8 @@ pub trait WireObject: object::Object {
         let mut arg_idx: usize = 0;
         let mut i: usize = 0;
         while i < params.len() {
-            let param = match types::MessageMagic::try_from(params[i]) {
-                Ok(m) => m,
-                Err(_) => break,
+            let Ok(param) = types::MessageMagic::try_from(params[i]) else {
+                break;
             };
 
             match param {
@@ -512,17 +514,15 @@ pub trait WireObject: object::Object {
                 }
                 types::MessageMagic::TypeArray => {
                     i += 1;
-                    let arr_type = match types::MessageMagic::try_from(params[i]) {
-                        Ok(m) => m,
-                        Err(_) => break,
+                    let Ok(arr_type) = types::MessageMagic::try_from(params[i]) else {
+                        break;
                     };
 
                     data.push(types::MessageMagic::TypeArray as u8);
                     data.push(arr_type as u8);
 
                     match args.get(arg_idx) {
-                        Some(types::CallArg::UintArray(arr))
-                        | Some(types::CallArg::ObjectArray(arr)) => {
+                        Some(types::CallArg::UintArray(arr) | types::CallArg::ObjectArray(arr)) => {
                             let mut var_int_buf = [0u8; 10];
                             let encoded = message::encode_var_int(arr.len(), &mut var_int_buf);
                             data.extend_from_slice(encoded);

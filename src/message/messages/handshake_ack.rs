@@ -55,7 +55,7 @@ impl HandshakeAck {
 
         Ok(Self {
             version,
-            data: data[offset..offset + needle + 1].try_into().unwrap(),
+            data: data[offset..=(offset + needle)].try_into().unwrap(),
         })
     }
 }

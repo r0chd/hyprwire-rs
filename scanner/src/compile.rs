@@ -5,6 +5,7 @@ pub struct Builder {
     out_dir: Option<path::PathBuf>,
 }
 
+#[must_use]
 pub fn configure() -> Builder {
     Builder { out_dir: None }
 }

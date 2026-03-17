@@ -3,7 +3,6 @@ mod messages;
 use crate::client::client_socket;
 use crate::server::server_client;
 use crate::{socket, steady_millis, trace};
-pub(crate) use messages::Message;
 pub(crate) use messages::bind_protocol::BindProtocol;
 pub(crate) use messages::fatal_protocol_error::FatalProtocolError;
 pub(crate) use messages::generic_protocol_message::GenericProtocolMessage;
@@ -14,6 +13,7 @@ pub(crate) use messages::hello::Hello;
 pub(crate) use messages::new_object::NewObject;
 pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
+pub(crate) use messages::Message;
 use std::fmt;
 
 #[derive(Debug)]
@@ -125,7 +125,7 @@ pub enum Role<'a> {
 
 pub fn handle_message(
     data: &mut socket::SocketRawParsedMessage,
-    role: Role,
+    role: &Role,
 ) -> Result<(), MessageError> {
     match role {
         Role::Client(client) => {
@@ -175,11 +175,8 @@ fn parse_single_message_client(
                     log::error!("server at fd {:?} core protocol error...", client.state.fd);
                 })?;
 
-                // TODO: make it globally accessible ig
-                let protocol_version = 1;
-
                 let mut version_supported = false;
-                if msg.versions().contains(&protocol_version) {
+                if msg.versions().contains(&crate::PROTOCOL_VERSION) {
                     version_supported = true;
                 }
 
@@ -198,7 +195,7 @@ fn parse_single_message_client(
 
                 client
                     .state
-                    .send_message(&HandshakeAck::new(protocol_version));
+                    .send_message(&HandshakeAck::new(crate::PROTOCOL_VERSION));
 
                 return Ok(msg.data().len());
             }
@@ -358,7 +355,10 @@ fn parse_single_message_server(
                 client.version.set(msg.version());
 
                 let protocol_names = client.protocol_names();
-                let protocol_refs: Vec<&str> = protocol_names.iter().map(|s| s.as_str()).collect();
+                let protocol_refs: Vec<&str> = protocol_names
+                    .iter()
+                    .map(std::string::String::as_str)
+                    .collect();
                 client
                     .state
                     .send_message(&HandshakeProtocols::new(&protocol_refs));
@@ -464,7 +464,9 @@ pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
     let mut i = 0;
 
     loop {
-        let chunk = (n & 0x7F) as u8;
+        let Ok(chunk) = u8::try_from(n & 0x7F) else {
+            continue;
+        };
         n >>= 7;
         buffer[i] = if n == 0 { chunk } else { chunk | 0x80 };
         i += 1;

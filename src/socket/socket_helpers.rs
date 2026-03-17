@@ -34,20 +34,14 @@ impl SocketRawParsedMessage {
 
         let mut fds = Vec::new();
         for cmsg in msg.cmsgs().map_err(|_| nix::errno::Errno::ENOBUFS)? {
-            match cmsg {
-                ControlMessageOwned::ScmRights(received_fds) => {
-                    trace! {
-                        eprintln!(
-                            "[hw] trace: SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",
-                            received_fds.len()
-                        )
-                    }
-                    fds.extend(received_fds);
+            if let ControlMessageOwned::ScmRights(received_fds) = cmsg {
+                trace! {
+                    eprintln!(
+                        "[hw] trace: SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",
+                        received_fds.len()
+                    )
                 }
-                _ => {
-                    log::error!("protocol error: invalid control message type");
-                    return Err(nix::errno::Errno::EPROTO);
-                }
+                fds.extend(received_fds);
             }
         }
 

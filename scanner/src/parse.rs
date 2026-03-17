@@ -83,7 +83,7 @@ fn parse_arg_type(type_str: &str) -> ArgType {
 
 fn attr_str(e: &quick_xml::events::BytesStart<'_>, key: &[u8]) -> Option<String> {
     e.attributes()
-        .filter_map(|a| a.ok())
+        .filter_map(std::result::Result::ok)
         .find(|a| a.key.as_ref() == key)
         .map(|a| String::from_utf8_lossy(&a.value).into_owned())
 }

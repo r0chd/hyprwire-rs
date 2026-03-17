@@ -11,10 +11,12 @@ impl Object {
         Self(inner)
     }
 
+    #[must_use]
     pub fn into_inner(self) -> rc::Rc<cell::RefCell<dyn super::object::Object>> {
         self.0
     }
 
+    #[must_use]
     pub fn inner(&self) -> &rc::Rc<cell::RefCell<dyn super::object::Object>> {
         &self.0
     }
@@ -37,10 +39,10 @@ pub enum MessageMagic {
     /// [magic : 1B][len : VLQ][data : len B]
     TypeVarchar = 0x20,
 
-    /// [magic : 1B][type : 1B][n_els : VLQ]{ [data...] }
+    /// [magic : 1B][type : 1B][`n_els` : VLQ]{ [data...] }
     TypeArray = 0x21,
 
-    /// [magic : 1B][id : UINT][name_len : VLQ][object name ...]
+    /// [magic : 1B][id : UINT][`name_len` : VLQ][object name ...]
     TypeObject = 0x22,
 
     /// Special types
@@ -51,13 +53,12 @@ pub enum MessageMagic {
 impl MessageMagic {
     pub(crate) fn to_ffi_type(self) -> *mut low::ffi_type {
         match self {
-            Self::TypeUint | Self::TypeObject | Self::TypeSeq => &raw mut low::types::uint32,
-            Self::TypeInt => &raw mut low::types::sint32,
+            Self::TypeUint | Self::TypeObject | Self::TypeSeq | Self::TypeObjectId => {
+                &raw mut low::types::uint32
+            }
+            Self::TypeInt | Self::TypeFd => &raw mut low::types::sint32,
+            Self::TypeVarchar | Self::TypeArray => &raw mut low::types::pointer,
             Self::TypeF32 => &raw mut low::types::float,
-            Self::TypeVarchar => &raw mut low::types::pointer,
-            Self::TypeArray => &raw mut low::types::pointer,
-            Self::TypeFd => &raw mut low::types::sint32,
-            Self::TypeObjectId => &raw mut low::types::uint32,
             Self::End => &raw mut low::types::void,
         }
     }

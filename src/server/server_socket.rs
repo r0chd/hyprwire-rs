@@ -152,18 +152,17 @@ impl ServerSocket {
 
         let mut data = {
             let stream = state.stream.borrow();
-            match socket::SocketRawParsedMessage::read_from_socket(&stream) {
-                Ok(d) => d,
-                Err(_) => {
-                    drop(stream);
-                    state.send_message(&message::FatalProtocolError::new(
-                        0,
-                        u32::MAX,
-                        "fatal: invalid message on wire",
-                    ));
-                    state.error.set(true);
-                    return;
-                }
+            if let Ok(d) = socket::SocketRawParsedMessage::read_from_socket(&stream) {
+                d
+            } else {
+                drop(stream);
+                state.send_message(&message::FatalProtocolError::new(
+                    0,
+                    u32::MAX,
+                    "fatal: invalid message on wire",
+                ));
+                state.error.set(true);
+                return;
             }
         };
 
@@ -171,7 +170,7 @@ impl ServerSocket {
             return;
         }
 
-        if message::handle_message(&mut data, message::Role::Server(&client.borrow())).is_err() {
+        if message::handle_message(&mut data, &message::Role::Server(&client.borrow())).is_err() {
             state.send_message(&message::FatalProtocolError::new(
                 0,
                 u32::MAX,
@@ -195,9 +194,8 @@ impl ServerSocket {
         let internal_fds = self.internal_fds();
 
         for i in internal_fds..self.pollfds.len() {
-            let revents = match self.pollfds[i].revents() {
-                Some(r) => r,
-                None => continue,
+            let Some(revents) = self.pollfds.first().and_then(poll::PollFd::revents) else {
+                continue;
             };
 
             if !revents.contains(poll::PollFlags::POLLIN) {
@@ -250,18 +248,16 @@ impl ServerSocket {
             return false;
         }
 
-        let revents = match self.pollfds[0].revents() {
-            Some(r) => r,
-            None => return false,
+        let Some(revents) = self.pollfds.first().and_then(poll::PollFd::revents) else {
+            return false;
         };
 
         if !revents.contains(poll::PollFlags::POLLIN) {
             return false;
         }
 
-        let server = match &self.server {
-            Some(s) => s,
-            None => return false,
+        let Some(server) = self.server.as_ref() else {
+            return false;
         };
 
         let (stream, _addr) = match server.accept() {
@@ -315,7 +311,7 @@ impl ServerSocket {
 
     pub fn dispatch_events(&mut self, block: bool) -> bool {
         let mtx = sync::Arc::clone(&self.poll_mtx);
-        let _poll_guard = mtx.lock().unwrap();
+        let poll_guard = mtx.lock().unwrap();
 
         while self.dispatch_pending() {}
 
@@ -328,7 +324,7 @@ impl ServerSocket {
             while self.dispatch_pending() {}
         }
 
-        drop(_poll_guard);
+        drop(poll_guard);
 
         let export_mtx = sync::Arc::clone(&self.export_poll_mtx);
         let export_cv = sync::Arc::clone(&self.export_poll_cv);
@@ -339,10 +335,7 @@ impl ServerSocket {
         true
     }
 
-    pub fn add_client(
-        &mut self,
-        fd: i32,
-    ) -> Option<rc::Rc<cell::RefCell<server_client::ServerClient>>> {
+    pub fn add_client(&mut self, fd: i32) -> rc::Rc<cell::RefCell<server_client::ServerClient>> {
         let stream = unsafe { net::UnixStream::from_raw_fd(fd) };
         let state = rc::Rc::new(SharedState::with_impls(stream, rc::Rc::clone(&self.impls)));
         let client = server_client::ServerClient::new(rc::Rc::clone(&state));
@@ -353,7 +346,7 @@ impl ServerSocket {
         // wake up any poller
         let _ = io::Write::write(&mut &self.wakeup_write_fd, b"x");
 
-        Some(client)
+        client
     }
 
     pub fn remove_client(&mut self, fd: i32) -> bool {
@@ -453,9 +446,7 @@ impl ServerSocket {
                     if let Ok((guard, timeout)) = result
                         && timeout.timed_out()
                         && *guard
-                    {
-                        continue;
-                    }
+                    {}
                 }
             }
         }));

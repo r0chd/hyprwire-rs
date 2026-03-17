@@ -55,8 +55,7 @@ impl W {
 
 fn write_header(w: &mut W, protocol: &Protocol) {
     w.line(&format!(
-        "// Generated with hyprwire-scanner {}. Made with pure malice and hatred by r0chd.",
-        SCANNER_VERSION
+        "// Generated with hyprwire-scanner {SCANNER_VERSION}. Made with pure malice and hatred by r0chd.",
     ));
     w.line(&format!("// {}", protocol.name));
     w.line("");
@@ -124,14 +123,12 @@ fn methods_need_lifetime(methods: &[Method]) -> bool {
 fn event_field_type(arg_type: &ArgType) -> &'static str {
     match arg_type {
         ArgType::Varchar => "&'a ffi::CStr",
-        ArgType::Fd => "i32",
+        ArgType::Fd | ArgType::Int => "i32",
         ArgType::Uint | ArgType::Enum => "u32",
-        ArgType::Int => "i32",
         ArgType::F32 => "f32",
         ArgType::ArrayVarchar => "&'a [&'a ffi::CStr]",
-        ArgType::ArrayFd => "&'a [i32]",
+        ArgType::ArrayFd | ArgType::ArrayInt => "&'a [i32]",
         ArgType::ArrayUint => "&'a [u32]",
-        ArgType::ArrayInt => "&'a [i32]",
         ArgType::ArrayF32 => "&'a [f32]",
     }
 }
@@ -163,15 +160,13 @@ fn is_array_type(arg_type: &ArgType) -> bool {
 fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> String {
     match arg_type {
         ArgType::Varchar => "&str".to_string(),
-        ArgType::Fd => "i32".to_string(),
+        ArgType::Fd | ArgType::Int => "i32".to_string(),
         ArgType::Uint => "u32".to_string(),
-        ArgType::Int => "i32".to_string(),
         ArgType::F32 => "f32".to_string(),
         ArgType::Enum => format!("super::spec::{}", snake_to_pascal(interface.unwrap())),
         ArgType::ArrayVarchar => "&[&str]".to_string(),
-        ArgType::ArrayFd => "&[i32]".to_string(),
+        ArgType::ArrayFd | ArgType::ArrayInt => "&[i32]".to_string(),
         ArgType::ArrayUint => "&[u32]".to_string(),
-        ArgType::ArrayInt => "&[i32]".to_string(),
         ArgType::ArrayF32 => "&[f32]".to_string(),
     }
 }
@@ -1039,6 +1034,7 @@ fn write_call_with_args(w: &mut W, idx: usize, args: &[super::parse::Arg], is_se
 
 // --- Public API ---
 
+#[must_use]
 pub fn generate(protocol: &Protocol) -> String {
     let mut w = W::new();
 
