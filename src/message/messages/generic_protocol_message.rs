@@ -1,6 +1,7 @@
 use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
+use crate::trace;
 use std::ops;
 
 #[derive(Debug)]
@@ -113,9 +114,9 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                             }
                         }
                         _ => {
-                            log::trace!(
-                                "GenericProtocolMessage: failed demarshaling array message"
-                            );
+                            trace! {
+                                eprintln!("[hw] trace: GenericProtocolMessage: failed demarshaling array message")
+                            }
                             return Err(MessageError::MalformedMessage);
                         }
                     }
@@ -124,16 +125,18 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                 }
                 MessageMagic::TypeFd => {
                     if fds.is_empty() {
-                        log::trace!(
-                            "GenericProtocolMessage: MessageMagic::TypeFd but fd queue is empty"
-                        );
+                        trace! {
+                            eprintln!("[hw] trace: GenericProtocolMessage: MessageMagic::TypeFd but fd queue is empty")
+                        }
                         return Err(MessageError::MalformedMessage);
                     }
                     consumed_fds.push(fds.remove(0));
                     i += 1;
                 }
                 _ => {
-                    log::trace!("GenericProtocolMessage: failed demarshaling array message");
+                    trace! {
+                        eprintln!("[hw] trace: GenericProtocolMessage: failed demarshaling array message")
+                    }
                     return Err(MessageError::MalformedMessage);
                 }
             }

@@ -48,20 +48,18 @@ impl ServerClient {
             Ok(cred) => {
                 self.pid.set(cred.pid());
                 trace! {
-                    log::debug!(
-                        "[{} @ {:.3}] peer pid: {}",
+                    eprintln!(
+                        "[hw] trace: [{} @ {:.3}] peer pid: {}",
                         self.state.fd,
                         steady_millis(),
                         self.pid.get()
                     )
                 }
             }
-            Err(e) => {
-                log::error!(
-                    "[{} @ {:.3}] failed to get peer credentials: {e}",
-                    self.state.fd,
-                    steady_millis(),
-                );
+            Err(_) => {
+                trace! {
+                    eprintln!("[hw] trace: dispatchFirstPoll: failed to get pid")
+                }
             }
         }
     }
@@ -171,13 +169,23 @@ impl ServerClient {
                 }
             }
             None => {
-                log::debug!(
-                    "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-                    self.state.fd,
-                    steady_millis(),
-                    msg.object(),
-                );
+                trace! {
+                    eprintln!(
+                        "[hw] trace: [{} @ {:.3}] -> Generic message not handled. No object with id {}!",
+                        self.state.fd,
+                        steady_millis(),
+                        msg.object(),
+                    )
+                }
             }
+        }
+    }
+}
+
+impl Drop for ServerClient {
+    fn drop(&mut self) {
+        trace! {
+            eprintln!("[hw] trace: [{}] destroying client", self.state.fd)
         }
     }
 }

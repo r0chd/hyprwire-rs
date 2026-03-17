@@ -32,7 +32,7 @@ pub trait WireObject: object::Object {
 
         if methods.len() <= id as usize {
             let msg = format!("invalid method {} for object {}", id, self.id());
-            log::debug!("core protocol error: {msg}");
+            log::error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Err(message::MessageError::InvalidMethod);
         }
@@ -57,7 +57,7 @@ pub trait WireObject: object::Object {
                 method.since,
                 self.version()
             );
-            log::debug!("core protocol error: {}", msg);
+            log::error!("core protocol error: {}", msg);
             self.error(self.id(), &msg);
             return Err(message::MessageError::ProtocolVersionTooLow);
         }
@@ -77,7 +77,7 @@ pub trait WireObject: object::Object {
                     "method {} param idx {} should be {:?} but was {:?}",
                     id, i, param, wire_param
                 );
-                log::debug!("core protocol error: {msg}");
+                log::error!("core protocol error: {msg}");
                 self.error(self.id(), &msg);
                 return Err(message::MessageError::InvalidParameter);
             }
@@ -107,7 +107,7 @@ pub trait WireObject: object::Object {
                             "method {} param idx {} should be {:?} but was {:?}",
                             id, i, arr_type, wire_type
                         );
-                        log::debug!("core protocol error: {msg}");
+                        log::error!("core protocol error: {msg}");
                         self.error(self.id(), &msg);
                         return Err(message::MessageError::IncorrectParamIdx);
                     }
@@ -127,7 +127,7 @@ pub trait WireObject: object::Object {
                             for _ in 0..arr_len {
                                 if data_idx + arr_message_len > data.len() {
                                     let msg = "failed demarshaling array message";
-                                    log::debug!("core protocol error: {msg}");
+                                    log::error!("core protocol error: {msg}");
                                     self.error(self.id(), msg);
                                     return Err(message::MessageError::DemarshalingFailed);
                                 }
@@ -140,7 +140,7 @@ pub trait WireObject: object::Object {
                         types::MessageMagic::TypeFd => {}
                         _ => {
                             let msg = "failed demarshaling array message";
-                            log::debug!("core protocol error: {msg}");
+                            log::error!("core protocol error: {msg}");
                             self.error(self.id(), msg);
                             return Err(message::MessageError::DemarshalingFailed);
                         }
@@ -150,7 +150,7 @@ pub trait WireObject: object::Object {
                 }
                 types::MessageMagic::TypeObjectId => {
                     let msg = "object type is not implemented";
-                    log::debug!("core protocol error: {msg}");
+                    log::error!("core protocol error: {msg}");
                     self.error(self.id(), msg);
                     return Err(message::MessageError::Unimplemented);
                 }
@@ -170,7 +170,7 @@ pub trait WireObject: object::Object {
             )
             .is_err()
             {
-                log::debug!("core protocol error: ffi failed");
+                log::error!("core protocol error: ffi failed");
                 self.errd();
                 return Ok(());
             }
@@ -314,7 +314,7 @@ pub trait WireObject: object::Object {
                             for j in 0..arr_len {
                                 if fd_no >= fds.len() {
                                     let msg = "failed demarshaling array message";
-                                    log::debug!("core protocol error: {msg}");
+                                    log::error!("core protocol error: {msg}");
                                     self.error(self.id(), msg);
                                     return Err(message::MessageError::DemarshalingFailed);
                                 }
@@ -338,7 +338,7 @@ pub trait WireObject: object::Object {
                         }
                         _ => {
                             let msg = "failed demarshaling array message";
-                            log::debug!("core protocol error: {msg}");
+                            log::error!("core protocol error: {msg}");
                             self.error(self.id(), msg);
                             return Err(message::MessageError::DemarshalingFailed);
                         }
@@ -348,14 +348,14 @@ pub trait WireObject: object::Object {
                 }
                 types::MessageMagic::TypeObjectId => {
                     let msg = "object type is not implemented";
-                    log::debug!("core protocol error: {msg}");
+                    log::error!("core protocol error: {msg}");
                     self.error(self.id(), msg);
                     return Err(message::MessageError::Unimplemented);
                 }
                 types::MessageMagic::TypeFd => {
                     if fd_no >= fds.len() {
                         let msg = "failed demarshaling fd";
-                        log::debug!("core protocol error: {msg}");
+                        log::error!("core protocol error: {msg}");
                         self.error(self.id(), msg);
                         return Err(message::MessageError::DemarshalingFailed);
                     }
@@ -391,7 +391,7 @@ pub trait WireObject: object::Object {
 
         if methods.len() <= id as usize {
             let msg = format!("invalid method {} for object {}", id, self.id());
-            log::debug!("core protocol error: {msg}");
+            log::error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Ok(0);
         }
@@ -405,7 +405,7 @@ pub trait WireObject: object::Object {
                 method.since,
                 self.version()
             );
-            log::debug!("core protocol error: {msg}");
+            log::error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Ok(0);
         }
@@ -416,7 +416,7 @@ pub trait WireObject: object::Object {
                 id,
                 self.id()
             );
-            log::debug!("core protocol error: {msg}");
+            log::error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Ok(0);
         }
@@ -442,7 +442,7 @@ pub trait WireObject: object::Object {
         if !method_returns_type.is_empty() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    log::trace!("[{} @ {:.3}] -- call {}: returnsType has {}", client.0.borrow().state.fd, steady_millis(), id, method_returns_type);
+                    eprintln!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.borrow().state.fd, steady_millis(), id, method_returns_type);
                 }
             }
 
@@ -565,7 +565,7 @@ pub trait WireObject: object::Object {
                             }
                         }
                         _ => {
-                            log::debug!("core protocol error: failed marshaling array type");
+                            log::error!("core protocol error: failed marshaling array type");
                             self.errd();
                             return Ok(0);
                         }
@@ -586,7 +586,7 @@ pub trait WireObject: object::Object {
         if self.id() == 0 && !self.server() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    log::debug!("[{} @ {:.3}] -- call: waiting on object of type {}", client.0.borrow().state.fd, steady_millis(), method_returns_type);
+                    eprintln!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.borrow().state.fd, steady_millis(), method_returns_type);
                 }
             }
 

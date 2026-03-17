@@ -1,3 +1,4 @@
+use crate::trace;
 use nix::sys::socket::{self, ControlMessageOwned};
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
@@ -35,14 +36,16 @@ impl SocketRawParsedMessage {
         for cmsg in msg.cmsgs().map_err(|_| nix::errno::Errno::ENOBUFS)? {
             match cmsg {
                 ControlMessageOwned::ScmRights(received_fds) => {
-                    log::debug!(
-                        "SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",
-                        received_fds.len()
-                    );
+                    trace! {
+                        eprintln!(
+                            "[hw] trace: SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",
+                            received_fds.len()
+                        )
+                    }
                     fds.extend(received_fds);
                 }
                 _ => {
-                    log::debug!("protocol error: invalid control message type");
+                    log::error!("protocol error: invalid control message type");
                     return Err(nix::errno::Errno::EPROTO);
                 }
             }

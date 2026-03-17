@@ -41,7 +41,7 @@ impl Server {
 
     pub fn create_object(
         &self,
-        _client: &server_client::ServerClient,
+        _client_fd: RawFd,
         _reference: &dyn crate::implementation::object::Object,
         _object: &str,
         _seq: u32,

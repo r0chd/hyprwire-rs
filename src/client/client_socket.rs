@@ -98,7 +98,7 @@ impl ClientSocket {
         version: u32,
     ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::Object>>, io::Error> {
         if version > spec.spec_ver() {
-            log::debug!(
+            log::error!(
                 "version {} is larger than current spec ver of {}",
                 version,
                 spec.spec_ver()
@@ -346,7 +346,7 @@ impl ClientSocket {
             match socket::SocketRawParsedMessage::read_from_socket(&*stream) {
                 Err(_) => {
                     drop(stream);
-                    log::debug!("fatal: received malformed message from server");
+                    log::error!("fatal: received malformed message from server");
                     self.disconnect_on_error();
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -365,7 +365,7 @@ impl ClientSocket {
         }
 
         if message::handle_message(&mut data, message::Role::Client(self)).is_err() {
-            log::debug!("fatal: failed to handle message on wire");
+            log::error!("fatal: failed to handle message on wire");
             self.disconnect_on_error();
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -387,7 +387,7 @@ impl ClientSocket {
                 Some(id) => {
                     msg.resolve_seq(id);
                     trace! {
-                        log::debug!("[{} @ {:.3}] -> Handle deferred {}", self.state.fd, steady_millis(), msg.parse_data())
+                        eprintln!("[hw] trace: [{} @ {:.3}] -> Handle deferred {}", self.state.fd, steady_millis(), msg.parse_data())
                     }
                 }
             }
@@ -435,12 +435,14 @@ impl ClientSocket {
                 }
             }
             None => {
-                log::debug!(
-                    "[{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-                    self.state.fd,
-                    steady_millis(),
-                    msg.object(),
-                );
+                trace! {
+                    eprintln!(
+                        "[hw] trace: [{} @ {:.3}] -> Generic message not handled. No object with id {}!",
+                        self.state.fd,
+                        steady_millis(),
+                        msg.object(),
+                    )
+                }
             }
         }
     }

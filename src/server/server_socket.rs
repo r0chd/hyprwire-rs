@@ -213,8 +213,8 @@ impl ServerSocket {
                 self.clients[client_idx].borrow().state.error.set(true);
                 needs_poll_recheck = true;
                 trace! {
-                    log::debug!(
-                        "[{} @ {:.3}] Dropping client (hangup)",
+                    eprintln!(
+                        "[hw] trace: [{} @ {:.3}] Dropping client (hangup)",
                         self.clients[client_idx].borrow().state.fd,
                         steady_millis(),
                     )
@@ -224,8 +224,8 @@ impl ServerSocket {
 
             if self.clients[client_idx].borrow().state.error.get() {
                 trace! {
-                    log::debug!(
-                        "[{} @ {:.3}] Dropping client (protocol error)",
+                    eprintln!(
+                        "[hw] trace: [{} @ {:.3}] Dropping client (protocol error)",
                         self.clients[client_idx].borrow().state.fd,
                         steady_millis(),
                     )

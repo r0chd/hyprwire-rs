@@ -19,7 +19,7 @@ pub struct ClientObject {
 
 impl Drop for ClientObject {
     fn drop(&mut self) {
-        trace! {log::debug!("destroying object {}", self.id)}
+        trace! {eprintln!("[hw] trace: destroying object {}", self.id)}
         if let Some(destructor) = self.data_destructor
             && let Some(data) = self.data
         {

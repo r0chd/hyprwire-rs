@@ -30,7 +30,7 @@ pub trait Object {
 
     fn error(&self, error_id: u32, error_msg: &str);
 
-    fn set_on_destroy(&mut self, _func: Box<dyn FnOnce()>) {
-        todo!("set_on_destroy")
+    fn set_on_drop(&mut self, func: Box<dyn FnOnce()>) {
+        _ = func;
     }
 }

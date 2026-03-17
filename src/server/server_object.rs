@@ -20,7 +20,7 @@ pub(crate) struct ServerObject {
 
 impl Drop for ServerObject {
     fn drop(&mut self) {
-        trace! {log::debug!("destroying server object {}", self.id)}
+        trace! {eprintln!("[hw] trace: destroying server object {}", self.id)}
         if let Some(destructor) = self.data_destructor
             && let Some(data) = self.data
         {

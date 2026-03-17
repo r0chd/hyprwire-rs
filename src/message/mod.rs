@@ -140,7 +140,7 @@ pub fn handle_message(
             }
 
             trace! {
-                log::debug!("[{} @ {}] -- handleMessage: Finished read", client.state.fd, steady_millis())
+                eprintln!("[hw] trace: [{} @ {}] -- handleMessage: Finished read", client.state.fd, steady_millis())
             }
         }
         Role::Server(client) => {
@@ -155,7 +155,7 @@ pub fn handle_message(
             }
 
             trace! {
-                log::debug!("[{} @ {}] -- handleMessage: Finished read", client.state.fd, steady_millis())
+                eprintln!("[hw] trace: [{} @ {}] -- handleMessage: Finished read", client.state.fd, steady_millis())
             }
         }
     }
@@ -193,7 +193,7 @@ fn parse_single_message_client(
                 }
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] -> parse error: {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] -> parse error: {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client
@@ -211,7 +211,7 @@ fn parse_single_message_client(
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.server_specs(msg.protocols());
@@ -228,7 +228,7 @@ fn parse_single_message_client(
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.on_seq(msg.seq(), msg.id());
@@ -245,7 +245,7 @@ fn parse_single_message_client(
                     })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.on_generic(&msg);
@@ -281,7 +281,7 @@ fn parse_single_message_client(
                     })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.last_ackd_roundtrip_seq.set(msg.seq());
@@ -327,7 +327,7 @@ fn parse_single_message_server(
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.dispatch_first_poll();
@@ -352,7 +352,7 @@ fn parse_single_message_server(
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.version.set(msg.version());
@@ -382,7 +382,7 @@ fn parse_single_message_server(
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.create_object(msg.protocol(), "", msg.version(), msg.seq());
@@ -407,7 +407,7 @@ fn parse_single_message_server(
                     })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.on_generic(&msg);
@@ -431,7 +431,7 @@ fn parse_single_message_server(
                 })?;
 
                 trace! {
-                    log::debug!("[{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
+                    eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
                 client.scheduled_roundtrip_seq.set(msg.seq());

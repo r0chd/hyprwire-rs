@@ -43,7 +43,7 @@ impl SharedState {
     }
 
     pub(crate) fn send_message(&self, message: &dyn message::Message) {
-        trace! { log::trace!("[{} @ {:.3}] -> {}", self.fd, steady_millis(), message.parse_data()) };
+        trace! { eprintln!("[hw] trace: [{} @ {:.3}] -> {}", self.fd, steady_millis(), message.parse_data()) };
 
         let stream = self.stream.borrow();
         let buf = message.data();
