@@ -216,7 +216,7 @@ fn generate_spec(w: &mut W, protocol: &Protocol) {
     // Enums
     for e in &protocol.enums {
         let pascal = snake_to_pascal(&e.name);
-        w.line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+        w.line("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]");
         w.line("#[repr(u32)]");
         w.line(&format!("pub enum {pascal} {{"));
         w.indent();
@@ -773,6 +773,7 @@ fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method]) {
     } else {
         ""
     };
+    w.line("#[derive(Debug, Clone, PartialEq, Eq, Hash)]");
     w.line(&format!("pub enum {event_type}{lifetime} {{"));
     w.indent();
     for m in methods {
