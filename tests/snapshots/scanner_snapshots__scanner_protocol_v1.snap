@@ -2,7 +2,7 @@
 source: tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.1.1. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.1.2. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 
 /*
@@ -16,10 +16,12 @@ expression: code
 pub mod server {
     use std::{ffi, rc};
 
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct MyObjectV1Object {
         object: hyprwire::implementation::types::Object,
     }
@@ -376,9 +378,53 @@ pub mod client {
         on_destroy: Option<Box<dyn FnOnce()>>,
     }
 
+    impl std::fmt::Debug for MyManagerV1Object {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("MyManagerV1Object").field("object", &self.object).finish()
+        }
+    }
+
+    impl Clone for MyManagerV1Object {
+        fn clone(&self) -> Self {
+            Self { object: self.object.clone(), on_destroy: None }
+        }
+    }
+
+    impl PartialEq for MyManagerV1Object {
+        fn eq(&self, other: &Self) -> bool { self.object == other.object }
+    }
+
+    impl Eq for MyManagerV1Object {}
+
+    impl std::hash::Hash for MyManagerV1Object {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) { self.object.hash(state); }
+    }
+
     pub struct MyObjectV1Object {
         object: hyprwire::implementation::types::Object,
         on_destroy: Option<Box<dyn FnOnce()>>,
+    }
+
+    impl std::fmt::Debug for MyObjectV1Object {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("MyObjectV1Object").field("object", &self.object).finish()
+        }
+    }
+
+    impl Clone for MyObjectV1Object {
+        fn clone(&self) -> Self {
+            Self { object: self.object.clone(), on_destroy: None }
+        }
+    }
+
+    impl PartialEq for MyObjectV1Object {
+        fn eq(&self, other: &Self) -> bool { self.object == other.object }
+    }
+
+    impl Eq for MyObjectV1Object {}
+
+    impl std::hash::Hash for MyObjectV1Object {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) { self.object.hash(state); }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]

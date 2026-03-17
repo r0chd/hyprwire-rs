@@ -1,6 +1,6 @@
 use crate::message::MessageError;
 use libffi::low;
-use std::{cell, rc, sync::Arc};
+use std::{cell, fmt, hash, rc, sync::Arc};
 
 /// A user-facing handle to a protocol object. Wraps the internal
 /// `Rc<RefCell<dyn Object>>` so callers never deal with those types directly.
@@ -21,6 +21,35 @@ impl Object {
         &self.0
     }
 }
+
+impl fmt::Debug for Object {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Object")
+            .field(&rc::Rc::as_ptr(&self.0))
+            .finish()
+    }
+}
+
+impl Clone for Object {
+    fn clone(&self) -> Self {
+        Self(rc::Rc::clone(&self.0))
+    }
+}
+
+impl PartialEq for Object {
+    fn eq(&self, other: &Self) -> bool {
+        rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for Object {}
+
+impl hash::Hash for Object {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        rc::Rc::as_ptr(&self.0).hash(state);
+    }
+}
+
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

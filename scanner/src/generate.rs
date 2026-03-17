@@ -395,6 +395,7 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
     // Structs for all objects
     for obj in &protocol.objects {
         let pascal = snake_to_pascal(&obj.name);
+        w.line("#[derive(Debug, Clone, PartialEq, Eq, Hash)]");
         w.line(&format!("pub struct {pascal}Object {{"));
         w.indent();
         w.line("object: hyprwire::implementation::types::Object,");
@@ -615,6 +616,47 @@ fn generate_client(w: &mut W, protocol: &Protocol) {
         w.indent();
         w.line("object: hyprwire::implementation::types::Object,");
         w.line("on_destroy: Option<Box<dyn FnOnce()>>,");
+        w.dedent();
+        w.line("}");
+        w.line("");
+
+        w.line(&format!("impl std::fmt::Debug for {pascal}Object {{"));
+        w.indent();
+        w.line("fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {");
+        w.indent();
+        w.line(&format!(
+            "f.debug_struct(\"{pascal}Object\").field(\"object\", &self.object).finish()"
+        ));
+        w.dedent();
+        w.line("}");
+        w.dedent();
+        w.line("}");
+        w.line("");
+
+        w.line(&format!("impl Clone for {pascal}Object {{"));
+        w.indent();
+        w.line("fn clone(&self) -> Self {");
+        w.indent();
+        w.line("Self { object: self.object.clone(), on_destroy: None }");
+        w.dedent();
+        w.line("}");
+        w.dedent();
+        w.line("}");
+        w.line("");
+
+        w.line(&format!("impl PartialEq for {pascal}Object {{"));
+        w.indent();
+        w.line("fn eq(&self, other: &Self) -> bool { self.object == other.object }");
+        w.dedent();
+        w.line("}");
+        w.line("");
+
+        w.line(&format!("impl Eq for {pascal}Object {{}}"));
+        w.line("");
+
+        w.line(&format!("impl std::hash::Hash for {pascal}Object {{"));
+        w.indent();
+        w.line("fn hash<H: std::hash::Hasher>(&self, state: &mut H) { self.object.hash(state); }");
         w.dedent();
         w.line("}");
         w.line("");
