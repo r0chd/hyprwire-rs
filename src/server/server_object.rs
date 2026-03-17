@@ -11,6 +11,7 @@ pub(crate) struct ServerObject {
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Option<*mut raw::c_void>,
     data_destructor: Option<unsafe fn(*mut raw::c_void)>,
+    on_drop: Option<Box<dyn FnOnce()>>,
     listeners: Vec<*mut raw::c_void>,
     pub(crate) id: u32,
     pub(crate) version: u32,
@@ -21,6 +22,9 @@ pub(crate) struct ServerObject {
 impl Drop for ServerObject {
     fn drop(&mut self) {
         trace! {eprintln!("[hw] trace: destroying server object {}", self.id)}
+        if let Some(on_drop) = self.on_drop.take() {
+            on_drop();
+        }
         if let Some(destructor) = self.data_destructor
             && let Some(data) = self.data
         {
@@ -40,6 +44,7 @@ impl ServerObject {
             spec: None,
             data: None,
             data_destructor: None,
+            on_drop: None,
             listeners: Vec::new(),
             id: 0,
             version: 0,
@@ -102,6 +107,10 @@ impl object::Object for ServerObject {
         let msg = message::FatalProtocolError::new(self.id, error_id, error_msg);
         self.state.send_message(&msg);
         self.errd();
+    }
+
+    fn set_on_drop(&mut self, func: Box<dyn FnOnce()>) {
+        self.on_drop = Some(func);
     }
 }
 
