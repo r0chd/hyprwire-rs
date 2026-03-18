@@ -491,6 +491,12 @@ fn generate_server(w: &mut W, protocol: &Protocol) {
         w.line("Some(T::from_object::<D>(obj))");
         w.dedent();
         w.line("}");
+        w.line("");
+        w.line("pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {");
+        w.indent();
+        w.line("self.object.inner().borrow_mut().set_on_drop(Box::new(callback));");
+        w.dedent();
+        w.line("}");
 
         // Send methods for s2c (what the server sends to clients)
         for (idx, m) in obj.s2c.iter().enumerate() {
@@ -836,7 +842,11 @@ fn write_event_enum(w: &mut W, event_type: &str, methods: &[Method]) {
                     )
                 })
                 .collect();
-            w.line(&format!("{variant} {{ {} }},", fields.join(", ")));
+            if m.returns.is_some() {
+                w.line(&format!("{variant} {{ seq: u32, {} }},", fields.join(", ")));
+            } else {
+                w.line(&format!("{variant} {{ {} }},", fields.join(", ")));
+            }
         }
     }
     w.dedent();
@@ -857,19 +867,18 @@ fn write_dispatch_fn(
     let fn_name = format!("{obj_name}_method{idx}");
     let mut params = vec!["data: *mut ffi::c_void".to_string()];
 
-    if m.args.is_empty() && m.returns.is_some() {
+    if m.returns.is_some() {
         params.push("seq: u32".to_string());
-    } else {
-        for arg in &m.args {
-            let name = raw_ident(&arg.name);
-            params.push(format!(
-                "{}: {}",
-                name,
-                dispatch_param_type(&arg.arg_type, arg.interface.as_deref())
-            ));
-            if is_array_type(&arg.arg_type) {
-                params.push(format!("{}_len: u32", name));
-            }
+    }
+    for arg in &m.args {
+        let name = raw_ident(&arg.name);
+        params.push(format!(
+            "{}: {}",
+            name,
+            dispatch_param_type(&arg.arg_type, arg.interface.as_deref())
+        ));
+        if is_array_type(&arg.arg_type) {
+            params.push(format!("{}_len: u32", name));
         }
     }
 
@@ -905,40 +914,39 @@ fn write_dispatch_fn(
     let variant = snake_to_pascal(&m.name);
     let mut event_fields = Vec::new();
 
-    if m.args.is_empty() && m.returns.is_some() {
+    if m.returns.is_some() {
         event_fields.push("seq".to_string());
-    } else {
-        for arg in &m.args {
-            let name = raw_ident(&arg.name);
-            match &arg.arg_type {
-                ArgType::Varchar => {
-                    w.line(&format!(
-                        "let {name} = unsafe {{ ffi::CStr::from_ptr({name}) }};",
-                    ));
-                    event_fields.push(name);
-                }
-                ArgType::ArrayVarchar => {
-                    w.line(&format!(
-                        "let ptrs = unsafe {{ std::slice::from_raw_parts({name}, {name}_len as usize) }};",
-                    ));
-                    w.line("let strings: Vec<&ffi::CStr> = ptrs");
-                    w.indent();
-                    w.line(".iter()");
-                    w.line(".map(|&p| unsafe { ffi::CStr::from_ptr(p) })");
-                    w.line(".collect();");
-                    w.dedent();
-                    event_fields.push(format!("{name}: &strings"));
-                }
-                t if is_array_type(t) => {
-                    w.line(&format!(
-                        "let {name} = unsafe {{ std::slice::from_raw_parts({name}, {name}_len as usize) }};",
-                    ));
-                    event_fields.push(name);
-                }
-                _ => {
-                    // fd, uint, int, f32, enum - no conversion needed
-                    event_fields.push(name);
-                }
+    }
+    for arg in &m.args {
+        let name = raw_ident(&arg.name);
+        match &arg.arg_type {
+            ArgType::Varchar => {
+                w.line(&format!(
+                    "let {name} = unsafe {{ ffi::CStr::from_ptr({name}) }};",
+                ));
+                event_fields.push(name);
+            }
+            ArgType::ArrayVarchar => {
+                w.line(&format!(
+                    "let ptrs = unsafe {{ std::slice::from_raw_parts({name}, {name}_len as usize) }};",
+                ));
+                w.line("let strings: Vec<&ffi::CStr> = ptrs");
+                w.indent();
+                w.line(".iter()");
+                w.line(".map(|&p| unsafe { ffi::CStr::from_ptr(p) })");
+                w.line(".collect();");
+                w.dedent();
+                event_fields.push(format!("{name}: &strings"));
+            }
+            t if is_array_type(t) => {
+                w.line(&format!(
+                    "let {name} = unsafe {{ std::slice::from_raw_parts({name}, {name}_len as usize) }};",
+                ));
+                event_fields.push(name);
+            }
+            _ => {
+                // fd, uint, int, f32, enum - no conversion needed
+                event_fields.push(name);
             }
         }
     }

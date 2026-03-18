@@ -186,6 +186,10 @@ pub mod server {
             Some(T::from_object::<D>(obj))
         }
 
+        pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
+            self.object.inner().borrow_mut().set_on_drop(Box::new(callback));
+        }
+
         pub fn send_send_message(&self, r#message: &str) {
             self.object.inner().borrow_mut().call(
                 0,
@@ -311,6 +315,10 @@ pub mod server {
             let obj = self.object.inner().borrow().create_object(T::NAME, seq)?;
             let obj = hyprwire::implementation::types::Object::from_raw(obj);
             Some(T::from_object::<D>(obj))
+        }
+
+        pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
+            self.object.inner().borrow_mut().set_on_drop(Box::new(callback));
         }
 
         pub fn send_send_message(&self, r#message: &str) {
