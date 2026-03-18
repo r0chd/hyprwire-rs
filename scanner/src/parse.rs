@@ -2,8 +2,6 @@ use quick_xml::Reader;
 use quick_xml::events::Event;
 use std::error::Error;
 
-// --- Public IR types ---
-
 #[derive(Debug, Clone)]
 pub struct Protocol {
     pub name: String,
@@ -124,7 +122,6 @@ fn parse_method(
                 _ => {}
             },
             Event::Start(ref inner) => {
-                // Skip child elements like <description> by reading to their end
                 reader.read_to_end(inner.name())?;
             }
             Event::End(_) => break,
@@ -206,7 +203,6 @@ pub fn parse_protocol(xml: &str) -> Result<Protocol, Box<dyn Error>> {
                                             s2c.push(parse_method(&mut reader, inner)?);
                                         }
                                         _ => {
-                                            // skip unknown elements like <description>
                                             reader.read_to_end(inner_tag)?;
                                         }
                                     }

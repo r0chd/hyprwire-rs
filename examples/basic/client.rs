@@ -97,7 +97,7 @@ fn main() {
     manager.send_send_message_fd(pipes.0.as_raw_fd());
     manager.send_send_message_array_fd(&[pipes2.0.as_raw_fd(), pipes3.0.as_raw_fd()]);
     manager.send_send_message_array(&["Hello", "via", "array!"]);
-    manager.send_send_message_array(&[]);
+    manager.send_send_message_array::<&str>(&[]);
     manager.send_send_message_array_uint(&[69, 420, 1337]);
 
     socket.roundtrip(&mut state).unwrap();

@@ -1,6 +1,6 @@
 [package]
 name = "hyprwire-scanner"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 description = "Protocol scanner and code generator for hyprwire"
 license = "BSD-3-Clause"
@@ -11,3 +11,7 @@ categories = ["development-tools::build-utils"]
 
 [dependencies]
 quick-xml = "0.37"
+quote = "1"
+proc-macro2 = "1"
+prettyplease = "0.2"
+syn = { version = "2", features = ["full"] }

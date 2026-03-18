@@ -2,9 +2,8 @@
 source: tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.1.5. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.1.6. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
-
 /*
  This protocol's authors' copyright notice is:
 
@@ -15,126 +14,147 @@ expression: code
 #[allow(dead_code)]
 pub mod server {
     use std::{ffi, rc};
-
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
     }
-
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct MyObjectV1Object {
         object: hyprwire::implementation::types::Object,
     }
-
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum MyManagerV1Event<'a> {
-        SendMessage { r#message: &'a ffi::CStr },
-        SendMessageFd { r#message: i32 },
-        SendMessageArrayFd { r#message: &'a [i32] },
-        SendMessageArray { r#message: &'a [&'a ffi::CStr] },
-        SendMessageArrayUint { r#message: &'a [u32] },
+        SendMessage { message: &'a ffi::CStr },
+        SendMessageFd { message: i32 },
+        SendMessageArrayFd { message: &'a [i32] },
+        SendMessageArray { message: &'a [&'a ffi::CStr] },
+        SendMessageArrayUint { message: &'a [u32] },
         MakeObject { seq: u32 },
     }
-
     impl hyprwire::Proxy for MyManagerV1Object {
         type Event<'a> = MyManagerV1Event<'a>;
-
         const NAME: &str = "my_manager_v1";
-
-        fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
+        fn from_object<D: hyprwire::Dispatch<Self>>(
+            object: hyprwire::implementation::types::Object,
+        ) -> Self {
             Self::new::<D>(object)
         }
     }
-
     unsafe extern "C" fn my_manager_v1_method0<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
-        r#message: *const ffi::c_char,
+        message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
-        let r#message = unsafe { ffi::CStr::from_ptr(r#message) };
-        __dispatch.event(&proxy, MyManagerV1Event::SendMessage { r#message });
+        let message = unsafe { ffi::CStr::from_ptr(message) };
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::SendMessage {
+                    message,
+                },
+            );
     }
-
     unsafe extern "C" fn my_manager_v1_method1<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
-        r#message: i32,
+        message: i32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
-        __dispatch.event(&proxy, MyManagerV1Event::SendMessageFd { r#message });
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::SendMessageFd {
+                    message,
+                },
+            );
     }
-
     unsafe extern "C" fn my_manager_v1_method2<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
-        r#message: *const i32,
-        r#message_len: u32,
+        message: *const i32,
+        message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
-        let r#message = unsafe { std::slice::from_raw_parts(r#message, r#message_len as usize) };
-        __dispatch.event(&proxy, MyManagerV1Event::SendMessageArrayFd { r#message });
+        let message = unsafe {
+            std::slice::from_raw_parts(message, message_len as usize)
+        };
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::SendMessageArrayFd {
+                    message,
+                },
+            );
     }
-
     unsafe extern "C" fn my_manager_v1_method3<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
-        r#message: *const *const ffi::c_char,
-        r#message_len: u32,
+        message: *const *const ffi::c_char,
+        message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
-        let ptrs = unsafe { std::slice::from_raw_parts(r#message, r#message_len as usize) };
+        let ptrs = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
         let strings: Vec<&ffi::CStr> = ptrs
             .iter()
             .map(|&p| unsafe { ffi::CStr::from_ptr(p) })
             .collect();
-        __dispatch.event(
-            &proxy,
-            MyManagerV1Event::SendMessageArray { r#message: &strings },
-        );
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::SendMessageArray {
+                    message: &strings,
+                },
+            );
     }
-
     unsafe extern "C" fn my_manager_v1_method4<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
-        r#message: *const u32,
-        r#message_len: u32,
+        message: *const u32,
+        message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
-        let r#message = unsafe { std::slice::from_raw_parts(r#message, r#message_len as usize) };
-        __dispatch.event(&proxy, MyManagerV1Event::SendMessageArrayUint { r#message });
+        let message = unsafe {
+            std::slice::from_raw_parts(message, message_len as usize)
+        };
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::SendMessageArrayUint {
+                    message,
+                },
+            );
     }
-
     unsafe extern "C" fn my_manager_v1_method5<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
         seq: u32,
@@ -143,13 +163,18 @@ pub mod server {
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
-        __dispatch.event(&proxy, MyManagerV1Event::MakeObject { seq });
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::MakeObject {
+                    seq,
+                },
+            );
     }
-
     impl MyManagerV1Object {
         pub fn new<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
@@ -157,103 +182,120 @@ pub mod server {
             unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
                 drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
             }
-
-            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
-                object: rc::Rc::as_ptr(object.inner()),
-            }));
-
+            let dispatch_data = Box::into_raw(
+                Box::new(hyprwire::DispatchData {
+                    object: rc::Rc::as_ptr(object.inner()),
+                }),
+            );
             {
                 let mut obj = object.inner().borrow_mut();
-                obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
-                obj.listen(0, my_manager_v1_method0::<D> as *mut ffi::c_void);
-                obj.listen(1, my_manager_v1_method1::<D> as *mut ffi::c_void);
-                obj.listen(2, my_manager_v1_method2::<D> as *mut ffi::c_void);
-                obj.listen(3, my_manager_v1_method3::<D> as *mut ffi::c_void);
-                obj.listen(4, my_manager_v1_method4::<D> as *mut ffi::c_void);
-                obj.listen(5, my_manager_v1_method5::<D> as *mut ffi::c_void);
+                obj.set_data(
+                    dispatch_data as *mut ffi::c_void,
+                    Some(drop_dispatch_data),
+                );
+                obj.listen(0u32, my_manager_v1_method0::<D> as *mut ffi::c_void);
+                obj.listen(1u32, my_manager_v1_method1::<D> as *mut ffi::c_void);
+                obj.listen(2u32, my_manager_v1_method2::<D> as *mut ffi::c_void);
+                obj.listen(3u32, my_manager_v1_method3::<D> as *mut ffi::c_void);
+                obj.listen(4u32, my_manager_v1_method4::<D> as *mut ffi::c_void);
+                obj.listen(5u32, my_manager_v1_method5::<D> as *mut ffi::c_void);
             }
-
             Self { object }
         }
-
         pub fn error(&self, error_id: u32, error_msg: &str) {
             self.object.inner().borrow().error(error_id, error_msg);
         }
-
-        pub fn create_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(&self, seq: u32) -> Option<T> {
+        pub fn create_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(
+            &self,
+            seq: u32,
+        ) -> Option<T> {
             let obj = self.object.inner().borrow().create_object(T::NAME, seq)?;
             let obj = hyprwire::implementation::types::Object::from_raw(obj);
             Some(T::from_object::<D>(obj))
         }
-
         pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
             self.object.inner().borrow_mut().set_on_drop(Box::new(callback));
         }
-
-        pub fn send_send_message(&self, r#message: &str) {
-            self.object.inner().borrow_mut().call(
-                0,
-                &[hyprwire::implementation::types::CallArg::Varchar(r#message.as_bytes())],
-            );
+        pub fn send_send_message(&self, message: &str) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    0u32,
+                    &[
+                        hyprwire::implementation::types::CallArg::Varchar(
+                            message.as_bytes(),
+                        ),
+                    ],
+                );
         }
-
-        pub fn send_recv_message_array_uint(&self, r#message: &[u32]) {
-            self.object.inner().borrow_mut().call(
-                1,
-                &[hyprwire::implementation::types::CallArg::UintArray(r#message)],
-            );
+        pub fn send_recv_message_array_uint(&self, message: &[u32]) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    1u32,
+                    &[hyprwire::implementation::types::CallArg::UintArray(message)],
+                );
         }
     }
-
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum MyObjectV1Event<'a> {
-        SendMessage { r#message: &'a ffi::CStr },
-        SendEnum { r#message: super::spec::MyEnum },
+        SendMessage { message: &'a ffi::CStr },
+        SendEnum { message: super::spec::MyEnum },
         Destroy,
         MakeObject { seq: u32 },
     }
-
     impl hyprwire::Proxy for MyObjectV1Object {
         type Event<'a> = MyObjectV1Event<'a>;
-
         const NAME: &str = "my_object_v1";
-
-        fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
+        fn from_object<D: hyprwire::Dispatch<Self>>(
+            object: hyprwire::implementation::types::Object,
+        ) -> Self {
             Self::new::<D>(object)
         }
     }
-
     unsafe extern "C" fn my_object_v1_method0<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
-        r#message: *const ffi::c_char,
+        message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
-        let r#message = unsafe { ffi::CStr::from_ptr(r#message) };
-        __dispatch.event(&proxy, MyObjectV1Event::SendMessage { r#message });
+        let message = unsafe { ffi::CStr::from_ptr(message) };
+        __dispatch
+            .event(
+                &proxy,
+                MyObjectV1Event::SendMessage {
+                    message,
+                },
+            );
     }
-
     unsafe extern "C" fn my_object_v1_method1<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
-        r#message: super::spec::MyEnum,
+        message: super::spec::MyEnum,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
-        __dispatch.event(&proxy, MyObjectV1Event::SendEnum { r#message });
+        __dispatch
+            .event(
+                &proxy,
+                MyObjectV1Event::SendEnum {
+                    message,
+                },
+            );
     }
-
     unsafe extern "C" fn my_object_v1_method2<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
     ) {
@@ -261,13 +303,12 @@ pub mod server {
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
         __dispatch.event(&proxy, MyObjectV1Event::Destroy);
     }
-
     unsafe extern "C" fn my_object_v1_method3<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
         seq: u32,
@@ -276,13 +317,12 @@ pub mod server {
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
         };
         __dispatch.event(&proxy, MyObjectV1Event::MakeObject { seq });
     }
-
     impl MyObjectV1Object {
         pub fn new<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
@@ -290,202 +330,220 @@ pub mod server {
             unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
                 drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
             }
-
-            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
-                object: rc::Rc::as_ptr(object.inner()),
-            }));
-
+            let dispatch_data = Box::into_raw(
+                Box::new(hyprwire::DispatchData {
+                    object: rc::Rc::as_ptr(object.inner()),
+                }),
+            );
             {
                 let mut obj = object.inner().borrow_mut();
-                obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
-                obj.listen(0, my_object_v1_method0::<D> as *mut ffi::c_void);
-                obj.listen(1, my_object_v1_method1::<D> as *mut ffi::c_void);
-                obj.listen(2, my_object_v1_method2::<D> as *mut ffi::c_void);
-                obj.listen(3, my_object_v1_method3::<D> as *mut ffi::c_void);
+                obj.set_data(
+                    dispatch_data as *mut ffi::c_void,
+                    Some(drop_dispatch_data),
+                );
+                obj.listen(0u32, my_object_v1_method0::<D> as *mut ffi::c_void);
+                obj.listen(1u32, my_object_v1_method1::<D> as *mut ffi::c_void);
+                obj.listen(2u32, my_object_v1_method2::<D> as *mut ffi::c_void);
+                obj.listen(3u32, my_object_v1_method3::<D> as *mut ffi::c_void);
             }
-
             Self { object }
         }
-
         pub fn error(&self, error_id: u32, error_msg: &str) {
             self.object.inner().borrow().error(error_id, error_msg);
         }
-
-        pub fn create_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(&self, seq: u32) -> Option<T> {
+        pub fn create_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(
+            &self,
+            seq: u32,
+        ) -> Option<T> {
             let obj = self.object.inner().borrow().create_object(T::NAME, seq)?;
             let obj = hyprwire::implementation::types::Object::from_raw(obj);
             Some(T::from_object::<D>(obj))
         }
-
         pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
             self.object.inner().borrow_mut().set_on_drop(Box::new(callback));
         }
-
-        pub fn send_send_message(&self, r#message: &str) {
-            self.object.inner().borrow_mut().call(
-                0,
-                &[hyprwire::implementation::types::CallArg::Varchar(r#message.as_bytes())],
-            );
+        pub fn send_send_message(&self, message: &str) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    0u32,
+                    &[
+                        hyprwire::implementation::types::CallArg::Varchar(
+                            message.as_bytes(),
+                        ),
+                    ],
+                );
         }
     }
-
     pub trait TestProtocolV1Handler {
         fn bind(&mut self, object: hyprwire::implementation::types::Object);
     }
-
     pub struct TestProtocolV1Impl {
         version: u32,
         handler: *mut dyn TestProtocolV1Handler,
         protocol: super::spec::TestProtocolV1ProtocolSpec,
         impls: Vec<hyprwire::implementation::server::ObjectImplementation<'static>>,
     }
-
     impl TestProtocolV1Impl {
-        pub fn new(version: u32, handler: &mut (impl TestProtocolV1Handler + 'static)) -> Self {
+        pub fn new(
+            version: u32,
+            handler: &mut (impl TestProtocolV1Handler + 'static),
+        ) -> Self {
             let handler = handler as *mut dyn TestProtocolV1Handler;
             Self {
                 version,
                 handler,
                 protocol: super::spec::TestProtocolV1ProtocolSpec::default(),
                 impls: vec![
-                    hyprwire::implementation::server::ObjectImplementation {
-                        object_name: "my_manager_v1",
-                        version,
-                        on_bind: Box::new(move |obj| {
-                            let object = hyprwire::implementation::types::Object::from_raw(obj);
-                            unsafe { &mut *handler }.bind(object);
-                        }),
-                    },
-                    hyprwire::implementation::server::ObjectImplementation {
-                        object_name: "my_object_v1",
-                        version,
-                        on_bind: Box::new(|_obj| {}),
-                    },
+                    hyprwire::implementation::server::ObjectImplementation { object_name
+                    : "my_manager_v1", version, on_bind : Box::new(move | obj | { let
+                    object = hyprwire::implementation::types::Object::from_raw(obj);
+                    unsafe { & mut * handler } .bind(object); }), },
+                    hyprwire::implementation::server::ObjectImplementation { object_name
+                    : "my_object_v1", version, on_bind : Box::new(| _obj | {}), },
                 ],
             }
         }
     }
-
-    impl hyprwire::implementation::server::ProtocolImplementations for TestProtocolV1Impl {
+    impl hyprwire::implementation::server::ProtocolImplementations
+    for TestProtocolV1Impl {
         fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
             &self.protocol
         }
-
-        fn implementation(&self) -> &[hyprwire::implementation::server::ObjectImplementation<'_>] {
+        fn implementation(
+            &self,
+        ) -> &[hyprwire::implementation::server::ObjectImplementation<'_>] {
             &self.impls
         }
     }
 }
-
 #[allow(dead_code)]
 pub mod client {
     use std::{ffi, rc};
-
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
         on_destroy: Option<Box<dyn FnOnce()>>,
+        owned: bool,
     }
-
     impl std::fmt::Debug for MyManagerV1Object {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("MyManagerV1Object").field("object", &self.object).finish()
         }
     }
-
     impl Clone for MyManagerV1Object {
         fn clone(&self) -> Self {
-            Self { object: self.object.clone(), on_destroy: None }
+            Self {
+                object: self.object.clone(),
+                on_destroy: None,
+                owned: false,
+            }
         }
     }
-
     impl PartialEq for MyManagerV1Object {
-        fn eq(&self, other: &Self) -> bool { self.object == other.object }
+        fn eq(&self, other: &Self) -> bool {
+            self.object == other.object
+        }
     }
-
     impl Eq for MyManagerV1Object {}
-
     impl std::hash::Hash for MyManagerV1Object {
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) { self.object.hash(state); }
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.object.hash(state);
+        }
     }
-
     pub struct MyObjectV1Object {
         object: hyprwire::implementation::types::Object,
         on_destroy: Option<Box<dyn FnOnce()>>,
+        owned: bool,
     }
-
     impl std::fmt::Debug for MyObjectV1Object {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("MyObjectV1Object").field("object", &self.object).finish()
         }
     }
-
     impl Clone for MyObjectV1Object {
         fn clone(&self) -> Self {
-            Self { object: self.object.clone(), on_destroy: None }
+            Self {
+                object: self.object.clone(),
+                on_destroy: None,
+                owned: false,
+            }
         }
     }
-
     impl PartialEq for MyObjectV1Object {
-        fn eq(&self, other: &Self) -> bool { self.object == other.object }
+        fn eq(&self, other: &Self) -> bool {
+            self.object == other.object
+        }
     }
-
     impl Eq for MyObjectV1Object {}
-
     impl std::hash::Hash for MyObjectV1Object {
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) { self.object.hash(state); }
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.object.hash(state);
+        }
     }
-
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum MyManagerV1Event<'a> {
-        SendMessage { r#message: &'a ffi::CStr },
-        RecvMessageArrayUint { r#message: &'a [u32] },
+        SendMessage { message: &'a ffi::CStr },
+        RecvMessageArrayUint { message: &'a [u32] },
     }
-
     impl hyprwire::Proxy for MyManagerV1Object {
         type Event<'a> = MyManagerV1Event<'a>;
-
         const NAME: &str = "my_manager_v1";
-
-        fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
+        fn from_object<D: hyprwire::Dispatch<Self>>(
+            object: hyprwire::implementation::types::Object,
+        ) -> Self {
             Self::new::<D>(object)
         }
     }
-
     unsafe extern "C" fn my_manager_v1_method0<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
-        r#message: *const ffi::c_char,
+        message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
             on_destroy: None,
+            owned: false,
         };
-        let r#message = unsafe { ffi::CStr::from_ptr(r#message) };
-        __dispatch.event(&proxy, MyManagerV1Event::SendMessage { r#message });
+        let message = unsafe { ffi::CStr::from_ptr(message) };
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::SendMessage {
+                    message,
+                },
+            );
     }
-
     unsafe extern "C" fn my_manager_v1_method1<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
-        r#message: *const u32,
-        r#message_len: u32,
+        message: *const u32,
+        message_len: u32,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
             on_destroy: None,
+            owned: false,
         };
-        let r#message = unsafe { std::slice::from_raw_parts(r#message, r#message_len as usize) };
-        __dispatch.event(&proxy, MyManagerV1Event::RecvMessageArrayUint { r#message });
+        let message = unsafe {
+            std::slice::from_raw_parts(message, message_len as usize)
+        };
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::RecvMessageArrayUint {
+                    message,
+                },
+            );
     }
-
     impl MyManagerV1Object {
         pub fn new<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
@@ -493,63 +551,83 @@ pub mod client {
             unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
                 drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
             }
-
-            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
-                object: rc::Rc::as_ptr(object.inner()),
-            }));
-
+            let dispatch_data = Box::into_raw(
+                Box::new(hyprwire::DispatchData {
+                    object: rc::Rc::as_ptr(object.inner()),
+                }),
+            );
             {
                 let mut obj = object.inner().borrow_mut();
-                obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
-                obj.listen(0, my_manager_v1_method0::<D> as *mut ffi::c_void);
-                obj.listen(1, my_manager_v1_method1::<D> as *mut ffi::c_void);
+                obj.set_data(
+                    dispatch_data as *mut ffi::c_void,
+                    Some(drop_dispatch_data),
+                );
+                obj.listen(0u32, my_manager_v1_method0::<D> as *mut ffi::c_void);
+                obj.listen(1u32, my_manager_v1_method1::<D> as *mut ffi::c_void);
             }
-
-            Self { object, on_destroy: None }
+            Self {
+                object,
+                on_destroy: None,
+                owned: true,
+            }
         }
-
         pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
             self.on_destroy = Some(Box::new(callback));
         }
-
-        pub fn send_send_message(&self, r#message: &str) {
-            self.object.inner().borrow_mut().call(
-                0,
-                &[hyprwire::implementation::types::CallArg::Varchar(r#message.as_bytes())],
-            );
+        pub fn send_send_message(&self, message: &str) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    0u32,
+                    &[
+                        hyprwire::implementation::types::CallArg::Varchar(
+                            message.as_bytes(),
+                        ),
+                    ],
+                );
         }
-
-        pub fn send_send_message_fd(&self, r#message: i32) {
-            self.object.inner().borrow_mut().call(
-                1,
-                &[hyprwire::implementation::types::CallArg::Fd(r#message)],
-            );
+        pub fn send_send_message_fd(&self, message: i32) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(1u32, &[hyprwire::implementation::types::CallArg::Fd(message)]);
         }
-
-        pub fn send_send_message_array_fd(&self, r#message: &[i32]) {
-            self.object.inner().borrow_mut().call(
-                2,
-                &[hyprwire::implementation::types::CallArg::FdArray(r#message)],
-            );
+        pub fn send_send_message_array_fd(&self, message: &[i32]) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    2u32,
+                    &[hyprwire::implementation::types::CallArg::FdArray(message)],
+                );
         }
-
-        pub fn send_send_message_array(&self, r#message: &[&str]) {
-            let bytes: Vec<&[u8]> = r#message.iter().map(|s| s.as_bytes()).collect();
-            self.object.inner().borrow_mut().call(
-                3,
-                &[hyprwire::implementation::types::CallArg::VarcharArray(&bytes)],
-            );
+        pub fn send_send_message_array<S: AsRef<str>>(&self, message: &[S]) {
+            let bytes: Vec<&[u8]> = message
+                .iter()
+                .map(|s| s.as_ref().as_bytes())
+                .collect();
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    3u32,
+                    &[hyprwire::implementation::types::CallArg::VarcharArray(&bytes)],
+                );
         }
-
-        pub fn send_send_message_array_uint(&self, r#message: &[u32]) {
-            self.object.inner().borrow_mut().call(
-                4,
-                &[hyprwire::implementation::types::CallArg::UintArray(r#message)],
-            );
+        pub fn send_send_message_array_uint(&self, message: &[u32]) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    4u32,
+                    &[hyprwire::implementation::types::CallArg::UintArray(message)],
+                );
         }
-
-        pub fn send_make_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(&self) -> Option<T> {
-            let seq = self.object.inner().borrow_mut().call(5, &[]);
+        pub fn send_make_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(
+            &self,
+        ) -> Option<T> {
+            let seq = self.object.inner().borrow_mut().call(5u32, &[]);
             let obj = self
                 .object
                 .inner()
@@ -560,47 +638,50 @@ pub mod client {
             Some(T::from_object::<D>(obj))
         }
     }
-
     impl Drop for MyManagerV1Object {
         fn drop(&mut self) {
+            if self.owned {}
             if let Some(cb) = self.on_destroy.take() {
                 cb();
             }
         }
     }
-
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum MyObjectV1Event<'a> {
-        SendMessage { r#message: &'a ffi::CStr },
+        SendMessage { message: &'a ffi::CStr },
     }
-
     impl hyprwire::Proxy for MyObjectV1Object {
         type Event<'a> = MyObjectV1Event<'a>;
-
         const NAME: &str = "my_object_v1";
-
-        fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
+        fn from_object<D: hyprwire::Dispatch<Self>>(
+            object: hyprwire::implementation::types::Object,
+        ) -> Self {
             Self::new::<D>(object)
         }
     }
-
     unsafe extern "C" fn my_object_v1_method0<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
-        r#message: *const ffi::c_char,
+        message: *const ffi::c_char,
     ) {
         let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
         let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
-            object: hyprwire::implementation::types::Object::from_raw(
-                unsafe { rc::Rc::from_raw(dispatch.object) },
-            ),
+            object: hyprwire::implementation::types::Object::from_raw(unsafe {
+                rc::Rc::from_raw(dispatch.object)
+            }),
             on_destroy: None,
+            owned: false,
         };
-        let r#message = unsafe { ffi::CStr::from_ptr(r#message) };
-        __dispatch.event(&proxy, MyObjectV1Event::SendMessage { r#message });
+        let message = unsafe { ffi::CStr::from_ptr(message) };
+        __dispatch
+            .event(
+                &proxy,
+                MyObjectV1Event::SendMessage {
+                    message,
+                },
+            );
     }
-
     impl MyObjectV1Object {
         pub fn new<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
@@ -608,44 +689,54 @@ pub mod client {
             unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
                 drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
             }
-
-            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
-                object: rc::Rc::as_ptr(object.inner()),
-            }));
-
+            let dispatch_data = Box::into_raw(
+                Box::new(hyprwire::DispatchData {
+                    object: rc::Rc::as_ptr(object.inner()),
+                }),
+            );
             {
                 let mut obj = object.inner().borrow_mut();
-                obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
-                obj.listen(0, my_object_v1_method0::<D> as *mut ffi::c_void);
+                obj.set_data(
+                    dispatch_data as *mut ffi::c_void,
+                    Some(drop_dispatch_data),
+                );
+                obj.listen(0u32, my_object_v1_method0::<D> as *mut ffi::c_void);
             }
-
-            Self { object, on_destroy: None }
+            Self {
+                object,
+                on_destroy: None,
+                owned: true,
+            }
         }
-
         pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
             self.on_destroy = Some(Box::new(callback));
         }
-
-        pub fn send_send_message(&self, r#message: &str) {
-            self.object.inner().borrow_mut().call(
-                0,
-                &[hyprwire::implementation::types::CallArg::Varchar(r#message.as_bytes())],
-            );
+        pub fn send_send_message(&self, message: &str) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    0u32,
+                    &[
+                        hyprwire::implementation::types::CallArg::Varchar(
+                            message.as_bytes(),
+                        ),
+                    ],
+                );
         }
-
-        pub fn send_send_enum(&self, r#message: super::spec::MyEnum) {
-            self.object.inner().borrow_mut().call(
-                1,
-                &[hyprwire::implementation::types::CallArg::Uint(r#message as u32)],
-            );
+        pub fn send_send_enum(&self, message: super::spec::MyEnum) {
+            self.object
+                .inner()
+                .borrow_mut()
+                .call(
+                    1u32,
+                    &[hyprwire::implementation::types::CallArg::Uint(message as u32)],
+                );
         }
-
-        pub fn send_destroy(&self) {
-            self.object.inner().borrow_mut().call(2, &[]);
-        }
-
-        pub fn send_make_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(&self) -> Option<T> {
-            let seq = self.object.inner().borrow_mut().call(3, &[]);
+        pub fn send_make_object<T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(
+            &self,
+        ) -> Option<T> {
+            let seq = self.object.inner().borrow_mut().call(3u32, &[]);
             let obj = self
                 .object
                 .inner()
@@ -656,68 +747,70 @@ pub mod client {
             Some(T::from_object::<D>(obj))
         }
     }
-
     impl Drop for MyObjectV1Object {
         fn drop(&mut self) {
+            if self.owned {
+                self.object.inner().borrow_mut().call(2u32, &[]);
+            }
             if let Some(cb) = self.on_destroy.take() {
                 cb();
             }
         }
     }
-
     #[derive(Default, Clone)]
     pub struct TestProtocolV1Impl {
         protocol: super::spec::TestProtocolV1ProtocolSpec,
     }
-
-    impl hyprwire::implementation::client::ProtocolImplementations for TestProtocolV1Impl {
+    impl hyprwire::implementation::client::ProtocolImplementations
+    for TestProtocolV1Impl {
         fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
             &self.protocol
         }
-
-        fn implementation(&self) -> &[hyprwire::implementation::client::ObjectImplementation<'_>] {
+        fn implementation(
+            &self,
+        ) -> &[hyprwire::implementation::client::ObjectImplementation<'_>] {
             &[]
         }
     }
 }
-
 #[allow(dead_code)]
 pub mod spec {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[repr(u32)]
     pub enum MyEnum {
-        Hello = 0,
-        World = 4,
+        Hello = 0u32,
+        World = 4u32,
     }
-
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[repr(u32)]
     pub enum MyErrorEnum {
-        OhNo = 0,
-        ErrorImportant = 1,
+        OhNo = 0u32,
+        ErrorImportant = 1u32,
     }
-
     pub struct MyManagerV1Spec {
         c2s_methods: &'static [hyprwire::implementation::types::Method],
         s2c_methods: &'static [hyprwire::implementation::types::Method],
     }
-
-    static MY_MANAGER_V1: std::sync::LazyLock<std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>> = std::sync::LazyLock::new(|| std::sync::Arc::new(MyManagerV1Spec {
+    static MY_MANAGER_V1: std::sync::LazyLock<
+        std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>,
+    > = std::sync::LazyLock::new(|| std::sync::Arc::new(MyManagerV1Spec {
         c2s_methods: &[
             hyprwire::implementation::types::Method {
-                idx: 0,
-                params: &[hyprwire::implementation::types::MessageMagic::TypeVarchar as u8],
+                idx: 0u32,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
+                ],
                 returns_type: "",
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 1,
+                idx: 1u32,
                 params: &[hyprwire::implementation::types::MessageMagic::TypeFd as u8],
                 returns_type: "",
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 2,
+                idx: 2u32,
                 params: &[
                     hyprwire::implementation::types::MessageMagic::TypeArray as u8,
                     hyprwire::implementation::types::MessageMagic::TypeFd as u8,
@@ -726,7 +819,7 @@ pub mod spec {
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 3,
+                idx: 3u32,
                 params: &[
                     hyprwire::implementation::types::MessageMagic::TypeArray as u8,
                     hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
@@ -735,7 +828,7 @@ pub mod spec {
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 4,
+                idx: 4u32,
                 params: &[
                     hyprwire::implementation::types::MessageMagic::TypeArray as u8,
                     hyprwire::implementation::types::MessageMagic::TypeUint as u8,
@@ -744,7 +837,7 @@ pub mod spec {
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 5,
+                idx: 5u32,
                 params: &[],
                 returns_type: "my_object_v1",
                 since: 0,
@@ -752,13 +845,15 @@ pub mod spec {
         ],
         s2c_methods: &[
             hyprwire::implementation::types::Method {
-                idx: 0,
-                params: &[hyprwire::implementation::types::MessageMagic::TypeVarchar as u8],
+                idx: 0u32,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
+                ],
                 returns_type: "",
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 1,
+                idx: 1u32,
                 params: &[
                     hyprwire::implementation::types::MessageMagic::TypeArray as u8,
                     hyprwire::implementation::types::MessageMagic::TypeUint as u8,
@@ -768,42 +863,47 @@ pub mod spec {
             },
         ],
     }));
-
     impl hyprwire::implementation::types::ProtocolObjectSpec for MyManagerV1Spec {
-        fn object_name(&self) -> &str { "my_manager_v1" }
-
-        fn c2s(&self) -> &[hyprwire::implementation::types::Method] { self.c2s_methods }
-
-        fn s2c(&self) -> &[hyprwire::implementation::types::Method] { self.s2c_methods }
+        fn object_name(&self) -> &str {
+            "my_manager_v1"
+        }
+        fn c2s(&self) -> &[hyprwire::implementation::types::Method] {
+            self.c2s_methods
+        }
+        fn s2c(&self) -> &[hyprwire::implementation::types::Method] {
+            self.s2c_methods
+        }
     }
-
     pub struct MyObjectV1Spec {
         c2s_methods: &'static [hyprwire::implementation::types::Method],
         s2c_methods: &'static [hyprwire::implementation::types::Method],
     }
-
-    static MY_OBJECT_V1: std::sync::LazyLock<std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>> = std::sync::LazyLock::new(|| std::sync::Arc::new(MyObjectV1Spec {
+    static MY_OBJECT_V1: std::sync::LazyLock<
+        std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>,
+    > = std::sync::LazyLock::new(|| std::sync::Arc::new(MyObjectV1Spec {
         c2s_methods: &[
             hyprwire::implementation::types::Method {
-                idx: 0,
-                params: &[hyprwire::implementation::types::MessageMagic::TypeVarchar as u8],
+                idx: 0u32,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
+                ],
                 returns_type: "",
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 1,
+                idx: 1u32,
                 params: &[hyprwire::implementation::types::MessageMagic::TypeUint as u8],
                 returns_type: "",
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 2,
+                idx: 2u32,
                 params: &[],
                 returns_type: "",
                 since: 0,
             },
             hyprwire::implementation::types::Method {
-                idx: 3,
+                idx: 3u32,
                 params: &[],
                 returns_type: "my_object_v1",
                 since: 0,
@@ -811,40 +911,53 @@ pub mod spec {
         ],
         s2c_methods: &[
             hyprwire::implementation::types::Method {
-                idx: 0,
-                params: &[hyprwire::implementation::types::MessageMagic::TypeVarchar as u8],
+                idx: 0u32,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
+                ],
                 returns_type: "",
                 since: 0,
             },
         ],
     }));
-
     impl hyprwire::implementation::types::ProtocolObjectSpec for MyObjectV1Spec {
-        fn object_name(&self) -> &str { "my_object_v1" }
-
-        fn c2s(&self) -> &[hyprwire::implementation::types::Method] { self.c2s_methods }
-
-        fn s2c(&self) -> &[hyprwire::implementation::types::Method] { self.s2c_methods }
+        fn object_name(&self) -> &str {
+            "my_object_v1"
+        }
+        fn c2s(&self) -> &[hyprwire::implementation::types::Method] {
+            self.c2s_methods
+        }
+        fn s2c(&self) -> &[hyprwire::implementation::types::Method] {
+            self.s2c_methods
+        }
     }
-
     #[derive(Clone)]
     pub struct TestProtocolV1ProtocolSpec {
-        objects: [std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>; 2],
+        objects: [std::sync::Arc<
+            dyn hyprwire::implementation::types::ProtocolObjectSpec,
+        >; 2usize],
     }
-
     impl Default for TestProtocolV1ProtocolSpec {
         fn default() -> Self {
             Self {
-                objects: [std::sync::Arc::clone(&MY_MANAGER_V1), std::sync::Arc::clone(&MY_OBJECT_V1)],
+                objects: [
+                    std::sync::Arc::clone(&MY_MANAGER_V1),
+                    std::sync::Arc::clone(&MY_OBJECT_V1),
+                ],
             }
         }
     }
-
     impl hyprwire::implementation::types::ProtocolSpec for TestProtocolV1ProtocolSpec {
-        fn spec_name(&self) -> &str { "test_protocol_v1" }
-
-        fn spec_ver(&self) -> u32 { 1 }
-
-        fn objects(&self) -> &[std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>] { &self.objects }
+        fn spec_name(&self) -> &str {
+            "test_protocol_v1"
+        }
+        fn spec_ver(&self) -> u32 {
+            1u32
+        }
+        fn objects(
+            &self,
+        ) -> &[std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>] {
+            &self.objects
+        }
     }
 }

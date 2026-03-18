@@ -50,7 +50,6 @@ impl hash::Hash for Object {
     }
 }
 
-
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum MessageMagic {
