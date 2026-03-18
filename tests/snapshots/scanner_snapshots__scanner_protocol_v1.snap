@@ -13,7 +13,7 @@ expression: code
 
 #[allow(dead_code)]
 pub mod server {
-    use std::{ffi, rc};
+    use std::{ffi, os::fd::*, rc};
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
@@ -22,17 +22,17 @@ pub mod server {
     pub struct MyObjectV1Object {
         object: hyprwire::implementation::types::Object,
     }
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum MyManagerV1Event<'a> {
-        SendMessage { message: &'a ffi::CStr },
-        SendMessageFd { message: i32 },
-        SendMessageArrayFd { message: &'a [i32] },
-        SendMessageArray { message: &'a [&'a ffi::CStr] },
-        SendMessageArrayUint { message: &'a [u32] },
+    #[derive(Debug)]
+    pub enum MyManagerV1Event {
+        SendMessage { message: String },
+        SendMessageFd { message: OwnedFd },
+        SendMessageArrayFd { message: Vec<OwnedFd> },
+        SendMessageArray { message: Vec<String> },
+        SendMessageArrayUint { message: Vec<u32> },
         MakeObject { seq: u32 },
     }
     impl hyprwire::Proxy for MyManagerV1Object {
-        type Event<'a> = MyManagerV1Event<'a>;
+        type Event<'a> = MyManagerV1Event;
         const NAME: &str = "my_manager_v1";
         fn from_object<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
@@ -52,7 +52,9 @@ pub mod server {
                 rc::Rc::from_raw(dispatch.object)
             }),
         };
-        let message = unsafe { ffi::CStr::from_ptr(message) };
+        let message = unsafe { ffi::CStr::from_ptr(message) }
+            .to_string_lossy()
+            .into_owned();
         __dispatch
             .event(
                 &proxy,
@@ -73,6 +75,7 @@ pub mod server {
                 rc::Rc::from_raw(dispatch.object)
             }),
         };
+        let message = unsafe { OwnedFd::from_raw_fd(message) };
         __dispatch
             .event(
                 &proxy,
@@ -94,9 +97,12 @@ pub mod server {
                 rc::Rc::from_raw(dispatch.object)
             }),
         };
-        let message = unsafe {
+        let message: Vec<OwnedFd> = unsafe {
             std::slice::from_raw_parts(message, message_len as usize)
-        };
+        }
+            .iter()
+            .map(|&fd| unsafe { OwnedFd::from_raw_fd(fd) })
+            .collect();
         __dispatch
             .event(
                 &proxy,
@@ -118,16 +124,17 @@ pub mod server {
                 rc::Rc::from_raw(dispatch.object)
             }),
         };
-        let ptrs = unsafe { std::slice::from_raw_parts(message, message_len as usize) };
-        let strings: Vec<&ffi::CStr> = ptrs
+        let message: Vec<String> = unsafe {
+            std::slice::from_raw_parts(message, message_len as usize)
+        }
             .iter()
-            .map(|&p| unsafe { ffi::CStr::from_ptr(p) })
+            .map(|&p| unsafe { ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
             .collect();
         __dispatch
             .event(
                 &proxy,
                 MyManagerV1Event::SendMessageArray {
-                    message: &strings,
+                    message,
                 },
             );
     }
@@ -146,7 +153,8 @@ pub mod server {
         };
         let message = unsafe {
             std::slice::from_raw_parts(message, message_len as usize)
-        };
+        }
+            .to_vec();
         __dispatch
             .event(
                 &proxy,
@@ -239,15 +247,15 @@ pub mod server {
                 );
         }
     }
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum MyObjectV1Event<'a> {
-        SendMessage { message: &'a ffi::CStr },
+    #[derive(Debug)]
+    pub enum MyObjectV1Event {
+        SendMessage { message: String },
         SendEnum { message: super::spec::MyEnum },
         Destroy,
         MakeObject { seq: u32 },
     }
     impl hyprwire::Proxy for MyObjectV1Object {
-        type Event<'a> = MyObjectV1Event<'a>;
+        type Event<'a> = MyObjectV1Event;
         const NAME: &str = "my_object_v1";
         fn from_object<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
@@ -267,7 +275,9 @@ pub mod server {
                 rc::Rc::from_raw(dispatch.object)
             }),
         };
-        let message = unsafe { ffi::CStr::from_ptr(message) };
+        let message = unsafe { ffi::CStr::from_ptr(message) }
+            .to_string_lossy()
+            .into_owned();
         __dispatch
             .event(
                 &proxy,
@@ -420,7 +430,7 @@ pub mod server {
 }
 #[allow(dead_code)]
 pub mod client {
-    use std::{ffi, rc};
+    use std::{ffi, os::fd::*, rc};
     pub struct MyManagerV1Object {
         object: hyprwire::implementation::types::Object,
         on_destroy: Option<Box<dyn FnOnce()>>,
@@ -481,13 +491,13 @@ pub mod client {
             self.object.hash(state);
         }
     }
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum MyManagerV1Event<'a> {
-        SendMessage { message: &'a ffi::CStr },
-        RecvMessageArrayUint { message: &'a [u32] },
+    #[derive(Debug)]
+    pub enum MyManagerV1Event {
+        SendMessage { message: String },
+        RecvMessageArrayUint { message: Vec<u32> },
     }
     impl hyprwire::Proxy for MyManagerV1Object {
-        type Event<'a> = MyManagerV1Event<'a>;
+        type Event<'a> = MyManagerV1Event;
         const NAME: &str = "my_manager_v1";
         fn from_object<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
@@ -509,7 +519,9 @@ pub mod client {
             on_destroy: None,
             owned: false,
         };
-        let message = unsafe { ffi::CStr::from_ptr(message) };
+        let message = unsafe { ffi::CStr::from_ptr(message) }
+            .to_string_lossy()
+            .into_owned();
         __dispatch
             .event(
                 &proxy,
@@ -535,7 +547,8 @@ pub mod client {
         };
         let message = unsafe {
             std::slice::from_raw_parts(message, message_len as usize)
-        };
+        }
+            .to_vec();
         __dispatch
             .event(
                 &proxy,
@@ -587,19 +600,34 @@ pub mod client {
                     ],
                 );
         }
-        pub fn send_send_message_fd(&self, message: i32) {
+        pub fn send_send_message_fd(&self, message: impl AsFd) {
             self.object
                 .inner()
                 .borrow_mut()
-                .call(1u32, &[hyprwire::implementation::types::CallArg::Fd(message)]);
+                .call(
+                    1u32,
+                    &[
+                        hyprwire::implementation::types::CallArg::Fd(
+                            message.as_fd().as_raw_fd(),
+                        ),
+                    ],
+                );
         }
-        pub fn send_send_message_array_fd(&self, message: &[i32]) {
+        pub fn send_send_message_array_fd<F: AsFd>(&self, message: &[F]) {
+            let message_raw_fds: Vec<i32> = message
+                .iter()
+                .map(|f| f.as_fd().as_raw_fd())
+                .collect();
             self.object
                 .inner()
                 .borrow_mut()
                 .call(
                     2u32,
-                    &[hyprwire::implementation::types::CallArg::FdArray(message)],
+                    &[
+                        hyprwire::implementation::types::CallArg::FdArray(
+                            &message_raw_fds,
+                        ),
+                    ],
                 );
         }
         pub fn send_send_message_array<S: AsRef<str>>(&self, message: &[S]) {
@@ -646,12 +674,12 @@ pub mod client {
             }
         }
     }
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub enum MyObjectV1Event<'a> {
-        SendMessage { message: &'a ffi::CStr },
+    #[derive(Debug)]
+    pub enum MyObjectV1Event {
+        SendMessage { message: String },
     }
     impl hyprwire::Proxy for MyObjectV1Object {
-        type Event<'a> = MyObjectV1Event<'a>;
+        type Event<'a> = MyObjectV1Event;
         const NAME: &str = "my_object_v1";
         fn from_object<D: hyprwire::Dispatch<Self>>(
             object: hyprwire::implementation::types::Object,
@@ -673,7 +701,9 @@ pub mod client {
             on_destroy: None,
             owned: false,
         };
-        let message = unsafe { ffi::CStr::from_ptr(message) };
+        let message = unsafe { ffi::CStr::from_ptr(message) }
+            .to_string_lossy()
+            .into_owned();
         __dispatch
             .event(
                 &proxy,

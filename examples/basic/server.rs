@@ -4,7 +4,7 @@ mod test_protocol_v1 {
 
 use hyprwire::server;
 use std::io::Read;
-use std::os::fd::FromRawFd;
+use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::{env, fs, path};
 
@@ -25,33 +25,32 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for App {
     fn event(
         &mut self,
         proxy: &test_protocol_v1::server::MyManagerV1Object,
-        event: test_protocol_v1::server::MyManagerV1Event<'_>,
+        event: test_protocol_v1::server::MyManagerV1Event,
     ) {
         match event {
             test_protocol_v1::server::MyManagerV1Event::SendMessage { message } => {
-                println!("Recvd message: {}", message.to_string_lossy())
+                println!("Recvd message: {}", message)
             }
             test_protocol_v1::server::MyManagerV1Event::SendMessageArrayFd { message } => {
                 println!("Received {} fds", message.len());
 
                 for fd in message {
-                    let mut file = unsafe { fs::File::from_raw_fd(*fd) };
+                    let mut file = fs::File::from(fd);
                     let mut buf = [0u8; 64];
                     let n = file.read(&mut buf).unwrap_or(0);
                     let data = String::from_utf8_lossy(&buf[..n]);
-                    println!("fd {} with data: {}", fd, data);
+                    println!("fd {} with data: {}", file.as_raw_fd(), data);
                 }
             }
             test_protocol_v1::server::MyManagerV1Event::SendMessageFd { message } => {
-                let mut file = unsafe { fs::File::from_raw_fd(message) };
+                let mut file = fs::File::from(message);
                 let mut buf = [0u8; 64];
                 let n = file.read(&mut buf).unwrap_or(0);
                 let data = String::from_utf8_lossy(&buf[..n]);
-                println!("Recvd fd {} with data: {}", message, data);
+                println!("Recvd fd {} with data: {}", file.as_raw_fd(), data);
             }
             test_protocol_v1::server::MyManagerV1Event::SendMessageArray { message } => {
-                let conct: Vec<&str> = message.iter().map(|s| s.to_str().unwrap_or("")).collect();
-                println!("Got array message: \"{}\"", conct.join(", "));
+                println!("Got array message: \"{}\"", message.join(", "));
             }
             test_protocol_v1::server::MyManagerV1Event::SendMessageArrayUint { message } => {
                 let conct: Vec<String> = message.iter().map(|v| v.to_string()).collect();
@@ -76,7 +75,7 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyObjectV1Object> for App {
     ) {
         match event {
             test_protocol_v1::server::MyObjectV1Event::SendMessage { message } => {
-                println!("Object says hello: {}", message.to_string_lossy());
+                println!("Object says hello: {}", message);
             }
             test_protocol_v1::server::MyObjectV1Event::SendEnum { message } => {
                 println!("Object sent enum: {:?}", message);

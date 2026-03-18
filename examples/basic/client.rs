@@ -29,7 +29,7 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyManagerV1Object> for App {
     ) {
         match event {
             test_protocol_v1::client::MyManagerV1Event::SendMessage { message } => {
-                println!("Server says {}", message.to_string_lossy());
+                println!("Server says {}", message);
             }
             test_protocol_v1::client::MyManagerV1Event::RecvMessageArrayUint { message } => {
                 println!("Server sent uint array {:?}", message);
@@ -45,7 +45,7 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyObjectV1Object> for App {
         event: test_protocol_v1::client::MyObjectV1Event,
     ) {
         let test_protocol_v1::client::MyObjectV1Event::SendMessage { message } = event;
-        println!("Server says on object {}", message.to_string_lossy());
+        println!("Server says on object {}", message);
     }
 }
 
@@ -94,8 +94,8 @@ fn main() {
     drop(pipes3.1);
 
     manager.send_send_message("Hello!");
-    manager.send_send_message_fd(pipes.0.as_raw_fd());
-    manager.send_send_message_array_fd(&[pipes2.0.as_raw_fd(), pipes3.0.as_raw_fd()]);
+    manager.send_send_message_fd(&pipes.0);
+    manager.send_send_message_array_fd(&[&pipes2.0, &pipes3.0]);
     manager.send_send_message_array(&["Hello", "via", "array!"]);
     manager.send_send_message_array::<&str>(&[]);
     manager.send_send_message_array_uint(&[69, 420, 1337]);

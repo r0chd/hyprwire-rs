@@ -20,19 +20,6 @@ fn snake_to_screaming(s: &str) -> String {
     s.to_uppercase()
 }
 
-fn needs_lifetime(arg_type: &ArgType) -> bool {
-    !matches!(
-        arg_type,
-        ArgType::Fd | ArgType::Uint | ArgType::Enum | ArgType::Int | ArgType::F32
-    )
-}
-
-fn methods_need_lifetime(methods: &[Method]) -> bool {
-    methods
-        .iter()
-        .any(|m| m.args.iter().any(|a| needs_lifetime(&a.arg_type)))
-}
-
 fn is_array_type(arg_type: &ArgType) -> bool {
     matches!(
         arg_type,
@@ -84,18 +71,20 @@ fn magic_for_arg(arg_type: &ArgType) -> Vec<TokenStream> {
 
 fn event_field_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
     match arg_type {
-        ArgType::Varchar => quote! { &'a ffi::CStr },
-        ArgType::Fd | ArgType::Int => quote! { i32 },
+        ArgType::Varchar => quote! { String },
+        ArgType::Fd => quote! { OwnedFd },
+        ArgType::Int => quote! { i32 },
         ArgType::Uint => quote! { u32 },
         ArgType::Enum => {
             let ident = format_ident!("{}", snake_to_pascal(interface.unwrap()));
             quote! { super::spec::#ident }
         }
         ArgType::F32 => quote! { f32 },
-        ArgType::ArrayVarchar => quote! { &'a [&'a ffi::CStr] },
-        ArgType::ArrayFd | ArgType::ArrayInt => quote! { &'a [i32] },
-        ArgType::ArrayUint => quote! { &'a [u32] },
-        ArgType::ArrayF32 => quote! { &'a [f32] },
+        ArgType::ArrayVarchar => quote! { Vec<String> },
+        ArgType::ArrayFd => quote! { Vec<OwnedFd> },
+        ArgType::ArrayInt => quote! { Vec<i32> },
+        ArgType::ArrayUint => quote! { Vec<u32> },
+        ArgType::ArrayF32 => quote! { Vec<f32> },
     }
 }
 
@@ -119,7 +108,8 @@ fn dispatch_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStre
 fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
     match arg_type {
         ArgType::Varchar => quote! { &str },
-        ArgType::Fd | ArgType::Int => quote! { i32 },
+        ArgType::Fd => quote! { impl AsFd },
+        ArgType::Int => quote! { i32 },
         ArgType::Uint => quote! { u32 },
         ArgType::F32 => quote! { f32 },
         ArgType::Enum => {
@@ -127,7 +117,8 @@ fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
             quote! { super::spec::#ident }
         }
         ArgType::ArrayVarchar => quote! { &[S] },
-        ArgType::ArrayFd | ArgType::ArrayInt => quote! { &[i32] },
+        ArgType::ArrayFd => quote! { &[F] },
+        ArgType::ArrayInt => quote! { &[i32] },
         ArgType::ArrayUint => quote! { &[u32] },
         ArgType::ArrayF32 => quote! { &[f32] },
     }
@@ -138,7 +129,9 @@ fn call_arg_expr(name_ident: &proc_macro2::Ident, arg_type: &ArgType) -> TokenSt
         ArgType::Varchar => {
             quote! { hyprwire::implementation::types::CallArg::Varchar(#name_ident.as_bytes()) }
         }
-        ArgType::Fd => quote! { hyprwire::implementation::types::CallArg::Fd(#name_ident) },
+        ArgType::Fd => {
+            quote! { hyprwire::implementation::types::CallArg::Fd(#name_ident.as_fd().as_raw_fd()) }
+        }
         ArgType::Uint => quote! { hyprwire::implementation::types::CallArg::Uint(#name_ident) },
         ArgType::Int => quote! { hyprwire::implementation::types::CallArg::Int(#name_ident) },
         ArgType::F32 => quote! { hyprwire::implementation::types::CallArg::F32(#name_ident) },
@@ -149,7 +142,8 @@ fn call_arg_expr(name_ident: &proc_macro2::Ident, arg_type: &ArgType) -> TokenSt
             quote! { hyprwire::implementation::types::CallArg::VarcharArray(&bytes) }
         }
         ArgType::ArrayFd => {
-            quote! { hyprwire::implementation::types::CallArg::FdArray(#name_ident) }
+            let raw_name = format_ident!("{}_raw_fds", name_ident);
+            quote! { hyprwire::implementation::types::CallArg::FdArray(&#raw_name) }
         }
         ArgType::ArrayUint => {
             quote! { hyprwire::implementation::types::CallArg::UintArray(#name_ident) }
@@ -339,13 +333,6 @@ fn generate_spec(protocol: &Protocol) -> TokenStream {
 }
 
 fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> TokenStream {
-    let has_lifetime = methods_need_lifetime(methods);
-    let lifetime_param = if has_lifetime {
-        quote! { <'a> }
-    } else {
-        quote! {}
-    };
-
     let variants: Vec<TokenStream> = methods
         .iter()
         .map(|m| {
@@ -374,8 +361,8 @@ fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> Tok
         .collect();
 
     quote! {
-        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-        pub enum #event_ident #lifetime_param {
+        #[derive(Debug)]
+        pub enum #event_ident {
             #(#variants)*
         }
     }
@@ -424,25 +411,40 @@ fn write_dispatch_fn(
         match &arg.arg_type {
             ArgType::Varchar => {
                 conversions.push(quote! {
-                    let #aname = unsafe { ffi::CStr::from_ptr(#aname) };
+                    let #aname = unsafe { ffi::CStr::from_ptr(#aname) }.to_string_lossy().into_owned();
+                });
+                event_fields.push(quote! { #aname, });
+            }
+            ArgType::Fd => {
+                conversions.push(quote! {
+                    let #aname = unsafe { OwnedFd::from_raw_fd(#aname) };
                 });
                 event_fields.push(quote! { #aname, });
             }
             ArgType::ArrayVarchar => {
                 let len_ident = format_ident!("{}_len", aname);
                 conversions.push(quote! {
-                    let ptrs = unsafe { std::slice::from_raw_parts(#aname, #len_ident as usize) };
-                    let strings: Vec<&ffi::CStr> = ptrs
+                    let #aname: Vec<String> = unsafe { std::slice::from_raw_parts(#aname, #len_ident as usize) }
                         .iter()
-                        .map(|&p| unsafe { ffi::CStr::from_ptr(p) })
+                        .map(|&p| unsafe { ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
                         .collect();
                 });
-                event_fields.push(quote! { #aname: &strings, });
+                event_fields.push(quote! { #aname, });
+            }
+            ArgType::ArrayFd => {
+                let len_ident = format_ident!("{}_len", aname);
+                conversions.push(quote! {
+                    let #aname: Vec<OwnedFd> = unsafe { std::slice::from_raw_parts(#aname, #len_ident as usize) }
+                        .iter()
+                        .map(|&fd| unsafe { OwnedFd::from_raw_fd(fd) })
+                        .collect();
+                });
+                event_fields.push(quote! { #aname, });
             }
             t if is_array_type(t) => {
                 let len_ident = format_ident!("{}_len", aname);
                 conversions.push(quote! {
-                    let #aname = unsafe { std::slice::from_raw_parts(#aname, #len_ident as usize) };
+                    let #aname = unsafe { std::slice::from_raw_parts(#aname, #len_ident as usize) }.to_vec();
                 });
                 event_fields.push(quote! { #aname, });
             }
@@ -481,8 +483,14 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
     let method_ident = format_ident!("send_{}", m.name);
     let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
     let has_varchar_array = m.args.iter().any(|a| a.arg_type == ArgType::ArrayVarchar);
+    let has_fd_array = m.args.iter().any(|a| a.arg_type == ArgType::ArrayFd);
     let s_bound = if has_varchar_array {
         quote! { S: AsRef<str>, }
+    } else {
+        quote! {}
+    };
+    let f_bound = if has_fd_array {
+        quote! { F: AsFd, }
     } else {
         quote! {}
     };
@@ -500,7 +508,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
     if m.returns.is_some() {
         let call_body = build_call_body(idx, &m.args, true);
         quote! {
-            pub fn #method_ident<#s_bound T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(
+            pub fn #method_ident<#s_bound #f_bound T: hyprwire::Proxy, D: hyprwire::Dispatch<T>>(
                 &self,
                 #(#param_pairs,)*
             ) -> Option<T> {
@@ -518,7 +526,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
     } else if m.destructor && has_on_destroy && !m.args.is_empty() {
         let call_body = build_call_body(idx, &m.args, false);
         quote! {
-            pub fn #method_ident<#s_bound>(mut self, #(#param_pairs,)*) {
+            pub fn #method_ident<#s_bound #f_bound>(mut self, #(#param_pairs,)*) {
                 #call_body
                 if let Some(cb) = self.on_destroy.take() {
                     cb();
@@ -534,7 +542,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
     } else {
         let call_body = build_call_body(idx, &m.args, false);
         quote! {
-            pub fn #method_ident<#s_bound>(
+            pub fn #method_ident<#s_bound #f_bound>(
                 &self,
                 #(#param_pairs,)*
             ) {
@@ -546,21 +554,25 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
 
 fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> TokenStream {
     let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
-    let has_varchar_array = args.iter().any(|a| a.arg_type == ArgType::ArrayVarchar);
 
-    let varchar_prep: Vec<TokenStream> = if has_varchar_array {
-        args.iter()
-            .filter(|a| a.arg_type == ArgType::ArrayVarchar)
-            .map(|arg| {
-                let aname = raw_ident(&arg.name);
-                quote! {
+    let prep: Vec<TokenStream> = args
+        .iter()
+        .filter_map(|arg| {
+            let aname = raw_ident(&arg.name);
+            match &arg.arg_type {
+                ArgType::ArrayVarchar => Some(quote! {
                     let bytes: Vec<&[u8]> = #aname.iter().map(|s| s.as_ref().as_bytes()).collect();
+                }),
+                ArgType::ArrayFd => {
+                    let raw_name = format_ident!("{}_raw_fds", aname);
+                    Some(quote! {
+                        let #raw_name: Vec<i32> = #aname.iter().map(|f| f.as_fd().as_raw_fd()).collect();
+                    })
                 }
-            })
-            .collect()
-    } else {
-        vec![]
-    };
+                _ => None,
+            }
+        })
+        .collect();
 
     let call_args: Vec<TokenStream> = args
         .iter()
@@ -572,12 +584,12 @@ fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> Toke
 
     if is_seq {
         quote! {
-            #(#varchar_prep)*
+            #(#prep)*
             let seq = self.object.inner().borrow_mut().call(#idx_lit, &[#(#call_args),*]);
         }
     } else {
         quote! {
-            #(#varchar_prep)*
+            #(#prep)*
             self.object.inner().borrow_mut().call(#idx_lit, &[#(#call_args),*]);
         }
     }
@@ -646,16 +658,9 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 
         items.push(write_event_enum(&event_ident, &obj.c2s));
 
-        let has_c2s_lifetime = methods_need_lifetime(&obj.c2s);
-        let event_lifetime = if has_c2s_lifetime {
-            quote! { <'a> }
-        } else {
-            quote! {}
-        };
-
         items.push(quote! {
             impl hyprwire::Proxy for #obj_ident {
-                type Event<'a> = #event_ident #event_lifetime;
+                type Event<'a> = #event_ident;
                 const NAME: &str = #obj_name_str;
                 fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
                     Self::new::<D>(object)
@@ -771,9 +776,9 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     });
 
     quote! {
-        #[allow(dead_code)]
+        #[allow(dead_code, unused_imports)]
         pub mod server {
-            use std::{ffi, rc};
+            use std::{ffi, os::fd::*, rc};
 
             #(#items)*
         }
@@ -827,16 +832,9 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 
         items.push(write_event_enum(&event_ident, &obj.s2c));
 
-        let has_s2c_lifetime = methods_need_lifetime(&obj.s2c);
-        let event_lifetime = if has_s2c_lifetime {
-            quote! { <'a> }
-        } else {
-            quote! {}
-        };
-
         items.push(quote! {
             impl hyprwire::Proxy for #obj_ident {
-                type Event<'a> = #event_ident #event_lifetime;
+                type Event<'a> = #event_ident;
                 const NAME: &str = #obj_name_str;
                 fn from_object<D: hyprwire::Dispatch<Self>>(object: hyprwire::implementation::types::Object) -> Self {
                     Self::new::<D>(object)
@@ -924,9 +922,9 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
     });
 
     quote! {
-        #[allow(dead_code)]
+        #[allow(dead_code, unused_imports)]
         pub mod client {
-            use std::{ffi, rc};
+            use std::{ffi, os::fd::*, rc};
 
             #(#items)*
         }
