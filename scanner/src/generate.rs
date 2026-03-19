@@ -221,12 +221,14 @@ fn write_method_spec(idx: usize, m: &Method) -> TokenStream {
     };
 
     let ret = m.returns.as_deref().unwrap_or("");
+    let destructor = m.destructor;
     quote! {
         hyprwire::implementation::types::Method {
             idx: #idx_lit,
             #params_ts
             returns_type: #ret,
             since: 0,
+            destructor: #destructor,
         },
     }
 }
@@ -958,7 +960,7 @@ pub fn generate(protocol: &Protocol) -> String {
             })
             .collect();
         format!(
-            "/*\n This protocol's authors' copyright notice is:\n\n{}\n\n*/\n\n",
+            "/*\n This protocol's author copyright notice is:\n\n{}\n\n*/\n\n",
             formatted.join("\n")
         )
     } else {

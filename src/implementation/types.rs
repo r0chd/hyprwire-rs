@@ -132,6 +132,7 @@ pub struct Method {
     pub params: &'static [u8],
     pub returns_type: &'static str,
     pub since: u32,
+    pub destructor: bool,
 }
 
 pub trait ProtocolObjectSpec: Send + Sync {

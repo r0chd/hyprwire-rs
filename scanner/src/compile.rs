@@ -16,11 +16,7 @@ impl Builder {
         self
     }
 
-    pub fn compile(self, proto: impl AsRef<path::Path>) -> Result<(), io::Error> {
-        self.compile_protos(&[proto])
-    }
-
-    pub fn compile_protos(self, protos: &[impl AsRef<path::Path>]) -> Result<(), io::Error> {
+    pub fn compile(self, protos: &[impl AsRef<path::Path>]) -> Result<(), io::Error> {
         let out_dir = self
             .out_dir
             .unwrap_or_else(|| path::PathBuf::from(env::var("OUT_DIR").unwrap()));
