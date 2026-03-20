@@ -95,18 +95,16 @@ impl object::RawObject for ServerObject {
         seq: u32,
     ) -> Option<sync::Arc<dyn object::RawObject>> {
         let client = self.client.upgrade()?;
-        let obj =
-            client
-                .borrow()
-                .create_object(&self.protocol_name, object_name, self.version.load(Ordering::Relaxed), seq);
+        let obj = client.borrow().create_object(
+            &self.protocol_name,
+            object_name,
+            self.version.load(Ordering::Relaxed),
+            seq,
+        );
         Some(obj as sync::Arc<dyn object::RawObject>)
     }
 
-    fn set_data(
-        &self,
-        data: *mut raw::c_void,
-        destructor: Option<unsafe fn(*mut raw::c_void)>,
-    ) {
+    fn set_data(&self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>) {
         *self.data.lock().unwrap() = Some(SendPtr(data));
         *self.data_destructor.lock().unwrap() = destructor;
     }
@@ -120,7 +118,8 @@ impl object::RawObject for ServerObject {
     }
 
     fn error(&self, error_id: u32, error_msg: &str) {
-        let msg = message::FatalProtocolError::new(self.id.load(Ordering::Relaxed), error_id, error_msg);
+        let msg =
+            message::FatalProtocolError::new(self.id.load(Ordering::Relaxed), error_id, error_msg);
         self.state.send_message(&msg);
         self.errd();
     }

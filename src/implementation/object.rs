@@ -16,11 +16,7 @@ pub trait RawObject: Send + Sync {
         None
     }
 
-    fn create_object(
-        &self,
-        _object_name: &str,
-        _seq: u32,
-    ) -> Option<sync::Arc<dyn RawObject>> {
+    fn create_object(&self, _object_name: &str, _seq: u32) -> Option<sync::Arc<dyn RawObject>> {
         None
     }
 

@@ -2,7 +2,7 @@
 source: tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.1.10. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.1.12. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:
@@ -14,6 +14,7 @@ expression: code
 #[allow(dead_code, unused_imports)]
 pub mod server {
     use std::{ffi, os::fd::*, sync};
+    pub use super::spec::*;
     pub struct MyManagerV1Object {
         object: sync::Arc<dyn hyprwire::implementation::object::RawObject>,
     }
@@ -438,6 +439,7 @@ pub mod server {
 #[allow(dead_code, unused_imports)]
 pub mod client {
     use std::{ffi, os::fd::*, sync};
+    pub use super::spec::*;
     pub struct MyManagerV1Object {
         object: sync::Arc<dyn hyprwire::implementation::object::RawObject>,
         on_destroy: Option<Box<dyn FnOnce()>>,
@@ -777,7 +779,7 @@ pub mod client {
     }
 }
 #[allow(dead_code)]
-pub mod spec {
+mod spec {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[repr(u32)]
     pub enum MyEnum {

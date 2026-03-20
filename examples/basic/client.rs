@@ -1,5 +1,6 @@
 mod test_protocol_v1 {
     hyprwire::include_protocol!("test_protocol_v1");
+    pub use client::*;
 }
 
 use hyprwire::client;
@@ -21,30 +22,30 @@ fn socket_path() -> path::PathBuf {
 #[derive(Default)]
 struct App {}
 
-impl hyprwire::Dispatch<test_protocol_v1::client::MyManagerV1Object> for App {
+impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
     fn event(
         &mut self,
-        _proxy: &test_protocol_v1::client::MyManagerV1Object,
-        event: test_protocol_v1::client::MyManagerV1Event,
+        _proxy: &test_protocol_v1::MyManagerV1Object,
+        event: test_protocol_v1::MyManagerV1Event,
     ) {
         match event {
-            test_protocol_v1::client::MyManagerV1Event::SendMessage { message } => {
+            test_protocol_v1::MyManagerV1Event::SendMessage { message } => {
                 println!("Server says {}", message);
             }
-            test_protocol_v1::client::MyManagerV1Event::RecvMessageArrayUint { message } => {
+            test_protocol_v1::MyManagerV1Event::RecvMessageArrayUint { message } => {
                 println!("Server sent uint array {:?}", message);
             }
         }
     }
 }
 
-impl hyprwire::Dispatch<test_protocol_v1::client::MyObjectV1Object> for App {
+impl hyprwire::Dispatch<test_protocol_v1::MyObjectV1Object> for App {
     fn event(
         &mut self,
-        _proxy: &test_protocol_v1::client::MyObjectV1Object,
-        event: test_protocol_v1::client::MyObjectV1Event,
+        _proxy: &test_protocol_v1::MyObjectV1Object,
+        event: test_protocol_v1::MyObjectV1Event,
     ) {
-        let test_protocol_v1::client::MyObjectV1Event::SendMessage { message } = event;
+        let test_protocol_v1::MyObjectV1Event::SendMessage { message } = event;
         println!("Server says on object {}", message);
     }
 }
@@ -57,7 +58,7 @@ fn main() {
     let path = socket_path();
     let mut socket = client::Client::open(&path).unwrap();
 
-    let implementation = test_protocol_v1::client::TestProtocolV1Impl::default();
+    let implementation = test_protocol_v1::TestProtocolV1Impl::default();
     socket.add_implementation(implementation.clone());
     socket.wait_for_handshake().unwrap();
 
@@ -73,7 +74,7 @@ fn main() {
     let mut state = App::default();
 
     let manager = socket
-        .bind::<test_protocol_v1::client::MyManagerV1Object, App>(implementation.protocol(), 1)
+        .bind::<test_protocol_v1::MyManagerV1Object, App>(implementation.protocol(), 1)
         .unwrap();
 
     println!("Bound!");
@@ -103,11 +104,11 @@ fn main() {
     socket.roundtrip(&mut state).unwrap();
 
     let obj = manager
-        .send_make_object::<test_protocol_v1::client::MyObjectV1Object, App>()
+        .send_make_object::<test_protocol_v1::MyObjectV1Object, App>()
         .unwrap();
 
     obj.send_send_message("Hello on object");
-    obj.send_send_enum(test_protocol_v1::spec::MyEnum::World);
+    obj.send_send_enum(test_protocol_v1::MyEnum::World);
 
     loop {
         if let Err(e) = socket.dispatch_events(&mut state, true) {

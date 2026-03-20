@@ -3,3 +3,4 @@ pub mod generate;
 pub mod parse;
 
 pub use compile::configure;
+pub use generate::Targets;

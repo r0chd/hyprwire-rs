@@ -92,11 +92,7 @@ impl object::RawObject for ClientObject {
         self.client.upgrade().map(client::Client)
     }
 
-    fn set_data(
-        &self,
-        data: *mut raw::c_void,
-        destructor: Option<unsafe fn(*mut raw::c_void)>,
-    ) {
+    fn set_data(&self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>) {
         *self.data.lock().unwrap() = Some(SendPtr(data));
         *self.data_destructor.lock().unwrap() = destructor;
     }

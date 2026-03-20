@@ -4,6 +4,34 @@ use quote::{format_ident, quote};
 
 const SCANNER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Targets(u8);
+
+impl Targets {
+    pub const CLIENT: Self = Self(0b01);
+    pub const SERVER: Self = Self(0b10);
+    pub const ALL: Self = Self(Self::CLIENT.0 | Self::SERVER.0);
+
+    #[must_use]
+    pub fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+impl std::ops::BitOr for Targets {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl std::ops::BitOrAssign for Targets {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
 fn raw_object_type() -> TokenStream {
     quote! { sync::Arc<dyn hyprwire::implementation::object::RawObject> }
 }
@@ -309,7 +337,7 @@ fn generate_spec(protocol: &Protocol) -> TokenStream {
 
     quote! {
         #[allow(dead_code)]
-        pub mod spec {
+        mod spec {
             #(#enum_items)*
 
             #(#object_items)*
@@ -806,6 +834,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         #[allow(dead_code, unused_imports)]
         pub mod server {
             use std::{ffi, os::fd::*, sync};
+            pub use super::spec::*;
 
             #(#items)*
         }
@@ -956,6 +985,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
         #[allow(dead_code, unused_imports)]
         pub mod client {
             use std::{ffi, os::fd::*, sync};
+            pub use super::spec::*;
 
             #(#items)*
         }
@@ -963,7 +993,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 }
 
 #[must_use]
-pub fn generate(protocol: &Protocol) -> String {
+pub fn generate(protocol: &Protocol, targets: Targets) -> String {
     let header_comment = format!(
         "// Generated with hyprwire-scanner {SCANNER_VERSION}. Made with pure malice and hatred by r0chd.\n// {}\n",
         protocol.name
@@ -996,9 +1026,13 @@ pub fn generate(protocol: &Protocol) -> String {
         String::new()
     };
 
-    let server = generate_server(protocol);
-    let client = generate_client(protocol);
     let spec = generate_spec(protocol);
+    let server = targets
+        .contains(Targets::SERVER)
+        .then(|| generate_server(protocol));
+    let client = targets
+        .contains(Targets::CLIENT)
+        .then(|| generate_client(protocol));
 
     let ts = quote! { #server #client #spec };
     let file = syn::parse_file(&ts.to_string()).expect("generated code is not valid Rust");

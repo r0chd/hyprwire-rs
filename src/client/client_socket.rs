@@ -3,7 +3,7 @@ use crate::client::server_spec;
 use crate::implementation::types::ProtocolSpec;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
-use crate::{implementation, message, socket, steady_millis, trace, SharedState};
+use crate::{SharedState, implementation, message, socket, steady_millis, trace};
 use nix::sys;
 use nix::{errno, poll};
 use std::os::fd;

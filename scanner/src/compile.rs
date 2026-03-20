@@ -3,16 +3,25 @@ use std::{env, fs, io, path};
 
 pub struct Builder {
     out_dir: Option<path::PathBuf>,
+    targets: generate::Targets,
 }
 
 #[must_use]
 pub fn configure() -> Builder {
-    Builder { out_dir: None }
+    Builder {
+        out_dir: None,
+        targets: generate::Targets::ALL,
+    }
 }
 
 impl Builder {
     pub fn out_dir(mut self, path: impl Into<path::PathBuf>) -> Self {
         self.out_dir = Some(path.into());
+        self
+    }
+
+    pub fn with_targets(mut self, targets: generate::Targets) -> Self {
+        self.targets = targets;
         self
     }
 
@@ -39,7 +48,7 @@ impl Builder {
                 )
             })?;
 
-            let code = generate::generate(&protocol);
+            let code = generate::generate(&protocol, self.targets);
 
             let out_name = format!("{}.rs", protocol.name);
             let out_path = out_dir.join(&out_name);

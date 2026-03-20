@@ -1,4 +1,4 @@
-use hyprwire_scanner::{generate, parse};
+use hyprwire_scanner::{Targets, generate, parse};
 use insta::assert_snapshot;
 use std::fs;
 
@@ -6,6 +6,30 @@ use std::fs;
 fn test_scanner_protocol_v1() {
     let xml = fs::read_to_string("tests/protocol-v1.xml").unwrap();
     let protocol = parse::parse_protocol(&xml).unwrap();
-    let code = generate::generate(&protocol);
+    let code = generate::generate(&protocol, Targets::ALL);
     assert_snapshot!(code);
+}
+
+#[test]
+fn test_scanner_protocol_v1_client_only() {
+    let xml = fs::read_to_string("tests/protocol-v1.xml").unwrap();
+    let protocol = parse::parse_protocol(&xml).unwrap();
+    let code = generate::generate(&protocol, Targets::CLIENT);
+
+    assert!(code.contains("pub mod client"));
+    assert!(code.contains("mod spec"));
+    assert!(!code.contains("pub mod spec"));
+    assert!(!code.contains("pub mod server"));
+}
+
+#[test]
+fn test_scanner_protocol_v1_server_only() {
+    let xml = fs::read_to_string("tests/protocol-v1.xml").unwrap();
+    let protocol = parse::parse_protocol(&xml).unwrap();
+    let code = generate::generate(&protocol, Targets::SERVER);
+
+    assert!(code.contains("pub mod server"));
+    assert!(code.contains("mod spec"));
+    assert!(!code.contains("pub mod spec"));
+    assert!(!code.contains("pub mod client"));
 }
