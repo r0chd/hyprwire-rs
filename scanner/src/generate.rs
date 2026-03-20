@@ -5,7 +5,7 @@ use quote::{format_ident, quote};
 const SCANNER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn raw_object_type() -> TokenStream {
-    quote! { rc::Rc<cell::RefCell<dyn hyprwire::implementation::object::RawObject>> }
+    quote! { sync::Arc<dyn hyprwire::implementation::object::RawObject> }
 }
 
 fn snake_to_pascal(s: &str) -> String {
@@ -472,9 +472,9 @@ fn write_dispatch_fn(
         ) {
             let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
             let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
-            unsafe { rc::Rc::increment_strong_count(dispatch.object) };
+            unsafe { sync::Arc::increment_strong_count(dispatch.object) };
             let proxy = #obj_ident {
-                object: unsafe { rc::Rc::from_raw(dispatch.object) },
+                object: unsafe { sync::Arc::from_raw(dispatch.object) },
                 #on_destroy_field
             };
             #(#conversions)*
@@ -519,7 +519,6 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
                 #call_body
                 let obj = self
                     .object
-                    .borrow()
                     .client_sock()
                     .and_then(|sock| sock.object_for_seq(seq));
                 Some(T::from_object::<D>(obj?))
@@ -538,7 +537,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
     } else if m.args.is_empty() {
         quote! {
             pub fn #method_ident(&self) {
-                self.object.borrow_mut().call(#idx_lit, &[]);
+                self.object.call(#idx_lit, &[]);
             }
         }
     } else {
@@ -587,12 +586,12 @@ fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> Toke
     if is_seq {
         quote! {
             #(#prep)*
-            let seq = self.object.borrow_mut().call(#idx_lit, &[#(#call_args),*]);
+            let seq = self.object.call(#idx_lit, &[#(#call_args),*]);
         }
     } else {
         quote! {
             #(#prep)*
-            self.object.borrow_mut().call(#idx_lit, &[#(#call_args),*]);
+            self.object.call(#idx_lit, &[#(#call_args),*]);
         }
     }
 }
@@ -609,7 +608,7 @@ fn write_new_fn(
             let listen_fn = format_ident!("{}_method{}", obj_name, idx);
             let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
             quote! {
-                obj.listen(#idx_lit, #listen_fn::<D> as *mut ffi::c_void);
+                object.listen(#idx_lit, #listen_fn::<D> as *mut ffi::c_void);
             }
         })
         .collect();
@@ -626,14 +625,11 @@ fn write_new_fn(
             }
 
             let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
-                object: rc::Rc::as_ptr(&object),
+                object: sync::Arc::as_ptr(&object),
             }));
 
-            {
-                let mut obj = object.borrow_mut();
-                obj.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
-                #(#listen_calls)*
-            }
+            object.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
+            #(#listen_calls)*
 
             Self { object, #extra }
         }
@@ -654,24 +650,24 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 
             impl std::fmt::Debug for #obj_ident {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.debug_struct(#pascal_str).field("object", &rc::Rc::as_ptr(&self.object)).finish()
+                    f.debug_struct(#pascal_str).field("object", &sync::Arc::as_ptr(&self.object)).finish()
                 }
             }
 
             impl Clone for #obj_ident {
                 fn clone(&self) -> Self {
-                    Self { object: rc::Rc::clone(&self.object) }
+                    Self { object: sync::Arc::clone(&self.object) }
                 }
             }
 
             impl PartialEq for #obj_ident {
-                fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
+                fn eq(&self, other: &Self) -> bool { sync::Arc::ptr_eq(&self.object, &other.object) }
             }
 
             impl Eq for #obj_ident {}
 
             impl std::hash::Hash for #obj_ident {
-                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { sync::Arc::as_ptr(&self.object).hash(state); }
             }
         });
     }
@@ -721,16 +717,16 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                 #new_fn
 
                 pub fn error(&self, error_id: u32, error_msg: &str) {
-                    self.object.borrow().error(error_id, error_msg);
+                    self.object.error(error_id, error_msg);
                 }
 
                 pub fn create_object<T: hyprwire::Object, D: hyprwire::Dispatch<T>>(&self, seq: u32) -> Option<T> {
-                    let obj = self.object.borrow().create_object(T::NAME, seq)?;
+                    let obj = self.object.create_object(T::NAME, seq)?;
                     Some(T::from_object::<D>(obj))
                 }
 
-                pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
-                    self.object.borrow_mut().set_on_drop(Box::new(callback));
+                pub fn set_on_drop(&self, callback: impl FnOnce() + Send + 'static) {
+                    self.object.set_on_drop(Box::new(callback));
                 }
 
                 #(#send_methods)*
@@ -809,7 +805,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     quote! {
         #[allow(dead_code, unused_imports)]
         pub mod server {
-            use std::{cell, ffi, os::fd::*, rc};
+            use std::{ffi, os::fd::*, sync};
 
             #(#items)*
         }
@@ -834,24 +830,24 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 
             impl std::fmt::Debug for #obj_ident {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.debug_struct(#pascal_str).field("object", &rc::Rc::as_ptr(&self.object)).finish()
+                    f.debug_struct(#pascal_str).field("object", &sync::Arc::as_ptr(&self.object)).finish()
                 }
             }
 
             impl Clone for #obj_ident {
                 fn clone(&self) -> Self {
-                    Self { object: rc::Rc::clone(&self.object), on_destroy: None, owned: false }
+                    Self { object: sync::Arc::clone(&self.object), on_destroy: None, owned: false }
                 }
             }
 
             impl PartialEq for #obj_ident {
-                fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
+                fn eq(&self, other: &Self) -> bool { sync::Arc::ptr_eq(&self.object, &other.object) }
             }
 
             impl Eq for #obj_ident {}
 
             impl std::hash::Hash for #obj_ident {
-                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { sync::Arc::as_ptr(&self.object).hash(state); }
             }
         });
     }
@@ -908,7 +904,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
             .filter(|(_, m)| m.destructor && m.args.is_empty())
             .map(|(idx, _)| {
                 let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
-                quote! { self.object.borrow_mut().call(#idx_lit, &[]); }
+                quote! { self.object.call(#idx_lit, &[]); }
             })
             .collect();
 
@@ -916,7 +912,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
             impl #obj_ident {
                 #new_fn
 
-                pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
+                pub fn set_on_destroy(&mut self, callback: impl FnOnce() + Send + 'static) {
                     self.on_destroy = Some(Box::new(callback));
                 }
 
@@ -959,7 +955,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
     quote! {
         #[allow(dead_code, unused_imports)]
         pub mod client {
-            use std::{cell, ffi, os::fd::*, rc};
+            use std::{ffi, os::fd::*, sync};
 
             #(#items)*
         }

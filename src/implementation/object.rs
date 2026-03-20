@@ -1,12 +1,12 @@
 use crate::implementation::types;
 use crate::{client, server};
 use std::os::raw;
-use std::{cell, rc};
+use std::sync;
 
-pub trait RawObject {
-    fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32;
+pub trait RawObject: Send + Sync {
+    fn call(&self, id: u32, args: &[types::CallArg]) -> u32;
 
-    fn listen(&mut self, id: u32, func: *mut raw::c_void);
+    fn listen(&self, id: u32, func: *mut raw::c_void);
 
     fn client_sock(&self) -> Option<client::Client> {
         None
@@ -20,17 +20,17 @@ pub trait RawObject {
         &self,
         _object_name: &str,
         _seq: u32,
-    ) -> Option<rc::Rc<cell::RefCell<dyn RawObject>>> {
+    ) -> Option<sync::Arc<dyn RawObject>> {
         None
     }
 
-    fn set_data(&mut self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>);
+    fn set_data(&self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>);
 
     fn get_data(&self) -> *mut raw::c_void;
 
     fn error(&self, error_id: u32, error_msg: &str);
 
-    fn set_on_drop(&mut self, func: Box<dyn FnOnce()>) {
+    fn set_on_drop(&self, func: Box<dyn FnOnce() + Send>) {
         _ = func;
     }
 }

@@ -3,18 +3,19 @@ use crate::client::server_spec;
 use crate::implementation::types::ProtocolSpec;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
-use crate::{SharedState, implementation, message, socket, steady_millis, trace};
+use crate::{implementation, message, socket, steady_millis, trace, SharedState};
 use nix::sys;
 use nix::{errno, poll};
 use std::os::fd;
 use std::os::fd::{BorrowedFd, FromRawFd};
 use std::os::unix::net;
+use std::sync::atomic::Ordering;
 use std::{cell, io, ops, path, rc, sync, time};
 
 pub struct ClientSocket {
     impls: Vec<Box<dyn implementation::client::ProtocolImplementations>>,
     server_specs: cell::RefCell<Vec<server_spec::ServerSpec>>,
-    objects: cell::RefCell<Vec<rc::Rc<cell::RefCell<client_object::ClientObject>>>>,
+    objects: cell::RefCell<Vec<sync::Arc<client_object::ClientObject>>>,
     handshake_begin: time::Instant,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) handshake_done: cell::Cell<bool>,
@@ -50,9 +51,9 @@ impl ClientSocket {
         client_socket
     }
 
-    pub fn open(path: &path::Path) -> rc::Rc<cell::RefCell<Self>> {
-        let stream = net::UnixStream::connect(path).expect("Failed to connect to Unix socket");
-        Self::new(stream)
+    pub fn open(path: &path::Path) -> io::Result<rc::Rc<cell::RefCell<Self>>> {
+        let stream = net::UnixStream::connect(path)?;
+        Ok(Self::new(stream))
     }
 
     pub fn from_fd(fd: fd::RawFd) -> rc::Rc<cell::RefCell<Self>> {
@@ -96,7 +97,7 @@ impl ClientSocket {
         &mut self,
         spec: &dyn ProtocolSpec,
         version: u32,
-    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>, io::Error> {
+    ) -> Result<sync::Arc<dyn implementation::object::RawObject>, io::Error> {
         if version > spec.spec_ver() {
             log::error!(
                 "version {} is larger than current spec ver of {}",
@@ -119,11 +120,11 @@ impl ClientSocket {
         object.spec = Some(sync::Arc::clone(&objects[0]));
         self.seq += 1;
         object.seq = self.seq;
-        object.version = version;
+        object.version.store(version, Ordering::Relaxed);
         object.protocol_name = spec.spec_name().to_string();
 
-        let object = rc::Rc::new(cell::RefCell::new(object));
-        self.objects.borrow_mut().push(rc::Rc::clone(&object));
+        let object = sync::Arc::new(object);
+        self.objects.borrow_mut().push(sync::Arc::clone(&object));
 
         let bind_message = message::BindProtocol::new(spec.spec_name(), self.seq, version);
         self.state.send_message(&bind_message);
@@ -135,9 +136,9 @@ impl ClientSocket {
 
     fn wait_for_object(
         &mut self,
-        object: &rc::Rc<cell::RefCell<client_object::ClientObject>>,
+        object: &sync::Arc<client_object::ClientObject>,
     ) -> Result<(), io::Error> {
-        while object.borrow().id == 0 && !self.state.error.get() {
+        while object.id.load(Ordering::Relaxed) == 0 && !self.state.error.get() {
             self.dispatch_events(true)?;
         }
 
@@ -156,7 +157,7 @@ impl ClientSocket {
         protocol_name: &str,
         object_name: &str,
         seq: u32,
-    ) -> Result<rc::Rc<cell::RefCell<client_object::ClientObject>>, message::MessageError> {
+    ) -> Result<sync::Arc<client_object::ClientObject>, message::MessageError> {
         let mut object =
             client_object::ClientObject::new(self._self.clone(), rc::Rc::clone(&self.state));
         object.protocol_name = protocol_name.to_string();
@@ -182,8 +183,8 @@ impl ClientSocket {
         object.seq = seq;
         object.set_version(0); // TODO: client version doesn't matter that much, but for verification's sake we could fix this
 
-        let object = rc::Rc::new(cell::RefCell::new(object));
-        self.objects.borrow_mut().push(rc::Rc::clone(&object));
+        let object = sync::Arc::new(object);
+        self.objects.borrow_mut().push(sync::Arc::clone(&object));
         Ok(object)
     }
 
@@ -379,7 +380,9 @@ impl ClientSocket {
         let pending = std::mem::take(&mut self.pending_outgoing);
         for mut msg in pending {
             let seq = msg.depends_on_seq();
-            let obj_id = self.object_for_seq(seq).map(|obj| obj.borrow().id);
+            let obj_id = self
+                .object_for_seq(seq)
+                .map(|obj| obj.id.load(Ordering::Relaxed));
 
             match obj_id {
                 None => continue,
@@ -410,8 +413,8 @@ impl ClientSocket {
 
     pub fn on_seq(&self, seq: u32, id: u32) {
         let objects = self.objects.borrow();
-        if let Some(object) = objects.iter().find(|object| object.borrow().seq == seq) {
-            object.borrow_mut().id = id;
+        if let Some(object) = objects.iter().find(|object| object.seq == seq) {
+            object.id.store(id, Ordering::Relaxed);
         }
     }
 
@@ -420,15 +423,12 @@ impl ClientSocket {
             .objects
             .borrow()
             .iter()
-            .find(|obj| obj.borrow().id == msg.object())
-            .map(rc::Rc::clone);
+            .find(|obj| obj.id.load(Ordering::Relaxed) == msg.object())
+            .map(sync::Arc::clone);
 
         match obj {
             Some(obj) => {
-                if let Err(e) = obj
-                    .borrow()
-                    .called(msg.method(), msg.data_span(), msg.fds())
-                {
+                if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds()) {
                     log::error!(
                         "[{} @ {:.3}] object {} called method error: {e}",
                         self.state.fd,
@@ -450,25 +450,19 @@ impl ClientSocket {
         }
     }
 
-    pub fn object_for_id(
-        &self,
-        id: u32,
-    ) -> Option<rc::Rc<cell::RefCell<client_object::ClientObject>>> {
+    pub fn object_for_id(&self, id: u32) -> Option<sync::Arc<client_object::ClientObject>> {
         self.objects
             .borrow()
             .iter()
-            .find(|object| object.borrow().id == id)
-            .map(rc::Rc::clone)
+            .find(|object| object.id.load(Ordering::Relaxed) == id)
+            .map(sync::Arc::clone)
     }
 
-    pub fn object_for_seq(
-        &self,
-        seq: u32,
-    ) -> Option<rc::Rc<cell::RefCell<client_object::ClientObject>>> {
+    pub fn object_for_seq(&self, seq: u32) -> Option<sync::Arc<client_object::ClientObject>> {
         self.objects
             .borrow()
             .iter()
-            .find(|object| object.borrow().seq == seq)
-            .map(rc::Rc::clone)
+            .find(|object| object.seq == seq)
+            .map(sync::Arc::clone)
     }
 }

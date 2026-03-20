@@ -5,11 +5,13 @@ use libffi::low as ffi;
 use std::os::raw;
 
 pub trait WireObject: object::RawObject {
-    fn set_version(&mut self, version: u32);
+    fn set_version(&self, version: u32);
 
     fn version(&self) -> u32;
 
-    fn listeners(&self) -> &[*mut raw::c_void];
+    fn listener(&self, idx: usize) -> *mut raw::c_void;
+
+    fn listener_count(&self) -> usize;
 
     fn methods_out(&self) -> &[types::Method];
 
@@ -37,7 +39,7 @@ pub trait WireObject: object::RawObject {
             return Err(message::MessageError::InvalidMethod);
         }
 
-        if self.listeners().len() <= id as usize {
+        if self.listener_count() <= id as usize {
             return Ok(());
         }
 
@@ -377,7 +379,7 @@ pub trait WireObject: object::RawObject {
             i += 1;
         }
 
-        let listener = self.listeners()[id as usize];
+        let listener = self.listener(id as usize);
         unsafe {
             ffi::call::<()>(
                 &raw mut cif,
@@ -389,7 +391,7 @@ pub trait WireObject: object::RawObject {
         Ok(())
     }
 
-    fn call(&mut self, id: u32, args: &[types::CallArg]) -> Result<u32, message::MessageError> {
+    fn call(&self, id: u32, args: &[types::CallArg]) -> Result<u32, message::MessageError> {
         let methods = self.methods_out();
 
         if methods.len() <= id as usize {

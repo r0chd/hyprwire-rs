@@ -5,14 +5,13 @@ mod server_spec;
 use crate::{implementation, message};
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
-use std::{cell, ffi, io, path, ptr, rc};
+use std::{cell, ffi, io, path, ptr, rc, sync};
 
 pub struct Client(pub(crate) rc::Rc<cell::RefCell<client_socket::ClientSocket>>);
 
 impl Client {
-    #[must_use]
-    pub fn open(path: &path::Path) -> Self {
-        Self(client_socket::ClientSocket::open(path))
+    pub fn open(path: &path::Path) -> io::Result<Self> {
+        Ok(Self(client_socket::ClientSocket::open(path)?))
     }
 
     #[must_use]
@@ -60,8 +59,7 @@ impl Client {
         protocol_name: &str,
         object_name: &str,
         seq: u32,
-    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>, message::MessageError>
-    {
+    ) -> Result<sync::Arc<dyn implementation::object::RawObject>, message::MessageError> {
         let obj = self
             .0
             .borrow_mut()
@@ -103,21 +101,21 @@ impl Client {
     pub fn object_for_seq(
         &self,
         seq: u32,
-    ) -> Option<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>> {
+    ) -> Option<sync::Arc<dyn implementation::object::RawObject>> {
         self.0
             .borrow()
             .object_for_seq(seq)
-            .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>)
+            .map(|obj| obj as sync::Arc<dyn implementation::object::RawObject>)
     }
 
     #[must_use]
     pub fn object_for_id(
         &self,
         id: u32,
-    ) -> Option<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>> {
+    ) -> Option<sync::Arc<dyn implementation::object::RawObject>> {
         self.0
             .borrow()
             .object_for_id(id)
-            .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>)
+            .map(|obj| obj as sync::Arc<dyn implementation::object::RawObject>)
     }
 }

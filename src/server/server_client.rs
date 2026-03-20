@@ -4,6 +4,7 @@ use crate::message::Message;
 use crate::{SharedState, message, steady_millis, trace};
 use nix::sys;
 use std::ops;
+use std::sync::atomic::Ordering;
 use std::{cell, rc, sync};
 
 pub(crate) struct ServerClient {
@@ -13,7 +14,7 @@ pub(crate) struct ServerClient {
     pub(crate) max_id: cell::Cell<u32>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
-    pub(crate) objects: cell::RefCell<Vec<rc::Rc<cell::RefCell<server_object::ServerObject>>>>,
+    pub(crate) objects: cell::RefCell<Vec<sync::Arc<server_object::ServerObject>>>,
     _self: rc::Weak<cell::RefCell<Self>>,
 }
 
@@ -85,13 +86,12 @@ impl ServerClient {
         object_name: &str,
         version: u32,
         seq: u32,
-    ) -> rc::Rc<cell::RefCell<server_object::ServerObject>> {
+    ) -> sync::Arc<server_object::ServerObject> {
         let mut server_obj =
             server_object::ServerObject::new(self._self.clone(), rc::Rc::clone(&self.state));
-        let id = self.max_id.get();
-        server_obj.id = id;
-        self.max_id.set(id + 1);
-        server_obj.version = version;
+        server_obj.id.store(self.max_id.get(), Ordering::Relaxed);
+        self.max_id.set(self.max_id.get() + 1);
+        server_obj.version.store(version, Ordering::Relaxed);
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();
 
@@ -108,27 +108,24 @@ impl ServerClient {
             }
         }
 
-        let obj = rc::Rc::new(cell::RefCell::new(server_obj));
-        self.objects.borrow_mut().push(rc::Rc::clone(&obj));
+        let obj = sync::Arc::new(server_obj);
+        self.objects.borrow_mut().push(sync::Arc::clone(&obj));
 
-        let new_obj_msg = message::NewObject::new(seq, obj.borrow().id);
+        let new_obj_msg = message::NewObject::new(seq, obj.id.load(Ordering::Relaxed));
         self.state.send_message(&new_obj_msg);
 
-        self.on_bind(rc::Rc::clone(&obj));
+        self.on_bind(sync::Arc::clone(&obj));
 
         obj
     }
 
-    pub fn on_bind(&self, obj: rc::Rc<cell::RefCell<server_object::ServerObject>>) {
-        let (protocol_name, object_name) = {
-            let obj_ref = obj.borrow();
-            let object_name = obj_ref
-                .spec
-                .as_ref()
-                .map(|spec| spec.object_name().to_string())
-                .unwrap_or_default();
-            (obj_ref.protocol_name.clone(), object_name)
-        };
+    pub fn on_bind(&self, obj: sync::Arc<server_object::ServerObject>) {
+        let protocol_name = obj.protocol_name.clone();
+        let object_name = obj
+            .spec
+            .as_ref()
+            .map(|spec| spec.object_name().to_string())
+            .unwrap_or_default();
 
         let impls = self.state.impls.as_ref().unwrap();
         for imp in impls.iter() {
@@ -139,7 +136,7 @@ impl ServerClient {
                     .find(|impl_obj| impl_obj.object_name == object_name)
                 {
                     (obj_impl.on_bind)(
-                        obj as rc::Rc<cell::RefCell<dyn crate::implementation::object::RawObject>>,
+                        obj as sync::Arc<dyn crate::implementation::object::RawObject>,
                     );
                 }
                 return;
@@ -152,15 +149,12 @@ impl ServerClient {
             .objects
             .borrow()
             .iter()
-            .find(|obj| obj.borrow().id == msg.object())
-            .map(rc::Rc::clone);
+            .find(|obj| obj.id.load(Ordering::Relaxed) == msg.object())
+            .map(sync::Arc::clone);
 
         match obj {
             Some(obj) => {
-                if let Err(e) = obj
-                    .borrow()
-                    .called(msg.method(), msg.data_span(), msg.fds())
-                {
+                if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds()) {
                     log::error!(
                         "[{} @ {:.3}] object {} called method error: {e}",
                         self.state.fd,
@@ -189,11 +183,10 @@ impl Drop for ServerClient {
             eprintln!("[hw] trace: [{}] destroying client", self.state.fd)
         }
         for obj in self.objects.borrow().iter() {
-            let obj_ref = obj.borrow();
-            if let Some(spec) = &obj_ref.spec {
+            if let Some(spec) = &obj.spec {
                 for (idx, method) in spec.c2s().iter().enumerate() {
                     if method.destructor {
-                        let _ = obj_ref.called(idx as u32, &[], &[]);
+                        let _ = obj.called(idx as u32, &[], &[]);
                         break;
                     }
                 }

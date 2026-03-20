@@ -94,7 +94,7 @@ pub trait Object: Sized {
 
     const NAME: &str;
 
-    fn from_object<D: Dispatch<Self>>(object: rc::Rc<cell::RefCell<dyn object::RawObject>>) -> Self;
+    fn from_object<D: Dispatch<Self>>(object: sync::Arc<dyn object::RawObject>) -> Self;
 }
 
 pub trait Dispatch<I: Object> {
@@ -102,7 +102,7 @@ pub trait Dispatch<I: Object> {
 }
 
 pub struct DispatchData {
-    pub object: *const cell::RefCell<dyn object::RawObject>,
+    pub object: *const dyn object::RawObject,
 }
 
 thread_local! {

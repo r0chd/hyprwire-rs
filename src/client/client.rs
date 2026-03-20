@@ -41,7 +41,7 @@ impl Client {
         protocol_name: &str,
         object_name: &str,
         seq: u32,
-    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>, message::MessageError>
+    ) -> Result<rc::Rc<dyn implementation::object::RawObject>, message::MessageError>
     {
         let obj = self
             .0
@@ -54,7 +54,7 @@ impl Client {
         &mut self,
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,
-    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>, io::Error> {
+    ) -> Result<rc::Rc<dyn implementation::object::RawObject>, io::Error> {
         self.0.borrow_mut().bind_protocol(spec, version)
     }
 
