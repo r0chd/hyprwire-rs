@@ -3,7 +3,7 @@ use crate::{client, server};
 use std::os::raw;
 use std::{cell, rc};
 
-pub trait Object {
+pub trait RawObject {
     fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32;
 
     fn listen(&mut self, id: u32, func: *mut raw::c_void);
@@ -20,7 +20,7 @@ pub trait Object {
         &self,
         _object_name: &str,
         _seq: u32,
-    ) -> Option<rc::Rc<cell::RefCell<dyn Object>>> {
+    ) -> Option<rc::Rc<cell::RefCell<dyn RawObject>>> {
         None
     }
 

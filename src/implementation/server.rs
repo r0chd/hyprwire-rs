@@ -1,7 +1,7 @@
 use super::{object, types};
 use std::{cell, rc};
 
-type OnBind<'a> = Box<dyn Fn(rc::Rc<cell::RefCell<dyn object::Object>>) + 'a>;
+type OnBind<'a> = Box<dyn Fn(rc::Rc<cell::RefCell<dyn object::RawObject>>) + 'a>;
 
 pub struct ObjectImplementation<'a> {
     pub object_name: &'a str,

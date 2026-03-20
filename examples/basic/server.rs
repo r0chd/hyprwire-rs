@@ -24,7 +24,7 @@ struct App {
 impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for App {
     fn event(
         &mut self,
-        proxy: &test_protocol_v1::server::MyManagerV1Object,
+        object: &test_protocol_v1::server::MyManagerV1Object,
         event: test_protocol_v1::server::MyManagerV1Event,
     ) {
         match event {
@@ -57,7 +57,7 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for App {
                 println!("Got uint array message: \"{}\"", conct.join(", "));
             }
             test_protocol_v1::server::MyManagerV1Event::MakeObject { seq } => {
-                let obj = proxy
+                let obj = object
                     .create_object::<test_protocol_v1::server::MyObjectV1Object, Self>(seq)
                     .expect("failed to create object");
                 obj.send_send_message("Hello object");
@@ -70,8 +70,8 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for App {
 impl hyprwire::Dispatch<test_protocol_v1::server::MyObjectV1Object> for App {
     fn event(
         &mut self,
-        proxy: &test_protocol_v1::server::MyObjectV1Object,
-        event: <test_protocol_v1::server::MyObjectV1Object as hyprwire::Proxy>::Event<'_>,
+        object: &test_protocol_v1::server::MyObjectV1Object,
+        event: <test_protocol_v1::server::MyObjectV1Object as hyprwire::Object>::Event<'_>,
     ) {
         match event {
             test_protocol_v1::server::MyObjectV1Event::SendMessage { message } => {
@@ -82,7 +82,7 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyObjectV1Object> for App {
 
                 println!("Erroring out the client!");
 
-                proxy.error(
+                object.error(
                     test_protocol_v1::spec::MyErrorEnum::ErrorImportant as u32,
                     "Important error occurred!",
                 );
@@ -93,11 +93,10 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyObjectV1Object> for App {
 }
 
 impl test_protocol_v1::server::TestProtocolV1Handler for App {
-    fn bind(&mut self, object: hyprwire::implementation::types::Object) {
+    fn bind(&mut self, object: test_protocol_v1::server::MyManagerV1Object) {
         println!("Object bound XD");
-        let manager = test_protocol_v1::server::MyManagerV1Object::new::<Self>(object);
-        manager.send_send_message("Hello manager");
-        self.manager = Some(manager);
+        object.send_send_message("Hello manager");
+        self.manager = Some(object);
     }
 }
 

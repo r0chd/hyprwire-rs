@@ -53,7 +53,7 @@ impl ClientObject {
     }
 }
 
-impl object::Object for ClientObject {
+impl object::RawObject for ClientObject {
     fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32 {
         match wire_object::WireObject::call(self, id, args) {
             Ok(v) => v,

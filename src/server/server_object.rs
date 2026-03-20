@@ -54,7 +54,7 @@ impl ServerObject {
     }
 }
 
-impl object::Object for ServerObject {
+impl object::RawObject for ServerObject {
     fn call(&mut self, id: u32, args: &[types::CallArg]) -> u32 {
         match wire_object::WireObject::call(self, id, args) {
             Ok(v) => v,
@@ -81,13 +81,13 @@ impl object::Object for ServerObject {
         &self,
         object_name: &str,
         seq: u32,
-    ) -> Option<rc::Rc<cell::RefCell<dyn object::Object>>> {
+    ) -> Option<rc::Rc<cell::RefCell<dyn object::RawObject>>> {
         let client = self.client.upgrade()?;
         let obj =
             client
                 .borrow()
                 .create_object(&self.protocol_name, object_name, self.version, seq);
-        Some(obj as rc::Rc<cell::RefCell<dyn object::Object>>)
+        Some(obj as rc::Rc<cell::RefCell<dyn object::RawObject>>)
     }
 
     fn set_data(

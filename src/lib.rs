@@ -89,20 +89,20 @@ macro_rules! include_protocol {
     };
 }
 
-pub trait Proxy: Sized {
+pub trait Object: Sized {
     type Event<'a>;
 
     const NAME: &str;
 
-    fn from_object<D: Dispatch<Self>>(object: implementation::types::Object) -> Self;
+    fn from_object<D: Dispatch<Self>>(object: rc::Rc<cell::RefCell<dyn object::RawObject>>) -> Self;
 }
 
-pub trait Dispatch<I: Proxy> {
+pub trait Dispatch<I: Object> {
     fn event(&mut self, proxy: &I, event: I::Event<'_>);
 }
 
 pub struct DispatchData {
-    pub object: *const cell::RefCell<dyn object::Object>,
+    pub object: *const cell::RefCell<dyn object::RawObject>,
 }
 
 thread_local! {

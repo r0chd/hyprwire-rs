@@ -96,7 +96,7 @@ impl ClientSocket {
         &mut self,
         spec: &dyn ProtocolSpec,
         version: u32,
-    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::Object>>, io::Error> {
+    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>, io::Error> {
         if version > spec.spec_ver() {
             log::error!(
                 "version {} is larger than current spec ver of {}",

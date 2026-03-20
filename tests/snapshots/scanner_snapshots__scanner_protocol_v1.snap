@@ -2,16 +2,16 @@
 source: tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.1.6. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.1.9. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
- This protocol's authors' copyright notice is:
+ This protocol's author copyright notice is:
 
     I eat paint
 
 */
 
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 pub mod server {
     use std::{ffi, os::fd::*, rc};
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -387,7 +387,7 @@ pub mod server {
         }
     }
     pub trait TestProtocolV1Handler {
-        fn bind(&mut self, object: hyprwire::implementation::types::Object);
+        fn bind(&mut self, object: MyManagerV1Object);
     }
     pub struct TestProtocolV1Impl {
         version: u32,
@@ -396,10 +396,9 @@ pub mod server {
         impls: Vec<hyprwire::implementation::server::ObjectImplementation<'static>>,
     }
     impl TestProtocolV1Impl {
-        pub fn new(
-            version: u32,
-            handler: &mut (impl TestProtocolV1Handler + 'static),
-        ) -> Self {
+        pub fn new<
+            D: TestProtocolV1Handler + hyprwire::Dispatch<MyManagerV1Object> + 'static,
+        >(version: u32, handler: &mut D) -> Self {
             let handler = handler as *mut dyn TestProtocolV1Handler;
             Self {
                 version,
@@ -408,8 +407,9 @@ pub mod server {
                 impls: vec![
                     hyprwire::implementation::server::ObjectImplementation { object_name
                     : "my_manager_v1", version, on_bind : Box::new(move | obj | { let
-                    object = hyprwire::implementation::types::Object::from_raw(obj);
-                    unsafe { & mut * handler } .bind(object); }), },
+                    object = hyprwire::implementation::types::Object::from_raw(obj); let
+                    typed = MyManagerV1Object::new:: < D > (object); unsafe { & mut *
+                    handler } .bind(typed); }), },
                     hyprwire::implementation::server::ObjectImplementation { object_name
                     : "my_object_v1", version, on_bind : Box::new(| _obj | {}), },
                 ],
@@ -428,7 +428,7 @@ pub mod server {
         }
     }
 }
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 pub mod client {
     use std::{ffi, os::fd::*, rc};
     pub struct MyManagerV1Object {
@@ -832,12 +832,14 @@ pub mod spec {
                 ],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
             hyprwire::implementation::types::Method {
                 idx: 1u32,
                 params: &[hyprwire::implementation::types::MessageMagic::TypeFd as u8],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
             hyprwire::implementation::types::Method {
                 idx: 2u32,
@@ -847,6 +849,7 @@ pub mod spec {
                 ],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
             hyprwire::implementation::types::Method {
                 idx: 3u32,
@@ -856,6 +859,7 @@ pub mod spec {
                 ],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
             hyprwire::implementation::types::Method {
                 idx: 4u32,
@@ -865,12 +869,14 @@ pub mod spec {
                 ],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
             hyprwire::implementation::types::Method {
                 idx: 5u32,
                 params: &[],
                 returns_type: "my_object_v1",
                 since: 0,
+                destructor: false,
             },
         ],
         s2c_methods: &[
@@ -881,6 +887,7 @@ pub mod spec {
                 ],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
             hyprwire::implementation::types::Method {
                 idx: 1u32,
@@ -890,6 +897,7 @@ pub mod spec {
                 ],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
         ],
     }));
@@ -919,24 +927,28 @@ pub mod spec {
                 ],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
             hyprwire::implementation::types::Method {
                 idx: 1u32,
                 params: &[hyprwire::implementation::types::MessageMagic::TypeUint as u8],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
             hyprwire::implementation::types::Method {
                 idx: 2u32,
                 params: &[],
                 returns_type: "",
                 since: 0,
+                destructor: true,
             },
             hyprwire::implementation::types::Method {
                 idx: 3u32,
                 params: &[],
                 returns_type: "my_object_v1",
                 since: 0,
+                destructor: false,
             },
         ],
         s2c_methods: &[
@@ -947,6 +959,7 @@ pub mod spec {
                 ],
                 returns_type: "",
                 since: 0,
+                destructor: false,
             },
         ],
     }));

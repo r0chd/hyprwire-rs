@@ -1,54 +1,6 @@
 use crate::message::MessageError;
 use libffi::low;
-use std::{cell, fmt, hash, rc, sync::Arc};
-
-/// A user-facing handle to a protocol object. Wraps the internal
-/// `Rc<RefCell<dyn Object>>` so callers never deal with those types directly.
-pub struct Object(rc::Rc<cell::RefCell<dyn super::object::Object>>);
-
-impl Object {
-    pub fn from_raw(inner: rc::Rc<cell::RefCell<dyn super::object::Object>>) -> Self {
-        Self(inner)
-    }
-
-    #[must_use]
-    pub fn into_inner(self) -> rc::Rc<cell::RefCell<dyn super::object::Object>> {
-        self.0
-    }
-
-    #[must_use]
-    pub fn inner(&self) -> &rc::Rc<cell::RefCell<dyn super::object::Object>> {
-        &self.0
-    }
-}
-
-impl fmt::Debug for Object {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Object")
-            .field(&rc::Rc::as_ptr(&self.0))
-            .finish()
-    }
-}
-
-impl Clone for Object {
-    fn clone(&self) -> Self {
-        Self(rc::Rc::clone(&self.0))
-    }
-}
-
-impl PartialEq for Object {
-    fn eq(&self, other: &Self) -> bool {
-        rc::Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for Object {}
-
-impl hash::Hash for Object {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        rc::Rc::as_ptr(&self.0).hash(state);
-    }
-}
+use std::sync::Arc;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

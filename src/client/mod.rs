@@ -60,7 +60,7 @@ impl Client {
         protocol_name: &str,
         object_name: &str,
         seq: u32,
-    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::Object>>, message::MessageError>
+    ) -> Result<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>, message::MessageError>
     {
         let obj = self
             .0
@@ -69,7 +69,7 @@ impl Client {
         Ok(obj)
     }
 
-    pub fn make<T: crate::Proxy, D: crate::Dispatch<T>>(
+    pub fn make<T: crate::Object, D: crate::Dispatch<T>>(
         &self,
         protocol_name: &str,
         seq: u32,
@@ -78,17 +78,15 @@ impl Client {
             .0
             .borrow_mut()
             .make_object(protocol_name, T::NAME, seq)?;
-        let obj = implementation::types::Object::from_raw(obj);
         Ok(T::from_object::<D>(obj))
     }
 
-    pub fn bind<T: crate::Proxy, D: crate::Dispatch<T>>(
+    pub fn bind<T: crate::Object, D: crate::Dispatch<T>>(
         &self,
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,
     ) -> Result<T, io::Error> {
         let obj = self.0.borrow_mut().bind_protocol(spec, version)?;
-        let obj = implementation::types::Object::from_raw(obj);
         Ok(T::from_object::<D>(obj))
     }
 
@@ -105,21 +103,21 @@ impl Client {
     pub fn object_for_seq(
         &self,
         seq: u32,
-    ) -> Option<rc::Rc<cell::RefCell<dyn implementation::object::Object>>> {
+    ) -> Option<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>> {
         self.0
             .borrow()
             .object_for_seq(seq)
-            .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::Object>>)
+            .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>)
     }
 
     #[must_use]
     pub fn object_for_id(
         &self,
         id: u32,
-    ) -> Option<rc::Rc<cell::RefCell<dyn implementation::object::Object>>> {
+    ) -> Option<rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>> {
         self.0
             .borrow()
             .object_for_id(id)
-            .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::Object>>)
+            .map(|obj| obj as rc::Rc<cell::RefCell<dyn implementation::object::RawObject>>)
     }
 }

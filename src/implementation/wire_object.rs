@@ -4,7 +4,7 @@ use crate::{message, steady_millis, trace};
 use libffi::low as ffi;
 use std::os::raw;
 
-pub trait WireObject: object::Object {
+pub trait WireObject: object::RawObject {
     fn set_version(&mut self, version: u32);
 
     fn version(&self) -> u32;
