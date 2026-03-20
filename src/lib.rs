@@ -101,6 +101,24 @@ pub trait Dispatch<I: Object> {
     fn event(&mut self, proxy: &I, event: I::Event<'_>);
 }
 
+#[macro_export]
+macro_rules! delegate_noop {
+    ($(@< $( $lt:tt $( : $clt:tt $(+ $dlt:tt )* )? ),+ >)? $dispatch_from:ty : $interface:ty) => {
+        impl$(< $( $lt $( : $clt $(+ $dlt )* )? ),+ >)? $crate::Dispatch<$interface> for $dispatch_from {
+            fn event(&mut self, _: &$interface, _: <$interface as $crate::Object>::Event<'_>) {
+                unreachable!();
+            }
+        }
+    };
+
+    ($(@< $( $lt:tt $( : $clt:tt $(+ $dlt:tt )* )? ),+ >)? $dispatch_from:ty : ignore $interface:ty) => {
+        impl$(< $( $lt $( : $clt $(+ $dlt )* )? ),+ >)? $crate::Dispatch<$interface> for $dispatch_from {
+            fn event(&mut self, _: &$interface, _: <$interface as $crate::Object>::Event<'_>) {
+            }
+        }
+    };
+}
+
 pub struct DispatchData {
     pub object: *const dyn object::RawObject,
 }

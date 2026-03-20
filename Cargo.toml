@@ -1,6 +1,6 @@
 [package]
 name = "hyprwire"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2024"
 description = "A fast and consistent wire protocol for IPC"
 license = "BSD-3-Clause"
@@ -31,9 +31,9 @@ nix = { version = "0.31.1", features = [
 ], default-features = false }
 
 [build-dependencies]
-hyprwire-scanner = { version = "0.1.10", path = "scanner" }
+hyprwire-scanner = { version = "0.1.11", path = "scanner" }
 
 [dev-dependencies]
-hyprwire-scanner = { version = "0.1.10", path = "scanner" }
+hyprwire-scanner = { version = "0.1.11", path = "scanner" }
 insta = "1"
 env_logger = { version = "0.11.9", default-features = false }
