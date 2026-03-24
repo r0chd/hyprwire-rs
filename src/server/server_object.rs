@@ -6,20 +6,14 @@ use std::os::raw;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::{cell, rc, sync};
 
-/// Wrapper to make raw pointer Send + Sync.
-/// Safety: The pointer is only accessed from the dispatch thread.
-struct SendPtr(*mut raw::c_void);
-unsafe impl Send for SendPtr {}
-unsafe impl Sync for SendPtr {}
-
 pub(crate) struct ServerObject {
     pub(crate) client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
-    data: sync::Mutex<Option<SendPtr>>,
+    data: sync::Mutex<Option<*mut raw::c_void>>,
     data_destructor: sync::Mutex<Option<unsafe fn(*mut raw::c_void)>>,
     on_drop: sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
-    listeners: sync::Mutex<Vec<SendPtr>>,
+    listeners: sync::Mutex<Vec<*mut raw::c_void>>,
     pub(crate) id: AtomicU32,
     pub(crate) version: AtomicU32,
     pub(crate) seq: u32,
@@ -37,10 +31,10 @@ impl Drop for ServerObject {
         if let Some(on_drop) = self.on_drop.lock().unwrap().take() {
             on_drop();
         }
-        if let Some(destructor) = *self.data_destructor.lock().unwrap() {
-            if let Some(data) = self.data.lock().unwrap().as_ref() {
-                unsafe { destructor(data.0) };
-            }
+        if let Some(destructor) = *self.data_destructor.lock().unwrap()
+            && let Some(data) = self.data.lock().unwrap().as_ref()
+        {
+            unsafe { destructor(*data) };
         }
     }
 }
@@ -86,7 +80,7 @@ impl object::RawObject for ServerObject {
         if listeners.len() <= id as usize {
             listeners.reserve_exact(id as usize + 1);
         }
-        listeners.push(SendPtr(callback));
+        listeners.push(callback);
     }
 
     fn create_object(
@@ -105,7 +99,7 @@ impl object::RawObject for ServerObject {
     }
 
     fn set_data(&self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>) {
-        *self.data.lock().unwrap() = Some(SendPtr(data));
+        *self.data.lock().unwrap() = Some(data);
         *self.data_destructor.lock().unwrap() = destructor;
     }
 
@@ -114,7 +108,7 @@ impl object::RawObject for ServerObject {
             .lock()
             .unwrap()
             .as_ref()
-            .map_or(std::ptr::null_mut(), |p| p.0)
+            .map_or(std::ptr::null_mut(), |p| *p)
     }
 
     fn error(&self, error_id: u32, error_msg: &str) {
@@ -177,7 +171,7 @@ impl wire_object::WireObject for ServerObject {
     }
 
     fn listener(&self, idx: usize) -> *mut raw::c_void {
-        self.listeners.lock().unwrap()[idx].0
+        self.listeners.lock().unwrap()[idx]
     }
 
     fn listener_count(&self) -> usize {
