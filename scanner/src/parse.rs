@@ -17,6 +17,7 @@ pub struct Object {
     pub version: u32,
     pub c2s: Vec<Method>,
     pub s2c: Vec<Method>,
+    pub description: Option<Description>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +26,7 @@ pub struct Method {
     pub args: Vec<Arg>,
     pub returns: Option<String>,
     pub destructor: bool,
+    pub description: Option<Description>,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +34,13 @@ pub struct Arg {
     pub name: String,
     pub arg_type: ArgType,
     pub interface: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Description {
+    pub summary: Option<String>,
+    pub body: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -102,6 +111,7 @@ fn parse_method(
     let destructor = attr_str(e, b"destructor").is_some_and(|v| v == "true");
     let mut args = Vec::new();
     let mut returns = None;
+    let mut description = None;
 
     loop {
         match reader.read_event()? {
@@ -110,10 +120,12 @@ fn parse_method(
                     let arg_name = attr_required(inner, b"name")?;
                     let arg_type_str = attr_required(inner, b"type")?;
                     let interface = attr_str(inner, b"interface");
+                    let summary = attr_str(inner, b"summary");
                     args.push(Arg {
                         name: arg_name,
                         arg_type: parse_arg_type(&arg_type_str),
                         interface,
+                        summary,
                     });
                 }
                 b"returns" => {
@@ -121,9 +133,27 @@ fn parse_method(
                 }
                 _ => {}
             },
-            Event::Start(ref inner) => {
-                reader.read_to_end(inner.name())?;
-            }
+            Event::Start(ref inner) => match inner.name().as_ref() {
+                b"description" => {
+                    description = Some(parse_description(reader, inner)?);
+                }
+                b"arg" => {
+                    let arg_name = attr_required(inner, b"name")?;
+                    let arg_type_str = attr_required(inner, b"type")?;
+                    let interface = attr_str(inner, b"interface");
+                    let summary = attr_str(inner, b"summary");
+                    reader.read_to_end(inner.name())?;
+                    args.push(Arg {
+                        name: arg_name,
+                        arg_type: parse_arg_type(&arg_type_str),
+                        interface,
+                        summary,
+                    });
+                }
+                _ => {
+                    reader.read_to_end(inner.name())?;
+                }
+            },
             Event::End(_) => break,
             Event::Eof => return Err("unexpected EOF in method".into()),
             _ => {}
@@ -135,6 +165,7 @@ fn parse_method(
         args,
         returns,
         destructor,
+        description,
     })
 }
 
@@ -158,6 +189,20 @@ fn read_text_to_end(
         }
     }
     Ok(out)
+}
+
+fn parse_description(
+    reader: &mut Reader<&[u8]>,
+    e: &quick_xml::events::BytesStart<'_>,
+) -> Result<Description, Box<dyn Error>> {
+    let summary = attr_str(e, b"summary");
+    let body = read_text_to_end(reader, e)?;
+    let body = if body.trim().is_empty() {
+        None
+    } else {
+        Some(body)
+    };
+    Ok(Description { summary, body })
 }
 
 pub fn parse_protocol(xml: &str) -> Result<Protocol, Box<dyn Error>> {
@@ -190,12 +235,16 @@ pub fn parse_protocol(xml: &str) -> Result<Protocol, Box<dyn Error>> {
                         let obj_version: u32 = attr_required(e, b"version")?.parse()?;
                         let mut c2s = Vec::new();
                         let mut s2c = Vec::new();
+                        let mut description = None;
 
                         loop {
                             match reader.read_event()? {
                                 Event::Start(ref inner) => {
                                     let inner_tag = inner.name();
                                     match inner_tag.as_ref() {
+                                        b"description" => {
+                                            description = Some(parse_description(&mut reader, inner)?);
+                                        }
                                         b"c2s" => {
                                             c2s.push(parse_method(&mut reader, inner)?);
                                         }
@@ -218,6 +267,7 @@ pub fn parse_protocol(xml: &str) -> Result<Protocol, Box<dyn Error>> {
                             version: obj_version,
                             c2s,
                             s2c,
+                            description,
                         });
                     }
                     b"enum" => {

@@ -2,7 +2,7 @@
 source: tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.1.13. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.1.14. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:
@@ -15,6 +15,9 @@ expression: code
 pub mod server {
     use std::{ffi, os::fd::*, sync};
     pub use super::spec::*;
+    /// manager object
+    ///
+    /// This object is an example manager object for the protocol
     pub struct MyManagerV1Object {
         object: sync::Arc<dyn hyprwire::implementation::object::RawObject>,
     }
@@ -43,6 +46,9 @@ pub mod server {
             sync::Arc::as_ptr(&self.object).hash(state);
         }
     }
+    /// test object
+    ///
+    /// This object is an example object for the protocol
     pub struct MyObjectV1Object {
         object: sync::Arc<dyn hyprwire::implementation::object::RawObject>,
     }
@@ -71,13 +77,32 @@ pub mod server {
             sync::Arc::as_ptr(&self.object).hash(state);
         }
     }
+    ///Incoming events for `MyManagerV1Object`.
     #[derive(Debug)]
     pub enum MyManagerV1Event {
+        /// Send a text message
+        ///
+        /// Sends a text message to the server
         SendMessage { message: String },
+        /// Send a text message
+        ///
+        /// Sends a fd message to the server
         SendMessageFd { message: OwnedFd },
+        /// Send a text message
+        ///
+        /// Sends a fd message to the server
         SendMessageArrayFd { message: Vec<OwnedFd> },
+        /// Send a text array message
+        ///
+        /// Sends an array message to the server
         SendMessageArray { message: Vec<String> },
+        /// Send an uint array message
+        ///
+        /// Sends an array message to the server
         SendMessageArrayUint { message: Vec<u32> },
+        /// Make a test object
+        ///
+        /// Makes a test object
         MakeObject { seq: u32 },
     }
     impl hyprwire::Object for MyManagerV1Object {
@@ -244,16 +269,14 @@ pub mod server {
         pub fn error(&self, error_id: u32, error_msg: &str) {
             self.object.error(error_id, error_msg);
         }
-        pub fn create_object<T: hyprwire::Object, D: hyprwire::Dispatch<T>>(
-            &self,
-            seq: u32,
-        ) -> Option<T> {
-            let obj = self.object.create_object(T::NAME, seq)?;
-            Some(T::from_object::<D>(obj))
-        }
         pub fn set_on_drop(&self, callback: impl FnOnce() + Send + 'static) {
             self.object.set_on_drop(Box::new(callback));
         }
+        /// Make a test object
+        ///
+        /// Makes a test object
+        ///
+        /// Returns a new `MyObjectV1Object`.
         pub fn create_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
             seq: u32,
@@ -261,6 +284,12 @@ pub mod server {
             let obj = self.object.create_object("my_object_v1", seq)?;
             Some(<MyObjectV1Object as hyprwire::Object>::from_object::<D>(obj))
         }
+        /// Send a text message
+        ///
+        /// Sends a text message to the client
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_message(&self, message: &str) {
             self.object
                 .call(
@@ -272,6 +301,12 @@ pub mod server {
                     ],
                 );
         }
+        /// Receive an uint array message
+        ///
+        /// Receives an array message to the server
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_recv_message_array_uint(&self, message: &[u32]) {
             self.object
                 .call(
@@ -280,11 +315,24 @@ pub mod server {
                 );
         }
     }
+    ///Incoming events for `MyObjectV1Object`.
     #[derive(Debug)]
     pub enum MyObjectV1Event {
+        /// Send a text message
+        ///
+        /// Sends a text message to the server
         SendMessage { message: String },
+        /// Send an enum message
+        ///
+        /// Sends an enum message to the server
         SendEnum { message: super::spec::MyEnum },
+        /// Send a text message
+        ///
+        /// Sends a text message to the server
         Destroy,
+        /// Make a test object
+        ///
+        /// Makes a test object from a test object
         MakeObject { seq: u32 },
     }
     impl hyprwire::Object for MyObjectV1Object {
@@ -380,16 +428,14 @@ pub mod server {
         pub fn error(&self, error_id: u32, error_msg: &str) {
             self.object.error(error_id, error_msg);
         }
-        pub fn create_object<T: hyprwire::Object, D: hyprwire::Dispatch<T>>(
-            &self,
-            seq: u32,
-        ) -> Option<T> {
-            let obj = self.object.create_object(T::NAME, seq)?;
-            Some(T::from_object::<D>(obj))
-        }
         pub fn set_on_drop(&self, callback: impl FnOnce() + Send + 'static) {
             self.object.set_on_drop(Box::new(callback));
         }
+        /// Make a test object
+        ///
+        /// Makes a test object from a test object
+        ///
+        /// Returns a new `MyObjectV1Object`.
         pub fn create_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
             seq: u32,
@@ -397,6 +443,12 @@ pub mod server {
             let obj = self.object.create_object("my_object_v1", seq)?;
             Some(<MyObjectV1Object as hyprwire::Object>::from_object::<D>(obj))
         }
+        /// Send a text message
+        ///
+        /// Sends a text message to the client
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_message(&self, message: &str) {
             self.object
                 .call(
@@ -454,6 +506,9 @@ pub mod server {
 pub mod client {
     use std::{ffi, os::fd::*, sync};
     pub use super::spec::*;
+    /// manager object
+    ///
+    /// This object is an example manager object for the protocol
     pub struct MyManagerV1Object {
         object: sync::Arc<dyn hyprwire::implementation::object::RawObject>,
         on_destroy: Option<Box<dyn FnOnce()>>,
@@ -486,6 +541,9 @@ pub mod client {
             sync::Arc::as_ptr(&self.object).hash(state);
         }
     }
+    /// test object
+    ///
+    /// This object is an example object for the protocol
     pub struct MyObjectV1Object {
         object: sync::Arc<dyn hyprwire::implementation::object::RawObject>,
         on_destroy: Option<Box<dyn FnOnce()>>,
@@ -518,9 +576,16 @@ pub mod client {
             sync::Arc::as_ptr(&self.object).hash(state);
         }
     }
+    ///Incoming events for `MyManagerV1Object`.
     #[derive(Debug)]
     pub enum MyManagerV1Event {
+        /// Send a text message
+        ///
+        /// Sends a text message to the client
         SendMessage { message: String },
+        /// Receive an uint array message
+        ///
+        /// Receives an array message to the server
         RecvMessageArrayUint { message: Vec<u32> },
     }
     impl hyprwire::Object for MyManagerV1Object {
@@ -604,6 +669,12 @@ pub mod client {
         pub fn set_on_destroy(&mut self, callback: impl FnOnce() + Send + 'static) {
             self.on_destroy = Some(Box::new(callback));
         }
+        /// Send a text message
+        ///
+        /// Sends a text message to the server
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_message(&self, message: &str) {
             self.object
                 .call(
@@ -615,6 +686,12 @@ pub mod client {
                     ],
                 );
         }
+        /// Send a text message
+        ///
+        /// Sends a fd message to the server
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_message_fd(&self, message: impl AsFd) {
             self.object
                 .call(
@@ -626,6 +703,12 @@ pub mod client {
                     ],
                 );
         }
+        /// Send a text message
+        ///
+        /// Sends a fd message to the server
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_message_array_fd<F: AsFd>(&self, message: &[F]) {
             let message_raw_fds: Vec<i32> = message
                 .iter()
@@ -641,6 +724,12 @@ pub mod client {
                     ],
                 );
         }
+        /// Send a text array message
+        ///
+        /// Sends an array message to the server
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_message_array<S: AsRef<str>>(&self, message: &[S]) {
             let bytes: Vec<&[u8]> = message
                 .iter()
@@ -652,6 +741,12 @@ pub mod client {
                     &[hyprwire::implementation::types::CallArg::VarcharArray(&bytes)],
                 );
         }
+        /// Send an uint array message
+        ///
+        /// Sends an array message to the server
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_message_array_uint(&self, message: &[u32]) {
             self.object
                 .call(
@@ -659,6 +754,11 @@ pub mod client {
                     &[hyprwire::implementation::types::CallArg::UintArray(message)],
                 );
         }
+        /// Make a test object
+        ///
+        /// Makes a test object
+        ///
+        /// Returns a new `MyObjectV1Object`.
         pub fn send_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
         ) -> Option<MyObjectV1Object> {
@@ -678,8 +778,12 @@ pub mod client {
             }
         }
     }
+    ///Incoming events for `MyObjectV1Object`.
     #[derive(Debug)]
     pub enum MyObjectV1Event {
+        /// Send a text message
+        ///
+        /// Sends a text message to the client
         SendMessage { message: String },
     }
     impl hyprwire::Object for MyObjectV1Object {
@@ -737,6 +841,12 @@ pub mod client {
         pub fn set_on_destroy(&mut self, callback: impl FnOnce() + Send + 'static) {
             self.on_destroy = Some(Box::new(callback));
         }
+        /// Send a text message
+        ///
+        /// Sends a text message to the server
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_message(&self, message: &str) {
             self.object
                 .call(
@@ -748,6 +858,12 @@ pub mod client {
                     ],
                 );
         }
+        /// Send an enum message
+        ///
+        /// Sends an enum message to the server
+        ///
+        /// Arguments:
+        /// `message`: message
         pub fn send_send_enum(&self, message: super::spec::MyEnum) {
             self.object
                 .call(
@@ -755,6 +871,11 @@ pub mod client {
                     &[hyprwire::implementation::types::CallArg::Uint(message as u32)],
                 );
         }
+        /// Make a test object
+        ///
+        /// Makes a test object from a test object
+        ///
+        /// Returns a new `MyObjectV1Object`.
         pub fn send_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
         ) -> Option<MyObjectV1Object> {

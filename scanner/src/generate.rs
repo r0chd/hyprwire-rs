@@ -1,4 +1,4 @@
-use super::parse::{ArgType, Method, Protocol};
+use super::parse::{Arg, ArgType, Description, Method, Protocol};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -238,6 +238,103 @@ fn raw_ident(name: &str) -> proc_macro2::Ident {
     }
 }
 
+fn trim_doc_lines(text: &str) -> Vec<String> {
+    let mut lines: Vec<String> = text.lines().map(|line| line.trim().to_string()).collect();
+    while matches!(lines.first(), Some(line) if line.is_empty()) {
+        lines.remove(0);
+    }
+    while matches!(lines.last(), Some(line) if line.is_empty()) {
+        lines.pop();
+    }
+    lines
+}
+
+fn description_doc_lines(description: Option<&Description>) -> Vec<String> {
+    let Some(description) = description else {
+        return Vec::new();
+    };
+
+    let mut lines = Vec::new();
+    if let Some(summary) = description.summary.as_deref() {
+        let summary = summary.trim();
+        if !summary.is_empty() {
+            lines.push(summary.to_string());
+        }
+    }
+
+    if let Some(body) = description.body.as_deref() {
+        let body_lines = trim_doc_lines(body);
+        if !body_lines.is_empty() {
+            if !lines.is_empty() {
+                lines.push(String::new());
+            }
+            lines.extend(body_lines);
+        }
+    }
+
+    lines
+}
+
+fn doc_attrs(lines: &[String]) -> TokenStream {
+    if lines.is_empty() {
+        return quote! {};
+    }
+    let formatted: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!(" {line}")
+            }
+        })
+        .collect();
+    quote! {
+        #(#[doc = #formatted])*
+    }
+}
+
+fn object_doc_attrs(description: Option<&Description>) -> TokenStream {
+    doc_attrs(&description_doc_lines(description))
+}
+
+fn method_doc_attrs(method: &Method, returns_named_object: bool) -> TokenStream {
+    let mut lines = description_doc_lines(method.description.as_ref());
+
+    let arg_lines: Vec<String> = method
+        .args
+        .iter()
+        .map(arg_doc_line)
+        .collect();
+    if !arg_lines.is_empty() {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push("Arguments:".to_string());
+        lines.extend(arg_lines);
+    }
+
+    if returns_named_object {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        let returned = format!(
+            "Returns a new `{}`.",
+            snake_to_pascal(method.returns.as_deref().expect("checked above")) + "Object"
+        );
+        lines.push(returned);
+    }
+
+    doc_attrs(&lines)
+}
+
+fn arg_doc_line(arg: &Arg) -> String {
+    match arg.summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(summary) => format!("`{}`: {}", arg.name, summary),
+        None => format!("`{}`.", arg.name),
+    }
+}
+
 fn write_method_spec(idx: usize, m: &Method) -> TokenStream {
     let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
     let params: Vec<TokenStream> = m
@@ -371,10 +468,11 @@ fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> Tok
         .iter()
         .map(|m| {
             let variant = format_ident!("{}", snake_to_pascal(&m.name));
+            let method_docs = object_doc_attrs(m.description.as_ref());
             if m.args.is_empty() && m.returns.is_some() {
-                quote! { #variant { seq: u32 }, }
+                quote! { #method_docs #variant { seq: u32 }, }
             } else if m.args.is_empty() {
-                quote! { #variant, }
+                quote! { #method_docs #variant, }
             } else {
                 let fields: Vec<TokenStream> = m
                     .args
@@ -386,9 +484,9 @@ fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> Tok
                     })
                     .collect();
                 if m.returns.is_some() {
-                    quote! { #variant { seq: u32, #(#fields)* }, }
+                    quote! { #method_docs #variant { seq: u32, #(#fields)* }, }
                 } else {
-                    quote! { #variant { #(#fields)* }, }
+                    quote! { #method_docs #variant { #(#fields)* }, }
                 }
             }
         })
@@ -514,6 +612,7 @@ fn write_dispatch_fn(
 fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStream {
     let method_ident = format_ident!("send_{}", m.name);
     let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
+    let docs = method_doc_attrs(m, m.returns.is_some());
     let has_varchar_array = m.args.iter().any(|a| a.arg_type == ArgType::ArrayVarchar);
     let has_fd_array = m.args.iter().any(|a| a.arg_type == ArgType::ArrayFd);
     let s_bound = if has_varchar_array {
@@ -544,6 +643,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
             snake_to_pascal(m.returns.as_deref().expect("checked above"))
         );
         quote! {
+            #docs
             pub fn #method_ident<#s_bound #f_bound D: hyprwire::Dispatch<#returned_obj_ident>>(
                 &self,
                 #(#param_pairs,)*
@@ -559,6 +659,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
     } else if m.destructor && has_on_destroy && !m.args.is_empty() {
         let call_body = build_call_body(idx, &m.args, false);
         quote! {
+            #docs
             pub fn #method_ident<#s_bound #f_bound>(mut self, #(#param_pairs,)*) {
                 #call_body
                 if let Some(cb) = self.on_destroy.take() {
@@ -568,6 +669,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
         }
     } else if m.args.is_empty() {
         quote! {
+            #docs
             pub fn #method_ident(&self) {
                 self.object.call(#idx_lit, &[]);
             }
@@ -575,6 +677,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
     } else {
         let call_body = build_call_body(idx, &m.args, false);
         quote! {
+            #docs
             pub fn #method_ident<#s_bound #f_bound>(
                 &self,
                 #(#param_pairs,)*
@@ -589,7 +692,9 @@ fn write_server_create_helper(m: &Method) -> Option<TokenStream> {
     let returned = m.returns.as_deref()?;
     let helper_ident = format_ident!("create_{}", m.name);
     let returned_obj_ident = format_ident!("{}Object", snake_to_pascal(returned));
+    let docs = method_doc_attrs(m, true);
     Some(quote! {
+        #docs
         pub fn #helper_ident<D: hyprwire::Dispatch<#returned_obj_ident>>(
             &self,
             seq: u32,
@@ -690,7 +795,9 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         let obj_ident = format_ident!("{}Object", snake_to_pascal(&obj.name));
         let pascal_str = format!("{}Object", snake_to_pascal(&obj.name));
         let raw_obj = raw_object_type();
+        let docs = object_doc_attrs(obj.description.as_ref());
         items.push(quote! {
+            #docs
             pub struct #obj_ident {
                 object: #raw_obj,
             }
@@ -724,8 +831,13 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         let obj_ident = format_ident!("{}Object", pascal);
         let event_ident = format_ident!("{}Event", pascal);
         let obj_name_str = &obj.name;
+        let event_docs = format!("Incoming events for `{obj_ident}`.");
+        let event_enum = write_event_enum(&event_ident, &obj.c2s);
 
-        items.push(write_event_enum(&event_ident, &obj.c2s));
+        items.push(quote! {
+            #[doc = #event_docs]
+            #event_enum
+        });
 
         {
             let raw_obj = raw_object_type();
@@ -870,8 +982,10 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
         let obj_ident = format_ident!("{}Object", pascal);
         let pascal_str = format!("{}Object", pascal);
         let raw_obj = raw_object_type();
+        let docs = object_doc_attrs(obj.description.as_ref());
 
         items.push(quote! {
+            #docs
             pub struct #obj_ident {
                 object: #raw_obj,
                 on_destroy: Option<Box<dyn FnOnce()>>,
@@ -907,8 +1021,13 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
         let obj_ident = format_ident!("{}Object", pascal);
         let event_ident = format_ident!("{}Event", pascal);
         let obj_name_str = &obj.name;
+        let event_docs = format!("Incoming events for `{obj_ident}`.");
+        let event_enum = write_event_enum(&event_ident, &obj.s2c);
 
-        items.push(write_event_enum(&event_ident, &obj.s2c));
+        items.push(quote! {
+            #[doc = #event_docs]
+            #event_enum
+        });
 
         {
             let raw_obj = raw_object_type();
