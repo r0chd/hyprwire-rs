@@ -115,7 +115,7 @@ pub trait Object: Sized {
 }
 
 pub trait Dispatch<I: Object> {
-    fn event(&mut self, proxy: &I, event: I::Event<'_>);
+    fn event(&mut self, object: &I, event: I::Event<'_>);
 }
 
 /// A helper macro which delegates a set of [`Dispatch`] implementations for proxies to a static handler.

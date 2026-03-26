@@ -25,7 +25,7 @@ struct App {}
 impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
     fn event(
         &mut self,
-        _proxy: &test_protocol_v1::MyManagerV1Object,
+        _object: &test_protocol_v1::MyManagerV1Object,
         event: test_protocol_v1::MyManagerV1Event,
     ) {
         match event {
@@ -42,7 +42,7 @@ impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
 impl hyprwire::Dispatch<test_protocol_v1::MyObjectV1Object> for App {
     fn event(
         &mut self,
-        _proxy: &test_protocol_v1::MyObjectV1Object,
+        _object: &test_protocol_v1::MyObjectV1Object,
         event: test_protocol_v1::MyObjectV1Event,
     ) {
         let test_protocol_v1::MyObjectV1Event::SendMessage { message } = event;
@@ -103,9 +103,7 @@ fn main() {
 
     socket.roundtrip(&mut state).unwrap();
 
-    let obj = manager
-        .send_make_object::<test_protocol_v1::MyObjectV1Object, App>()
-        .unwrap();
+    let obj = manager.send_make_object::<App>().unwrap();
 
     obj.send_send_message("Hello on object");
     obj.send_send_enum(test_protocol_v1::MyEnum::World);

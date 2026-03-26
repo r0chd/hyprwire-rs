@@ -539,17 +539,21 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
 
     if m.returns.is_some() {
         let call_body = build_call_body(idx, &m.args, true);
+        let returned_obj_ident = format_ident!(
+            "{}Object",
+            snake_to_pascal(m.returns.as_deref().expect("checked above"))
+        );
         quote! {
-            pub fn #method_ident<#s_bound #f_bound T: hyprwire::Object, D: hyprwire::Dispatch<T>>(
+            pub fn #method_ident<#s_bound #f_bound D: hyprwire::Dispatch<#returned_obj_ident>>(
                 &self,
                 #(#param_pairs,)*
-            ) -> Option<T> {
+            ) -> Option<#returned_obj_ident> {
                 #call_body
                 let obj = self
                     .object
                     .client_sock()
                     .and_then(|sock| sock.object_for_seq(seq));
-                Some(T::from_object::<D>(obj?))
+                Some(<#returned_obj_ident as hyprwire::Object>::from_object::<D>(obj?))
             }
         }
     } else if m.destructor && has_on_destroy && !m.args.is_empty() {
@@ -579,6 +583,21 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
             }
         }
     }
+}
+
+fn write_server_create_helper(m: &Method) -> Option<TokenStream> {
+    let returned = m.returns.as_deref()?;
+    let helper_ident = format_ident!("create_{}", m.name);
+    let returned_obj_ident = format_ident!("{}Object", snake_to_pascal(returned));
+    Some(quote! {
+        pub fn #helper_ident<D: hyprwire::Dispatch<#returned_obj_ident>>(
+            &self,
+            seq: u32,
+        ) -> Option<#returned_obj_ident> {
+            let obj = self.object.create_object(#returned, seq)?;
+            Some(<#returned_obj_ident as hyprwire::Object>::from_object::<D>(obj))
+        }
+    })
 }
 
 fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> TokenStream {
@@ -733,6 +752,11 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         }
 
         let new_fn = write_new_fn(&obj.name, &obj.c2s, None);
+        let create_helpers: Vec<TokenStream> = obj
+            .c2s
+            .iter()
+            .filter_map(write_server_create_helper)
+            .collect();
         let send_methods: Vec<TokenStream> = obj
             .s2c
             .iter()
@@ -748,14 +772,11 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                     self.object.error(error_id, error_msg);
                 }
 
-                pub fn create_object<T: hyprwire::Object, D: hyprwire::Dispatch<T>>(&self, seq: u32) -> Option<T> {
-                    let obj = self.object.create_object(T::NAME, seq)?;
-                    Some(T::from_object::<D>(obj))
-                }
-
                 pub fn set_on_drop(&self, callback: impl FnOnce() + Send + 'static) {
                     self.object.set_on_drop(Box::new(callback));
                 }
+
+                #(#create_helpers)*
 
                 #(#send_methods)*
             }

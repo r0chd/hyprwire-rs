@@ -2,7 +2,7 @@
 source: tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.1.12. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.1.13. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:
@@ -254,6 +254,13 @@ pub mod server {
         pub fn set_on_drop(&self, callback: impl FnOnce() + Send + 'static) {
             self.object.set_on_drop(Box::new(callback));
         }
+        pub fn create_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
+            &self,
+            seq: u32,
+        ) -> Option<MyObjectV1Object> {
+            let obj = self.object.create_object("my_object_v1", seq)?;
+            Some(<MyObjectV1Object as hyprwire::Object>::from_object::<D>(obj))
+        }
         pub fn send_send_message(&self, message: &str) {
             self.object
                 .call(
@@ -382,6 +389,13 @@ pub mod server {
         }
         pub fn set_on_drop(&self, callback: impl FnOnce() + Send + 'static) {
             self.object.set_on_drop(Box::new(callback));
+        }
+        pub fn create_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
+            &self,
+            seq: u32,
+        ) -> Option<MyObjectV1Object> {
+            let obj = self.object.create_object("my_object_v1", seq)?;
+            Some(<MyObjectV1Object as hyprwire::Object>::from_object::<D>(obj))
         }
         pub fn send_send_message(&self, message: &str) {
             self.object
@@ -645,15 +659,15 @@ pub mod client {
                     &[hyprwire::implementation::types::CallArg::UintArray(message)],
                 );
         }
-        pub fn send_make_object<T: hyprwire::Object, D: hyprwire::Dispatch<T>>(
+        pub fn send_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
-        ) -> Option<T> {
+        ) -> Option<MyObjectV1Object> {
             let seq = self.object.call(5u32, &[]);
             let obj = self
                 .object
                 .client_sock()
                 .and_then(|sock| sock.object_for_seq(seq));
-            Some(T::from_object::<D>(obj?))
+            Some(<MyObjectV1Object as hyprwire::Object>::from_object::<D>(obj?))
         }
     }
     impl Drop for MyManagerV1Object {
@@ -741,15 +755,15 @@ pub mod client {
                     &[hyprwire::implementation::types::CallArg::Uint(message as u32)],
                 );
         }
-        pub fn send_make_object<T: hyprwire::Object, D: hyprwire::Dispatch<T>>(
+        pub fn send_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
-        ) -> Option<T> {
+        ) -> Option<MyObjectV1Object> {
             let seq = self.object.call(3u32, &[]);
             let obj = self
                 .object
                 .client_sock()
                 .and_then(|sock| sock.object_for_seq(seq));
-            Some(T::from_object::<D>(obj?))
+            Some(<MyObjectV1Object as hyprwire::Object>::from_object::<D>(obj?))
         }
     }
     impl Drop for MyObjectV1Object {
