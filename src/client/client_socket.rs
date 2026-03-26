@@ -13,64 +13,61 @@ use std::sync::atomic::Ordering;
 use std::{cell, io, ops, path, rc, sync, time};
 
 pub struct ClientSocket {
-    impls: Vec<Box<dyn implementation::client::ProtocolImplementations>>,
+    impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
     server_specs: cell::RefCell<Vec<server_spec::ServerSpec>>,
     objects: cell::RefCell<Vec<sync::Arc<client_object::ClientObject>>>,
     handshake_begin: time::Instant,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) handshake_done: cell::Cell<bool>,
     pub(crate) last_ackd_roundtrip_seq: cell::Cell<u32>,
-    last_sent_roundtrip_seq: u32,
-    pub(crate) seq: u32,
-    pub(crate) pending_outgoing: Vec<message::GenericProtocolMessage<ops::Range<usize>>>,
-    _self: rc::Weak<cell::RefCell<Self>>,
+    last_sent_roundtrip_seq: cell::Cell<u32>,
+    pub(crate) seq: cell::Cell<u32>,
+    pub(crate) pending_outgoing:
+        cell::RefCell<Vec<message::GenericProtocolMessage<ops::Range<usize>>>>,
+    _self: rc::Weak<Self>,
 }
 
 const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
-    fn new(stream: net::UnixStream) -> rc::Rc<cell::RefCell<Self>> {
+    fn new(stream: net::UnixStream) -> rc::Rc<Self> {
         let state = rc::Rc::new(SharedState::new(stream));
-        let client_socket = rc::Rc::new_cyclic(|weak_self| {
-            cell::RefCell::new(Self {
-                last_ackd_roundtrip_seq: cell::Cell::new(0),
-                last_sent_roundtrip_seq: 0,
-                seq: 0,
-                impls: Vec::new(),
-                server_specs: cell::RefCell::new(Vec::new()),
-                state: rc::Rc::clone(&state),
-                objects: cell::RefCell::new(Vec::new()),
-                handshake_done: cell::Cell::new(false),
-                handshake_begin: time::Instant::now(),
-                pending_outgoing: Vec::new(),
-                _self: weak_self.clone(),
-            })
+        let client_socket = rc::Rc::new_cyclic(|weak_self| Self {
+            last_ackd_roundtrip_seq: cell::Cell::new(0),
+            last_sent_roundtrip_seq: cell::Cell::new(0),
+            seq: cell::Cell::new(0),
+            impls: cell::RefCell::new(Vec::new()),
+            server_specs: cell::RefCell::new(Vec::new()),
+            state: rc::Rc::clone(&state),
+            objects: cell::RefCell::new(Vec::new()),
+            handshake_done: cell::Cell::new(false),
+            handshake_begin: time::Instant::now(),
+            pending_outgoing: cell::RefCell::new(Vec::new()),
+            _self: weak_self.clone(),
         });
         state.send_message(&message::Hello::new());
 
         client_socket
     }
 
-    pub fn open(path: &path::Path) -> io::Result<rc::Rc<cell::RefCell<Self>>> {
+    pub fn open(path: &path::Path) -> io::Result<rc::Rc<Self>> {
         let stream = net::UnixStream::connect(path)?;
         Ok(Self::new(stream))
     }
 
-    pub fn from_fd(fd: fd::RawFd) -> rc::Rc<cell::RefCell<Self>> {
+    pub fn from_fd(fd: fd::RawFd) -> rc::Rc<Self> {
         let stream = unsafe { net::UnixStream::from_raw_fd(fd) };
         Self::new(stream)
     }
 
     pub fn add_implementation(
-        &mut self,
+        &self,
         p_impl: Box<dyn implementation::client::ProtocolImplementations>,
     ) {
-        self.impls.push(p_impl);
+        self.impls.borrow_mut().push(p_impl);
     }
 
-    pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
-        self.handshake_begin = time::Instant::now();
-
+    pub fn wait_for_handshake(&self) -> Result<(), io::Error> {
         while !self.state.error.get() && !self.handshake_done.get() {
             self.dispatch_events(true)?;
         }
@@ -94,7 +91,7 @@ impl ClientSocket {
     }
 
     pub fn bind_protocol(
-        &mut self,
+        &self,
         spec: &dyn ProtocolSpec,
         version: u32,
     ) -> Result<sync::Arc<dyn implementation::object::RawObject>, io::Error> {
@@ -118,15 +115,16 @@ impl ClientSocket {
             client_object::ClientObject::new(self._self.clone(), rc::Rc::clone(&self.state));
         let objects = spec.objects();
         object.spec = Some(sync::Arc::clone(&objects[0]));
-        self.seq += 1;
-        object.seq = self.seq;
+        let seq = self.seq.get() + 1;
+        self.seq.set(seq);
+        object.seq = seq;
         object.version.store(version, Ordering::Relaxed);
         object.protocol_name = spec.spec_name().to_string();
 
         let object = sync::Arc::new(object);
         self.objects.borrow_mut().push(sync::Arc::clone(&object));
 
-        let bind_message = message::BindProtocol::new(spec.spec_name(), self.seq, version);
+        let bind_message = message::BindProtocol::new(spec.spec_name(), seq, version);
         self.state.send_message(&bind_message);
 
         self.wait_for_object(&object)?;
@@ -135,7 +133,7 @@ impl ClientSocket {
     }
 
     fn wait_for_object(
-        &mut self,
+        &self,
         object: &sync::Arc<client_object::ClientObject>,
     ) -> Result<(), io::Error> {
         while object.id.load(Ordering::Relaxed) == 0 && !self.state.error.get() {
@@ -164,6 +162,7 @@ impl ClientSocket {
 
         if let Some(obj) = self
             .impls
+            .borrow()
             .iter()
             .find(|imp| imp.protocol().spec_name() == protocol_name)
             .and_then(|imp| {
@@ -214,7 +213,7 @@ impl ClientSocket {
             .unwrap();
     }
 
-    pub fn roundtrip(&mut self) -> Result<(), io::Error> {
+    pub fn roundtrip(&self) -> Result<(), io::Error> {
         if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
@@ -222,8 +221,8 @@ impl ClientSocket {
             ));
         }
 
-        self.last_sent_roundtrip_seq += 1;
-        let next_seq = self.last_sent_roundtrip_seq;
+        let next_seq = self.last_sent_roundtrip_seq.get() + 1;
+        self.last_sent_roundtrip_seq.set(next_seq);
         self.state
             .send_message(&message::RoundtripRequest::new(next_seq));
 
@@ -234,7 +233,7 @@ impl ClientSocket {
         Ok(())
     }
 
-    pub fn dispatch_events(&mut self, block: bool) -> Result<(), io::Error> {
+    pub fn dispatch_events(&self, block: bool) -> Result<(), io::Error> {
         if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
@@ -377,7 +376,7 @@ impl ClientSocket {
             ));
         }
 
-        let pending = std::mem::take(&mut self.pending_outgoing);
+        let pending = std::mem::take(&mut *self.pending_outgoing.borrow_mut());
         for mut msg in pending {
             let seq = msg.depends_on_seq();
             let obj_id = self
@@ -387,7 +386,7 @@ impl ClientSocket {
             match obj_id {
                 None => continue,
                 Some(0) => {
-                    self.pending_outgoing.push(msg);
+                    self.pending_outgoing.borrow_mut().push(msg);
                     continue;
                 }
                 Some(id) => {

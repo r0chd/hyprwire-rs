@@ -3,10 +3,10 @@ use crate::implementation::{object, types, wire_object};
 use crate::{SharedState, client, message, trace};
 use std::os::raw;
 use std::sync::atomic;
-use std::{cell, rc, sync};
+use std::{rc, sync};
 
 pub struct ClientObject {
-    client: rc::Weak<cell::RefCell<client_socket::ClientSocket>>,
+    client: rc::Weak<client_socket::ClientSocket>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: sync::Mutex<Option<*mut raw::c_void>>,
@@ -40,7 +40,7 @@ impl Drop for ClientObject {
 
 impl ClientObject {
     pub fn new(
-        client_socket: rc::Weak<cell::RefCell<client_socket::ClientSocket>>,
+        client_socket: rc::Weak<client_socket::ClientSocket>,
         state: rc::Rc<SharedState>,
     ) -> Self {
         Self {

@@ -3,9 +3,9 @@ use super::server_spec;
 use crate::{implementation, message};
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
-use std::{cell, io, path, rc};
+use std::{io, path, rc};
 
-pub struct Client(rc::Rc<cell::RefCell<ClientSocket>>);
+pub struct Client(rc::Rc<ClientSocket>);
 
 impl Client {
     pub fn open(path: &path::Path) -> Self {
@@ -17,23 +17,23 @@ impl Client {
     }
 
     pub fn add_implementation(&mut self, p_impl: impl ProtocolImplementations + 'static) {
-        self.0.borrow_mut().add_implementation(Box::new(p_impl));
+        self.0.add_implementation(Box::new(p_impl));
     }
 
     pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
-        self.0.borrow_mut().wait_for_handshake()
+        self.0.wait_for_handshake()
     }
 
     pub fn dispatch_events(&mut self, block: bool) -> Result<(), io::Error> {
-        self.0.borrow_mut().dispatch_events(block)
+        self.0.dispatch_events(block)
     }
 
     pub fn roundtrip(&mut self) -> Result<(), io::Error> {
-        self.0.borrow_mut().roundtrip()
+        self.0.roundtrip()
     }
 
     pub fn extract_loop_fd(&self) -> i32 {
-        self.0.borrow().extract_loop_fd()
+        self.0.extract_loop_fd()
     }
 
     pub(crate) fn make_object(
@@ -43,10 +43,7 @@ impl Client {
         seq: u32,
     ) -> Result<rc::Rc<dyn implementation::object::RawObject>, message::MessageError>
     {
-        let obj = self
-            .0
-            .borrow_mut()
-            .make_object(protocol_name, object_name, seq)?;
+        let obj = self.0.make_object(protocol_name, object_name, seq)?;
         Ok(obj)
     }
 
@@ -55,14 +52,14 @@ impl Client {
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,
     ) -> Result<rc::Rc<dyn implementation::object::RawObject>, io::Error> {
-        self.0.borrow_mut().bind_protocol(spec, version)
+        self.0.bind_protocol(spec, version)
     }
 
     pub fn get_spec(&self, name: &str) -> Option<server_spec::ServerSpec> {
-        self.0.borrow().get_spec(name)
+        self.0.get_spec(name)
     }
 
     pub fn disconnect_on_error(&mut self) {
-        self.0.borrow_mut().disconnect_on_error()
+        self.0.disconnect_on_error()
     }
 }

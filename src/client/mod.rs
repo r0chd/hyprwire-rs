@@ -5,9 +5,9 @@ mod server_spec;
 use crate::{implementation, message};
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
-use std::{cell, ffi, io, path, ptr, rc, sync};
+use std::{ffi, io, path, ptr, rc, sync};
 
-pub struct Client(pub(crate) rc::Rc<cell::RefCell<client_socket::ClientSocket>>);
+pub struct Client(pub(crate) rc::Rc<client_socket::ClientSocket>);
 
 impl Client {
     pub fn open(path: &path::Path) -> io::Result<Self> {
@@ -23,35 +23,35 @@ impl Client {
     where
         T: ProtocolImplementations + 'static,
     {
-        self.0.borrow_mut().add_implementation(Box::new(p_impl));
+        self.0.add_implementation(Box::new(p_impl));
     }
 
     pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
-        self.0.borrow_mut().wait_for_handshake()
+        self.0.wait_for_handshake()
     }
 
     pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> Result<(), io::Error> {
         crate::set_dispatch_state(ptr::from_mut::<D>(state).cast::<ffi::c_void>());
-        let result = self.0.borrow_mut().dispatch_events(block);
+        let result = self.0.dispatch_events(block);
         crate::set_dispatch_state(std::ptr::null_mut());
         result
     }
 
     pub fn roundtrip<D>(&self, state: &mut D) -> Result<(), io::Error> {
         crate::set_dispatch_state(ptr::from_mut::<D>(state).cast::<ffi::c_void>());
-        let result = self.0.borrow_mut().roundtrip();
+        let result = self.0.roundtrip();
         crate::set_dispatch_state(std::ptr::null_mut());
         result
     }
 
     #[must_use]
     pub fn extract_loop_fd(&self) -> i32 {
-        self.0.borrow().extract_loop_fd()
+        self.0.extract_loop_fd()
     }
 
     #[must_use]
     pub fn is_handshake_done(&self) -> bool {
-        self.0.borrow().handshake_done.get()
+        self.0.handshake_done.get()
     }
 
     pub(crate) fn make_object(
@@ -60,10 +60,7 @@ impl Client {
         object_name: &str,
         seq: u32,
     ) -> Result<sync::Arc<dyn implementation::object::RawObject>, message::MessageError> {
-        let obj = self
-            .0
-            .borrow_mut()
-            .make_object(protocol_name, object_name, seq)?;
+        let obj = self.0.make_object(protocol_name, object_name, seq)?;
         Ok(obj)
     }
 
@@ -72,10 +69,7 @@ impl Client {
         protocol_name: &str,
         seq: u32,
     ) -> Result<T, message::MessageError> {
-        let obj = self
-            .0
-            .borrow_mut()
-            .make_object(protocol_name, T::NAME, seq)?;
+        let obj = self.0.make_object(protocol_name, T::NAME, seq)?;
         Ok(T::from_object::<D>(obj))
     }
 
@@ -84,17 +78,17 @@ impl Client {
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,
     ) -> Result<T, io::Error> {
-        let obj = self.0.borrow_mut().bind_protocol(spec, version)?;
+        let obj = self.0.bind_protocol(spec, version)?;
         Ok(T::from_object::<D>(obj))
     }
 
     #[must_use]
     pub fn get_spec(&self, name: &str) -> Option<server_spec::ServerSpec> {
-        self.0.borrow().get_spec(name)
+        self.0.get_spec(name)
     }
 
     pub fn disconnect_on_error(&self) {
-        self.0.borrow_mut().disconnect_on_error();
+        self.0.disconnect_on_error();
     }
 
     #[must_use]
@@ -103,7 +97,6 @@ impl Client {
         seq: u32,
     ) -> Option<sync::Arc<dyn implementation::object::RawObject>> {
         self.0
-            .borrow()
             .object_for_seq(seq)
             .map(|obj| obj as sync::Arc<dyn implementation::object::RawObject>)
     }
@@ -114,7 +107,6 @@ impl Client {
         id: u32,
     ) -> Option<sync::Arc<dyn implementation::object::RawObject>> {
         self.0
-            .borrow()
             .object_for_id(id)
             .map(|obj| obj as sync::Arc<dyn implementation::object::RawObject>)
     }

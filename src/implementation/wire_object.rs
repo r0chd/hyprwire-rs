@@ -447,15 +447,14 @@ pub trait WireObject: object::RawObject {
         if !method_returns_type.is_empty() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    eprintln!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.borrow().state.fd, steady_millis(), id, method_returns_type);
+                    eprintln!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.state.fd, steady_millis(), id, method_returns_type);
                 }
             }
 
             data.push(types::MessageMagic::TypeSeq as u8);
             if let Some(client) = self.client_sock() {
-                let mut client_ref = client.0.borrow_mut();
-                client_ref.seq += 1;
-                return_seq = client_ref.seq;
+                return_seq = client.0.seq.get() + 1;
+                client.0.seq.set(return_seq);
             }
             data.extend_from_slice(&return_seq.to_le_bytes());
         }
@@ -588,14 +587,14 @@ pub trait WireObject: object::RawObject {
         if self.id() == 0 && !self.server() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    eprintln!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.borrow().state.fd, steady_millis(), method_returns_type);
+                    eprintln!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.state.fd, steady_millis(), method_returns_type);
                 }
             }
 
             let protocol_name = self.protocol_name().to_string();
             msg.set_depends_on_seq(self.seq());
             if let Some(client) = self.client_sock() {
-                client.0.borrow_mut().pending_outgoing.push(msg);
+                client.0.pending_outgoing.borrow_mut().push(msg);
                 if return_seq != 0 {
                     client.make_object(&protocol_name, method_returns_type, return_seq)?;
                     return Ok(return_seq);

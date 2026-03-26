@@ -243,7 +243,8 @@ pub fn parse_protocol(xml: &str) -> Result<Protocol, Box<dyn Error>> {
                                     let inner_tag = inner.name();
                                     match inner_tag.as_ref() {
                                         b"description" => {
-                                            description = Some(parse_description(&mut reader, inner)?);
+                                            description =
+                                                Some(parse_description(&mut reader, inner)?);
                                         }
                                         b"c2s" => {
                                             c2s.push(parse_method(&mut reader, inner)?);

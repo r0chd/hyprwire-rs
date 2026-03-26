@@ -301,11 +301,7 @@ fn object_doc_attrs(description: Option<&Description>) -> TokenStream {
 fn method_doc_attrs(method: &Method, returns_named_object: bool) -> TokenStream {
     let mut lines = description_doc_lines(method.description.as_ref());
 
-    let arg_lines: Vec<String> = method
-        .args
-        .iter()
-        .map(arg_doc_line)
-        .collect();
+    let arg_lines: Vec<String> = method.args.iter().map(arg_doc_line).collect();
     if !arg_lines.is_empty() {
         if !lines.is_empty() {
             lines.push(String::new());
@@ -329,7 +325,12 @@ fn method_doc_attrs(method: &Method, returns_named_object: bool) -> TokenStream 
 }
 
 fn arg_doc_line(arg: &Arg) -> String {
-    match arg.summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    match arg
+        .summary
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(summary) => format!("`{}`: {}", arg.name, summary),
         None => format!("`{}`.", arg.name),
     }
