@@ -1,6 +1,6 @@
 [package]
 name = "hyprwire-scanner"
-version = "0.1.15"
+version = "0.1.16"
 edition = "2024"
 description = "Protocol scanner and code generator for hyprwire"
 license = "BSD-3-Clause"

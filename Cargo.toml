@@ -1,13 +1,13 @@
 [package]
 name = "hyprwire"
-version = "0.1.15"
+version = "0.1.16"
 edition = "2024"
 description = "A fast and consistent wire protocol for IPC"
 license = "BSD-3-Clause"
 repository = "https://git.r0chd.pl/r0chd/hyprwire-rs"
 readme = "README.md"
 keywords = ["ipc", "wire-protocol", "hyprwire", "serialization"]
-categories = ["Unix APIs"]
+categories = ["network-programming", "encoding"]
 build = "examples/basic/build.rs"
 
 [workspace]
@@ -35,9 +35,9 @@ nix = { version = "0.31.1", features = [
 ], default-features = false }
 
 [build-dependencies]
-hyprwire-scanner = { version = "0.1.15", path = "scanner" }
+hyprwire-scanner = { version = "0.1.16", path = "scanner" }
 
 [dev-dependencies]
-hyprwire-scanner = { version = "0.1.15", path = "scanner" }
+hyprwire-scanner = { version = "0.1.16", path = "scanner" }
 insta = "1"
 env_logger = { version = "0.11.9", default-features = false }
