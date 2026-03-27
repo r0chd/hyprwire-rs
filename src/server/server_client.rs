@@ -182,15 +182,5 @@ impl Drop for ServerClient {
         trace! {
             eprintln!("[hw] trace: [{}] destroying client", self.state.fd)
         }
-        for obj in self.objects.borrow().iter() {
-            if let Some(spec) = &obj.spec {
-                for (idx, method) in spec.c2s().iter().enumerate() {
-                    if method.destructor {
-                        let _ = obj.called(idx as u32, &[], &[]);
-                        break;
-                    }
-                }
-            }
-        }
     }
 }

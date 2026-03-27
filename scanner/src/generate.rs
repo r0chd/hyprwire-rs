@@ -932,6 +932,8 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 
     items.push(quote! {
         pub trait #handler_ident {
+            /// Called whenever the server binds a new instance of the protocol's
+            /// root object for a client.
             fn bind(&mut self, object: #first_obj_ident);
         }
 

@@ -596,7 +596,9 @@ pub trait WireObject: object::RawObject {
             if let Some(client) = self.client_sock() {
                 client.0.pending_outgoing.borrow_mut().push(msg);
                 if return_seq != 0 {
-                    client.make_object(&protocol_name, method_returns_type, return_seq)?;
+                    client
+                        .0
+                        .make_object(&protocol_name, method_returns_type, return_seq)?;
                     return Ok(return_seq);
                 }
             }
@@ -605,7 +607,9 @@ pub trait WireObject: object::RawObject {
             if return_seq != 0 {
                 let protocol_name = self.protocol_name().to_string();
                 if let Some(client) = self.client_sock() {
-                    client.make_object(&protocol_name, method_returns_type, return_seq)?;
+                    client
+                        .0
+                        .make_object(&protocol_name, method_returns_type, return_seq)?;
                     return Ok(return_seq);
                 }
             }

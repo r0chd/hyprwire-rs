@@ -26,7 +26,7 @@ impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
     fn event(
         &mut self,
         _object: &test_protocol_v1::MyManagerV1Object,
-        event: test_protocol_v1::MyManagerV1Event,
+        event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
     ) {
         match event {
             test_protocol_v1::MyManagerV1Event::SendMessage { message } => {
@@ -43,7 +43,7 @@ impl hyprwire::Dispatch<test_protocol_v1::MyObjectV1Object> for App {
     fn event(
         &mut self,
         _object: &test_protocol_v1::MyObjectV1Object,
-        event: test_protocol_v1::MyObjectV1Event,
+        event: <test_protocol_v1::MyObjectV1Object as hyprwire::Object>::Event<'_>,
     ) {
         let test_protocol_v1::MyObjectV1Event::SendMessage { message } = event;
         println!("Server says on object {}", message);

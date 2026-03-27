@@ -7,7 +7,7 @@ license = "BSD-3-Clause"
 repository = "https://git.r0chd.pl/r0chd/hyprwire-rs"
 readme = "README.md"
 keywords = ["ipc", "wire-protocol", "hyprwire", "serialization"]
-categories = ["network-programming", "encoding"]
+categories = ["Unix APIs"]
 build = "examples/basic/build.rs"
 
 [workspace]
@@ -20,6 +20,10 @@ path = "examples/basic/client.rs"
 [[example]]
 name = "basic-server"
 path = "examples/basic/server.rs"
+
+[[example]]
+name = "fork"
+path = "examples/fork/main.rs"
 
 [dependencies]
 libffi = { version = "5.1.0", default-features = false }

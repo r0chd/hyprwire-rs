@@ -2,23 +2,33 @@ mod client_object;
 pub(crate) mod client_socket;
 mod server_spec;
 
-use crate::{implementation, message};
+use crate::implementation;
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
 use std::{ffi, io, path, ptr, rc, sync};
 
+/// Client-side entry point for connecting to a Hyprwire server and dispatching
+/// protocol events.
+///
+/// A `Client` can connect directly to a Unix socket path or take ownership of
+/// an already-connected Unix socket file descriptor.
 pub struct Client(pub(crate) rc::Rc<client_socket::ClientSocket>);
 
 impl Client {
+    /// Connects to a Hyprwire server over a Unix socket path.
     pub fn open(path: &path::Path) -> io::Result<Self> {
         Ok(Self(client_socket::ClientSocket::open(path)?))
     }
 
     #[must_use]
+    /// Creates a client from an already-connected Unix socket file descriptor.
+    ///
+    /// The returned client takes ownership of `fd`.
     pub fn from_fd(fd: fd::RawFd) -> Self {
         Self(client_socket::ClientSocket::from_fd(fd))
     }
 
+    /// Registers a protocol implementation on the client.
     pub fn add_implementation<T>(&mut self, p_impl: T)
     where
         T: ProtocolImplementations + 'static,
@@ -26,10 +36,17 @@ impl Client {
         self.0.add_implementation(Box::new(p_impl));
     }
 
+    /// Blocks until the initial Hyprwire handshake completes.
+    ///
+    /// Returns an error if the connection closes or the handshake fails.
     pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
         self.0.wait_for_handshake()
     }
 
+    /// Dispatches pending events from the server.
+    ///
+    /// `state` receives generated event callbacks. If `block` is `true`, this
+    /// call waits until new protocol traffic is available.
     pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> Result<(), io::Error> {
         crate::set_dispatch_state(ptr::from_mut::<D>(state).cast::<ffi::c_void>());
         let result = self.0.dispatch_events(block);
@@ -37,6 +54,11 @@ impl Client {
         result
     }
 
+    /// Performs a roundtrip against the server.
+    ///
+    /// This sends a roundtrip request and blocks until the matching
+    /// acknowledgment is received, dispatching events into `state` while
+    /// waiting.
     pub fn roundtrip<D>(&self, state: &mut D) -> Result<(), io::Error> {
         crate::set_dispatch_state(ptr::from_mut::<D>(state).cast::<ffi::c_void>());
         let result = self.0.roundtrip();
@@ -45,34 +67,26 @@ impl Client {
     }
 
     #[must_use]
+    /// Returns a file descriptor that becomes readable when the client has
+    /// work to process.
+    ///
+    /// The descriptor remains owned by the client and must not be closed by
+    /// the caller.
     pub fn extract_loop_fd(&self) -> i32 {
         self.0.extract_loop_fd()
     }
 
     #[must_use]
+    /// Returns `true` once the initial handshake has completed successfully.
     pub fn is_handshake_done(&self) -> bool {
         self.0.handshake_done.get()
     }
 
-    pub(crate) fn make_object(
-        &self,
-        protocol_name: &str,
-        object_name: &str,
-        seq: u32,
-    ) -> Result<sync::Arc<dyn implementation::object::RawObject>, message::MessageError> {
-        let obj = self.0.make_object(protocol_name, object_name, seq)?;
-        Ok(obj)
-    }
-
-    pub fn make<T: crate::Object, D: crate::Dispatch<T>>(
-        &self,
-        protocol_name: &str,
-        seq: u32,
-    ) -> Result<T, message::MessageError> {
-        let obj = self.0.make_object(protocol_name, T::NAME, seq)?;
-        Ok(T::from_object::<D>(obj))
-    }
-
+    /// Binds a server-advertised protocol and returns its typed root object.
+    ///
+    /// The provided `spec` must come from [`Client::get_spec`]. `version`
+    /// selects the protocol version to bind and must not exceed the version
+    /// advertised by the server for that spec.
     pub fn bind<T: crate::Object, D: crate::Dispatch<T>>(
         &self,
         spec: &dyn implementation::types::ProtocolSpec,
@@ -83,15 +97,18 @@ impl Client {
     }
 
     #[must_use]
+    /// Returns the server-advertised protocol specification with the given
+    /// name, if present.
     pub fn get_spec(&self, name: &str) -> Option<server_spec::ServerSpec> {
         self.0.get_spec(name)
     }
 
-    pub fn disconnect_on_error(&self) {
-        self.0.disconnect_on_error();
-    }
-
     #[must_use]
+    /// Returns the raw object associated with a pending or resolved sequence
+    /// number.
+    ///
+    /// This is a low-level helper primarily used by generated code and manual
+    /// protocol integrations.
     pub fn object_for_seq(
         &self,
         seq: u32,
@@ -102,6 +119,10 @@ impl Client {
     }
 
     #[must_use]
+    /// Returns the raw object with the given wire object id, if known.
+    ///
+    /// This is a low-level helper primarily used by generated code and manual
+    /// protocol integrations.
     pub fn object_for_id(
         &self,
         id: u32,

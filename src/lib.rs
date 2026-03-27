@@ -1,9 +1,20 @@
+//! Hyprwire client and server runtime plus scanner-generated protocol bindings.
+
+#![warn(missing_docs)]
+
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 
+/// Client-side APIs for connecting to a Hyprwire server and dispatching
+/// generated protocol events.
 pub mod client;
 pub(crate) mod helpers;
+/// Traits and low-level types used by generated client/server protocol
+/// bindings.
+#[allow(missing_docs)]
 pub mod implementation;
 pub(crate) mod message;
+/// Server-side APIs for hosting Hyprwire protocols and dispatching client
+/// requests.
 pub mod server;
 pub(crate) mod socket;
 
@@ -106,7 +117,11 @@ macro_rules! include_protocol {
     };
 }
 
+/// Trait representing a hyprwire interface
+#[doc(hidden)]
+#[allow(missing_docs)]
 pub trait Object: Sized {
+    /// The event enum for this interface
     type Event<'a>;
 
     const NAME: &str;
@@ -114,6 +129,8 @@ pub trait Object: Sized {
     fn from_object<D: Dispatch<Self>>(object: sync::Arc<dyn object::RawObject>) -> Self;
 }
 
+#[doc(hidden)]
+#[allow(missing_docs)]
 pub trait Dispatch<I: Object> {
     fn event(&mut self, object: &I, event: I::Event<'_>);
 }
@@ -163,6 +180,8 @@ macro_rules! delegate_noop {
     };
 }
 
+#[doc(hidden)]
+#[allow(missing_docs)]
 pub struct DispatchData {
     pub object: *const dyn object::RawObject,
 }
@@ -171,11 +190,13 @@ thread_local! {
     static DISPATCH_STATE: cell::Cell<*mut ffi::c_void> = const { cell::Cell::new(std::ptr::null_mut()) };
 }
 
-pub fn set_dispatch_state(state: *mut ffi::c_void) {
+fn set_dispatch_state(state: *mut ffi::c_void) {
     DISPATCH_STATE.set(state);
 }
 
 #[must_use]
+#[doc(hidden)]
+#[allow(missing_docs)]
 pub fn get_dispatch_state() -> *mut ffi::c_void {
     DISPATCH_STATE.get()
 }

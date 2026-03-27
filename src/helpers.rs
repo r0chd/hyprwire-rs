@@ -10,6 +10,7 @@ pub fn is_trace() -> bool {
     })
 }
 
+#[allow(missing_docs)]
 #[macro_export]
 macro_rules! trace {
     ($($tt:tt)*) => {
