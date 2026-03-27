@@ -126,7 +126,7 @@ pub trait Object: Sized {
 
     const NAME: &str;
 
-    fn from_object<D: Dispatch<Self>>(object: sync::Arc<dyn object::RawObject>) -> Self;
+    fn from_object<D: Dispatch<Self>>(object: rc::Rc<dyn object::RawObject>) -> Self;
 }
 
 #[doc(hidden)]

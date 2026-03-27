@@ -5,7 +5,7 @@ mod server_spec;
 use crate::implementation;
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
-use std::{ffi, io, path, ptr, rc, sync};
+use std::{ffi, io, path, ptr, rc};
 
 /// Client-side entry point for connecting to a Hyprwire server and dispatching
 /// protocol events.
@@ -112,10 +112,10 @@ impl Client {
     pub fn object_for_seq(
         &self,
         seq: u32,
-    ) -> Option<sync::Arc<dyn implementation::object::RawObject>> {
+    ) -> Option<rc::Rc<dyn implementation::object::RawObject>> {
         self.0
             .object_for_seq(seq)
-            .map(|obj| obj as sync::Arc<dyn implementation::object::RawObject>)
+            .map(|obj| obj as rc::Rc<dyn implementation::object::RawObject>)
     }
 
     #[must_use]
@@ -126,9 +126,9 @@ impl Client {
     pub fn object_for_id(
         &self,
         id: u32,
-    ) -> Option<sync::Arc<dyn implementation::object::RawObject>> {
+    ) -> Option<rc::Rc<dyn implementation::object::RawObject>> {
         self.0
             .object_for_id(id)
-            .map(|obj| obj as sync::Arc<dyn implementation::object::RawObject>)
+            .map(|obj| obj as rc::Rc<dyn implementation::object::RawObject>)
     }
 }

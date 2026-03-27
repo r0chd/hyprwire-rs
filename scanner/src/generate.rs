@@ -33,7 +33,7 @@ impl std::ops::BitOrAssign for Targets {
 }
 
 fn raw_object_type() -> TokenStream {
-    quote! { sync::Arc<dyn hyprwire::implementation::object::RawObject> }
+    quote! { rc::Rc<dyn hyprwire::implementation::object::RawObject> }
 }
 
 fn snake_to_pascal(s: &str) -> String {
@@ -599,9 +599,9 @@ fn write_dispatch_fn(
         ) {
             let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
             let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
-            unsafe { sync::Arc::increment_strong_count(dispatch.object) };
+            unsafe { rc::Rc::increment_strong_count(dispatch.object) };
             let proxy = #obj_ident {
-                object: unsafe { sync::Arc::from_raw(dispatch.object) },
+                object: unsafe { rc::Rc::from_raw(dispatch.object) },
                 #on_destroy_field
             };
             #(#conversions)*
@@ -778,7 +778,7 @@ fn write_new_fn(
             }
 
             let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
-                object: sync::Arc::as_ptr(&object),
+                object: rc::Rc::as_ptr(&object),
             }));
 
             object.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
@@ -805,24 +805,24 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 
             impl std::fmt::Debug for #obj_ident {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.debug_struct(#pascal_str).field("object", &sync::Arc::as_ptr(&self.object)).finish()
+                    f.debug_struct(#pascal_str).field("object", &rc::Rc::as_ptr(&self.object)).finish()
                 }
             }
 
             impl Clone for #obj_ident {
                 fn clone(&self) -> Self {
-                    Self { object: sync::Arc::clone(&self.object) }
+                    Self { object: rc::Rc::clone(&self.object) }
                 }
             }
 
             impl PartialEq for #obj_ident {
-                fn eq(&self, other: &Self) -> bool { sync::Arc::ptr_eq(&self.object, &other.object) }
+                fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
             }
 
             impl Eq for #obj_ident {}
 
             impl std::hash::Hash for #obj_ident {
-                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { sync::Arc::as_ptr(&self.object).hash(state); }
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
             }
         });
     }
@@ -885,7 +885,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                     self.object.error(error_id, error_msg);
                 }
 
-                pub fn set_on_drop(&self, callback: impl FnOnce() + Send + 'static) {
+                pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
                     self.object.set_on_drop(Box::new(callback));
                 }
 
@@ -969,7 +969,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     quote! {
         #[allow(dead_code, unused_imports)]
         pub mod server {
-            use std::{ffi, os::fd::*, sync};
+            use std::{ffi, os::fd::*, rc, sync};
             pub use super::spec::*;
 
             #(#items)*
@@ -997,24 +997,24 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 
             impl std::fmt::Debug for #obj_ident {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.debug_struct(#pascal_str).field("object", &sync::Arc::as_ptr(&self.object)).finish()
+                    f.debug_struct(#pascal_str).field("object", &rc::Rc::as_ptr(&self.object)).finish()
                 }
             }
 
             impl Clone for #obj_ident {
                 fn clone(&self) -> Self {
-                    Self { object: sync::Arc::clone(&self.object), on_destroy: None, owned: false }
+                    Self { object: rc::Rc::clone(&self.object), on_destroy: None, owned: false }
                 }
             }
 
             impl PartialEq for #obj_ident {
-                fn eq(&self, other: &Self) -> bool { sync::Arc::ptr_eq(&self.object, &other.object) }
+                fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
             }
 
             impl Eq for #obj_ident {}
 
             impl std::hash::Hash for #obj_ident {
-                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { sync::Arc::as_ptr(&self.object).hash(state); }
+                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
             }
         });
     }
@@ -1084,7 +1084,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
             impl #obj_ident {
                 #new_fn
 
-                pub fn set_on_destroy(&mut self, callback: impl FnOnce() + Send + 'static) {
+                pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
                     self.on_destroy = Some(Box::new(callback));
                 }
 
@@ -1127,7 +1127,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
     quote! {
         #[allow(dead_code, unused_imports)]
         pub mod client {
-            use std::{ffi, os::fd::*, sync};
+            use std::{ffi, os::fd::*, rc, sync};
             pub use super::spec::*;
 
             #(#items)*

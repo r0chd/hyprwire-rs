@@ -1,9 +1,9 @@
 use crate::implementation::types;
 use crate::{client, server};
+use std::rc;
 use std::os::raw;
-use std::sync;
 
-pub trait RawObject: Send + Sync {
+pub trait RawObject {
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32;
 
     fn listen(&self, id: u32, func: *mut raw::c_void);
@@ -16,7 +16,7 @@ pub trait RawObject: Send + Sync {
         None
     }
 
-    fn create_object(&self, _object_name: &str, _seq: u32) -> Option<sync::Arc<dyn RawObject>> {
+    fn create_object(&self, _object_name: &str, _seq: u32) -> Option<rc::Rc<dyn RawObject>> {
         None
     }
 
@@ -26,7 +26,7 @@ pub trait RawObject: Send + Sync {
 
     fn error(&self, error_id: u32, error_msg: &str);
 
-    fn set_on_drop(&self, func: Box<dyn FnOnce() + Send>) {
+    fn set_on_drop(&self, func: Box<dyn FnOnce()>) {
         _ = func;
     }
 }

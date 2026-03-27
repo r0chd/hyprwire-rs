@@ -9,13 +9,12 @@ use nix::{errno, poll};
 use std::os::fd;
 use std::os::fd::{BorrowedFd, FromRawFd};
 use std::os::unix::net;
-use std::sync::atomic::Ordering;
-use std::{cell, io, ops, path, rc, sync, time};
+use std::{cell, io, ops, path, rc, time};
 
 pub struct ClientSocket {
     impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
     server_specs: cell::RefCell<Vec<server_spec::ServerSpec>>,
-    objects: cell::RefCell<Vec<sync::Arc<client_object::ClientObject>>>,
+    objects: cell::RefCell<Vec<rc::Rc<client_object::ClientObject>>>,
     handshake_begin: time::Instant,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) handshake_done: cell::Cell<bool>,
@@ -94,7 +93,7 @@ impl ClientSocket {
         &self,
         spec: &dyn ProtocolSpec,
         version: u32,
-    ) -> Result<sync::Arc<dyn implementation::object::RawObject>, io::Error> {
+    ) -> Result<rc::Rc<dyn implementation::object::RawObject>, io::Error> {
         if version > spec.spec_ver() {
             log::error!(
                 "version {} is larger than current spec ver of {}",
@@ -114,15 +113,15 @@ impl ClientSocket {
         let mut object =
             client_object::ClientObject::new(self._self.clone(), rc::Rc::clone(&self.state));
         let objects = spec.objects();
-        object.spec = Some(sync::Arc::clone(&objects[0]));
+        object.spec = Some(std::sync::Arc::clone(&objects[0]));
         let seq = self.seq.get() + 1;
         self.seq.set(seq);
         object.seq = seq;
-        object.version.store(version, Ordering::Relaxed);
+        object.version.set(version);
         object.protocol_name = spec.spec_name().to_string();
 
-        let object = sync::Arc::new(object);
-        self.objects.borrow_mut().push(sync::Arc::clone(&object));
+        let object = rc::Rc::new(object);
+        self.objects.borrow_mut().push(rc::Rc::clone(&object));
 
         let bind_message = message::BindProtocol::new(spec.spec_name(), seq, version);
         self.state.send_message(&bind_message);
@@ -134,9 +133,9 @@ impl ClientSocket {
 
     fn wait_for_object(
         &self,
-        object: &sync::Arc<client_object::ClientObject>,
+        object: &rc::Rc<client_object::ClientObject>,
     ) -> Result<(), io::Error> {
-        while object.id.load(Ordering::Relaxed) == 0 && !self.state.error.get() {
+        while object.id.get() == 0 && !self.state.error.get() {
             self.dispatch_events(true)?;
         }
 
@@ -155,7 +154,7 @@ impl ClientSocket {
         protocol_name: &str,
         object_name: &str,
         seq: u32,
-    ) -> Result<sync::Arc<client_object::ClientObject>, message::MessageError> {
+    ) -> Result<rc::Rc<client_object::ClientObject>, message::MessageError> {
         let mut object =
             client_object::ClientObject::new(self._self.clone(), rc::Rc::clone(&self.state));
         object.protocol_name = protocol_name.to_string();
@@ -172,7 +171,7 @@ impl ClientSocket {
                     .find(|obj| obj.object_name() == object_name)
             })
         {
-            object.spec = Some(sync::Arc::clone(obj));
+            object.spec = Some(std::sync::Arc::clone(obj));
         }
 
         if object.spec.is_none() {
@@ -182,8 +181,8 @@ impl ClientSocket {
         object.seq = seq;
         object.set_version(0); // TODO: client version doesn't matter that much, but for verification's sake we could fix this
 
-        let object = sync::Arc::new(object);
-        self.objects.borrow_mut().push(sync::Arc::clone(&object));
+        let object = rc::Rc::new(object);
+        self.objects.borrow_mut().push(rc::Rc::clone(&object));
         Ok(object)
     }
 
@@ -381,7 +380,7 @@ impl ClientSocket {
             let seq = msg.depends_on_seq();
             let obj_id = self
                 .object_for_seq(seq)
-                .map(|obj| obj.id.load(Ordering::Relaxed));
+                .map(|obj| obj.id.get());
 
             match obj_id {
                 None => continue,
@@ -413,7 +412,7 @@ impl ClientSocket {
     pub fn on_seq(&self, seq: u32, id: u32) {
         let objects = self.objects.borrow();
         if let Some(object) = objects.iter().find(|object| object.seq == seq) {
-            object.id.store(id, Ordering::Relaxed);
+            object.id.set(id);
         }
     }
 
@@ -422,8 +421,8 @@ impl ClientSocket {
             .objects
             .borrow()
             .iter()
-            .find(|obj| obj.id.load(Ordering::Relaxed) == msg.object())
-            .map(sync::Arc::clone);
+            .find(|obj| obj.id.get() == msg.object())
+            .map(rc::Rc::clone);
 
         match obj {
             Some(obj) => {
@@ -449,19 +448,19 @@ impl ClientSocket {
         }
     }
 
-    pub fn object_for_id(&self, id: u32) -> Option<sync::Arc<client_object::ClientObject>> {
+    pub fn object_for_id(&self, id: u32) -> Option<rc::Rc<client_object::ClientObject>> {
         self.objects
             .borrow()
             .iter()
-            .find(|object| object.id.load(Ordering::Relaxed) == id)
-            .map(sync::Arc::clone)
+            .find(|object| object.id.get() == id)
+            .map(rc::Rc::clone)
     }
 
-    pub fn object_for_seq(&self, seq: u32) -> Option<sync::Arc<client_object::ClientObject>> {
+    pub fn object_for_seq(&self, seq: u32) -> Option<rc::Rc<client_object::ClientObject>> {
         self.objects
             .borrow()
             .iter()
             .find(|object| object.seq == seq)
-            .map(sync::Arc::clone)
+            .map(rc::Rc::clone)
     }
 }

@@ -2,39 +2,34 @@ use super::server_client;
 use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
 use crate::{SharedState, message, trace};
+use std::cell::{Cell, RefCell};
 use std::os::raw;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::{cell, rc, sync};
 
 pub(crate) struct ServerObject {
     pub(crate) client: rc::Weak<cell::RefCell<server_client::ServerClient>>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
-    data: sync::Mutex<Option<*mut raw::c_void>>,
-    data_destructor: sync::Mutex<Option<unsafe fn(*mut raw::c_void)>>,
-    on_drop: sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
-    listeners: sync::Mutex<Vec<*mut raw::c_void>>,
-    pub(crate) id: AtomicU32,
-    pub(crate) version: AtomicU32,
+    data: Cell<*mut raw::c_void>,
+    data_destructor: Cell<Option<unsafe fn(*mut raw::c_void)>>,
+    on_drop: RefCell<Option<Box<dyn FnOnce()>>>,
+    listeners: RefCell<Vec<*mut raw::c_void>>,
+    pub(crate) id: Cell<u32>,
+    pub(crate) version: Cell<u32>,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
 }
 
-// Safety: ServerObject is only accessed from the dispatch thread.
-// The Rc/RefCell fields prevent auto-impl but access is single-threaded.
-unsafe impl Send for ServerObject {}
-unsafe impl Sync for ServerObject {}
-
 impl Drop for ServerObject {
     fn drop(&mut self) {
-        trace! {eprintln!("[hw] trace: destroying server object {}", self.id.load(Ordering::Relaxed))}
-        if let Some(on_drop) = self.on_drop.lock().unwrap().take() {
+        trace! {eprintln!("[hw] trace: destroying server object {}", self.id.get())}
+        if let Some(on_drop) = self.on_drop.borrow_mut().take() {
             on_drop();
         }
-        if let Some(destructor) = *self.data_destructor.lock().unwrap()
-            && let Some(data) = self.data.lock().unwrap().as_ref()
+        if let Some(destructor) = self.data_destructor.get()
+            && !self.data.get().is_null()
         {
-            unsafe { destructor(*data) };
+            unsafe { destructor(self.data.get()) };
         }
     }
 }
@@ -48,12 +43,12 @@ impl ServerObject {
             client,
             state,
             spec: None,
-            data: sync::Mutex::new(None),
-            data_destructor: sync::Mutex::new(None),
-            on_drop: sync::Mutex::new(None),
-            listeners: sync::Mutex::new(Vec::new()),
-            id: AtomicU32::new(0),
-            version: AtomicU32::new(0),
+            data: Cell::new(std::ptr::null_mut()),
+            data_destructor: Cell::new(None),
+            on_drop: RefCell::new(None),
+            listeners: RefCell::new(Vec::new()),
+            id: Cell::new(0),
+            version: Cell::new(0),
             seq: 0,
             protocol_name: String::new(),
         }
@@ -67,7 +62,7 @@ impl object::RawObject for ServerObject {
             Err(e) => {
                 log::error!(
                     "server object {} (protocol {}) call error: {e}",
-                    self.id.load(Ordering::Relaxed),
+                    self.id.get(),
                     self.protocol_name
                 );
                 0
@@ -76,7 +71,7 @@ impl object::RawObject for ServerObject {
     }
 
     fn listen(&self, id: u32, callback: *mut raw::c_void) {
-        let mut listeners = self.listeners.lock().unwrap();
+        let mut listeners = self.listeners.borrow_mut();
         if listeners.len() <= id as usize {
             listeners.reserve_exact(id as usize + 1);
         }
@@ -87,53 +82,48 @@ impl object::RawObject for ServerObject {
         &self,
         object_name: &str,
         seq: u32,
-    ) -> Option<sync::Arc<dyn object::RawObject>> {
+    ) -> Option<rc::Rc<dyn object::RawObject>> {
         let client = self.client.upgrade()?;
         let obj = client.borrow().create_object(
             &self.protocol_name,
             object_name,
-            self.version.load(Ordering::Relaxed),
+            self.version.get(),
             seq,
         );
-        Some(obj as sync::Arc<dyn object::RawObject>)
+        Some(obj as rc::Rc<dyn object::RawObject>)
     }
 
     fn set_data(&self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>) {
-        *self.data.lock().unwrap() = Some(data);
-        *self.data_destructor.lock().unwrap() = destructor;
+        self.data.set(data);
+        self.data_destructor.set(destructor);
     }
 
     fn get_data(&self) -> *mut raw::c_void {
-        self.data
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map_or(std::ptr::null_mut(), |p| *p)
+        self.data.get()
     }
 
     fn error(&self, error_id: u32, error_msg: &str) {
-        let msg =
-            message::FatalProtocolError::new(self.id.load(Ordering::Relaxed), error_id, error_msg);
+        let msg = message::FatalProtocolError::new(self.id.get(), error_id, error_msg);
         self.state.send_message(&msg);
         self.errd();
     }
 
-    fn set_on_drop(&self, func: Box<dyn FnOnce() + Send>) {
-        *self.on_drop.lock().unwrap() = Some(func);
+    fn set_on_drop(&self, func: Box<dyn FnOnce()>) {
+        *self.on_drop.borrow_mut() = Some(func);
     }
 }
 
 impl wire_object::WireObject for ServerObject {
     fn set_version(&self, version: u32) {
-        self.version.store(version, Ordering::Relaxed);
+        self.version.set(version);
     }
 
     fn version(&self) -> u32 {
-        self.version.load(Ordering::Relaxed)
+        self.version.get()
     }
 
     fn id(&self) -> u32 {
-        self.id.load(Ordering::Relaxed)
+        self.id.get()
     }
 
     fn seq(&self) -> u32 {
@@ -171,10 +161,10 @@ impl wire_object::WireObject for ServerObject {
     }
 
     fn listener(&self, idx: usize) -> *mut raw::c_void {
-        self.listeners.lock().unwrap()[idx]
+        self.listeners.borrow()[idx]
     }
 
     fn listener_count(&self) -> usize {
-        self.listeners.lock().unwrap().len()
+        self.listeners.borrow().len()
     }
 }

@@ -4,8 +4,7 @@ use crate::message::Message;
 use crate::{SharedState, message, steady_millis, trace};
 use nix::sys;
 use std::ops;
-use std::sync::atomic::Ordering;
-use std::{cell, rc, sync};
+use std::{cell, rc};
 
 pub(crate) struct ServerClient {
     pub(crate) pid: cell::Cell<i32>,
@@ -14,7 +13,7 @@ pub(crate) struct ServerClient {
     pub(crate) max_id: cell::Cell<u32>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
-    pub(crate) objects: cell::RefCell<Vec<sync::Arc<server_object::ServerObject>>>,
+    pub(crate) objects: cell::RefCell<Vec<rc::Rc<server_object::ServerObject>>>,
     _self: rc::Weak<cell::RefCell<Self>>,
 }
 
@@ -86,12 +85,12 @@ impl ServerClient {
         object_name: &str,
         version: u32,
         seq: u32,
-    ) -> sync::Arc<server_object::ServerObject> {
+    ) -> rc::Rc<server_object::ServerObject> {
         let mut server_obj =
             server_object::ServerObject::new(self._self.clone(), rc::Rc::clone(&self.state));
-        server_obj.id.store(self.max_id.get(), Ordering::Relaxed);
+        server_obj.id.set(self.max_id.get());
         self.max_id.set(self.max_id.get() + 1);
-        server_obj.version.store(version, Ordering::Relaxed);
+        server_obj.version.set(version);
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();
 
@@ -100,7 +99,7 @@ impl ServerClient {
             if imp.protocol().spec_name() == protocol {
                 for spec in imp.protocol().objects() {
                     if object_name.is_empty() || spec.object_name() == object_name {
-                        server_obj.spec = Some(sync::Arc::clone(spec));
+                        server_obj.spec = Some(std::sync::Arc::clone(spec));
                         break;
                     }
                 }
@@ -108,18 +107,18 @@ impl ServerClient {
             }
         }
 
-        let obj = sync::Arc::new(server_obj);
-        self.objects.borrow_mut().push(sync::Arc::clone(&obj));
+        let obj = rc::Rc::new(server_obj);
+        self.objects.borrow_mut().push(rc::Rc::clone(&obj));
 
-        let new_obj_msg = message::NewObject::new(seq, obj.id.load(Ordering::Relaxed));
+        let new_obj_msg = message::NewObject::new(seq, obj.id.get());
         self.state.send_message(&new_obj_msg);
 
-        self.on_bind(sync::Arc::clone(&obj));
+        self.on_bind(rc::Rc::clone(&obj));
 
         obj
     }
 
-    pub fn on_bind(&self, obj: sync::Arc<server_object::ServerObject>) {
+    pub fn on_bind(&self, obj: rc::Rc<server_object::ServerObject>) {
         let protocol_name = obj.protocol_name.clone();
         let object_name = obj
             .spec
@@ -136,7 +135,7 @@ impl ServerClient {
                     .find(|impl_obj| impl_obj.object_name == object_name)
                 {
                     (obj_impl.on_bind)(
-                        obj as sync::Arc<dyn crate::implementation::object::RawObject>,
+                        obj as rc::Rc<dyn crate::implementation::object::RawObject>,
                     );
                 }
                 return;
@@ -149,8 +148,8 @@ impl ServerClient {
             .objects
             .borrow()
             .iter()
-            .find(|obj| obj.id.load(Ordering::Relaxed) == msg.object())
-            .map(sync::Arc::clone);
+            .find(|obj| obj.id.get() == msg.object())
+            .map(rc::Rc::clone);
 
         match obj {
             Some(obj) => {
