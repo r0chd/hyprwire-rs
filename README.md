@@ -63,9 +63,10 @@ struct App;
 impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
     fn event(
         &mut self,
-        _object: &test_protocol_v1::MyManagerV1Object,
-        event: test_protocol_v1::MyManagerV1Event,
+        object: &test_protocol_v1::MyManagerV1Object,
+        event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
     ) {
+        let _ = object;
         if let test_protocol_v1::MyManagerV1Event::SendMessage { message } = event {
             println!("server says {message}");
         }
@@ -125,9 +126,10 @@ struct App;
 impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
     fn event(
         &mut self,
-        _object: &test_protocol_v1::MyManagerV1Object,
-        event: test_protocol_v1::MyManagerV1Event,
+        object: &test_protocol_v1::MyManagerV1Object,
+        event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
     ) {
+        let _ = object;
         if let test_protocol_v1::MyManagerV1Event::SendMessage { message } = event {
             println!("client says {message}");
         }

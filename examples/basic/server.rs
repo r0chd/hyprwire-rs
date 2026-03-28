@@ -26,7 +26,7 @@ impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
     fn event(
         &mut self,
         object: &test_protocol_v1::MyManagerV1Object,
-        event: test_protocol_v1::MyManagerV1Event,
+        event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
     ) {
         match event {
             test_protocol_v1::MyManagerV1Event::SendMessage { message } => {

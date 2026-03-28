@@ -119,9 +119,10 @@ struct ClientApp {
 impl hyprwire::Dispatch<test_protocol_v1::client::MyManagerV1Object> for ClientApp {
     fn event(
         &mut self,
-        _proxy: &test_protocol_v1::client::MyManagerV1Object,
-        event: test_protocol_v1::client::MyManagerV1Event,
+        object: &test_protocol_v1::client::MyManagerV1Object,
+        event: <test_protocol_v1::client::MyManagerV1Object as hyprwire::Object>::Event<'_>,
     ) {
+        let _ = object;
         match event {
             test_protocol_v1::client::MyManagerV1Event::SendMessage { message } => {
                 println!("Server says {}", message);
@@ -136,13 +137,13 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyManagerV1Object> for ClientA
 impl hyprwire::Dispatch<test_protocol_v1::client::MyObjectV1Object> for ClientApp {
     fn event(
         &mut self,
-        proxy: &test_protocol_v1::client::MyObjectV1Object,
-        event: test_protocol_v1::client::MyObjectV1Event,
+        object: &test_protocol_v1::client::MyObjectV1Object,
+        event: <test_protocol_v1::client::MyObjectV1Object as hyprwire::Object>::Event<'_>,
     ) {
         let test_protocol_v1::client::MyObjectV1Event::SendMessage { message } = event;
         println!("Server says on object {}", message);
 
-        if self.object2.as_ref() == Some(proxy) {
+        if self.object2.as_ref() == Some(object) {
             if let Some(object) = self.object.as_ref() {
                 object.send_send_enum(test_protocol_v1::server::MyEnum::World);
             }
