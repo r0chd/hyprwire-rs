@@ -14,7 +14,7 @@ pub(crate) use messages::hello::Hello;
 pub(crate) use messages::new_object::NewObject;
 pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
-use std::fmt;
+use std::{ffi, fmt};
 
 #[derive(Debug)]
 pub enum MessageError {
@@ -126,13 +126,14 @@ pub enum Role<'a> {
 pub fn handle_message(
     data: &mut socket::SocketRawParsedMessage,
     role: &Role,
+    dispatch: *mut ffi::c_void,
 ) -> Result<(), MessageError> {
     match role {
         Role::Client(client) => {
             let mut needle = 0;
 
             while needle < data.data.len() {
-                needle += parse_single_message_client(data, needle, client)?;
+                needle += parse_single_message_client(data, needle, client, dispatch)?;
             }
 
             if !data.fds.is_empty() {
@@ -147,7 +148,7 @@ pub fn handle_message(
             let mut needle = 0;
 
             while needle < data.data.len() {
-                needle += parse_single_message_server(data, needle, client)?;
+                needle += parse_single_message_server(data, needle, client, dispatch)?;
             }
 
             if !data.fds.is_empty() {
@@ -167,6 +168,7 @@ fn parse_single_message_client(
     raw: &mut socket::SocketRawParsedMessage,
     off: usize,
     client: &client_socket::ClientSocket,
+    dispatch: *mut ffi::c_void,
 ) -> Result<usize, MessageError> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {
@@ -245,7 +247,7 @@ fn parse_single_message_client(
                     eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
-                client.on_generic(&msg);
+                client.on_generic(&msg, dispatch);
 
                 return Ok(msg.data().len());
             }
@@ -312,6 +314,7 @@ fn parse_single_message_server(
     raw: &mut socket::SocketRawParsedMessage,
     off: usize,
     client: &server_client::ServerClient,
+    dispatch: *mut ffi::c_void,
 ) -> Result<usize, MessageError> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {
@@ -410,7 +413,7 @@ fn parse_single_message_server(
                     eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.fd, steady_millis(), msg.parse_data())
                 }
 
-                client.on_generic(&msg);
+                client.on_generic(&msg, dispatch);
 
                 return Ok(msg.data().len());
             }

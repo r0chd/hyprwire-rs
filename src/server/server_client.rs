@@ -3,8 +3,27 @@ use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
 use crate::{SharedState, message, steady_millis, trace};
 use nix::sys;
+use std::ffi;
 use std::ops;
+use std::os::fd::RawFd;
 use std::{cell, rc};
+
+/// A handle to a connected client managed by a [`super::Server`].
+#[derive(Clone)]
+pub struct ServerClientHandle(pub(crate) rc::Rc<cell::RefCell<ServerClient>>);
+
+impl ServerClientHandle {
+    /// Returns the peer process id when it was available via socket
+    /// credentials.
+    pub fn get_pid(&self) -> i32 {
+        self.0.borrow().get_pid()
+    }
+
+    /// Returns the underlying connected socket file descriptor.
+    pub fn fd(&self) -> RawFd {
+        self.0.borrow().state.fd
+    }
+}
 
 pub(crate) struct ServerClient {
     pub(crate) pid: cell::Cell<i32>,
@@ -18,7 +37,7 @@ pub(crate) struct ServerClient {
 }
 
 impl ServerClient {
-    pub fn new(state: rc::Rc<SharedState>) -> rc::Rc<cell::RefCell<Self>> {
+    pub(crate) fn new(state: rc::Rc<SharedState>) -> rc::Rc<cell::RefCell<Self>> {
         rc::Rc::new_cyclic(|weak_self| {
             cell::RefCell::new(Self {
                 pid: cell::Cell::new(0),
@@ -34,11 +53,11 @@ impl ServerClient {
     }
 
     #[allow(dead_code)]
-    pub fn get_pid(&self) -> i32 {
+    pub(crate) fn get_pid(&self) -> i32 {
         self.pid.get()
     }
 
-    pub fn dispatch_first_poll(&self) {
+    pub(crate) fn dispatch_first_poll(&self) {
         if self.first_poll_done.get() {
             return;
         }
@@ -65,7 +84,7 @@ impl ServerClient {
         }
     }
 
-    pub fn protocol_names(&self) -> Vec<String> {
+    pub(crate) fn protocol_names(&self) -> Vec<String> {
         let impls = self.state.impls.as_ref().unwrap();
         impls
             .iter()
@@ -79,7 +98,7 @@ impl ServerClient {
             .collect()
     }
 
-    pub fn create_object(
+    pub(crate) fn create_object(
         &self,
         protocol: &str,
         object_name: &str,
@@ -118,7 +137,7 @@ impl ServerClient {
         obj
     }
 
-    pub fn on_bind(&self, obj: rc::Rc<server_object::ServerObject>) {
+    pub(crate) fn on_bind(&self, obj: rc::Rc<server_object::ServerObject>) {
         let protocol_name = obj.protocol_name.clone();
         let object_name = obj
             .spec
@@ -134,16 +153,18 @@ impl ServerClient {
                     .iter()
                     .find(|impl_obj| impl_obj.object_name == object_name)
                 {
-                    (obj_impl.on_bind)(
-                        obj as rc::Rc<dyn crate::implementation::object::RawObject>,
-                    );
+                    (obj_impl.on_bind)(obj as rc::Rc<dyn crate::implementation::object::RawObject>);
                 }
                 return;
             }
         }
     }
 
-    pub fn on_generic(&self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
+    pub(crate) fn on_generic(
+        &self,
+        msg: &message::GenericProtocolMessage<ops::Range<usize>>,
+        dispatch: *mut ffi::c_void,
+    ) {
         let obj = self
             .objects
             .borrow()
@@ -153,7 +174,7 @@ impl ServerClient {
 
         match obj {
             Some(obj) => {
-                if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds()) {
+                if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
                     log::error!(
                         "[{} @ {:.3}] object {} called method error: {e}",
                         self.state.fd,

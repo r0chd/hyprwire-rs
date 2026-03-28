@@ -4,7 +4,7 @@ mod server_spec;
 
 use crate::implementation;
 use implementation::client::ProtocolImplementations;
-use std::os::fd;
+use std::os::fd::AsRawFd;
 use std::{ffi, io, path, ptr, rc};
 
 /// Client-side entry point for connecting to a Hyprwire server and dispatching
@@ -16,7 +16,10 @@ pub struct Client(pub(crate) rc::Rc<client_socket::ClientSocket>);
 
 impl Client {
     /// Connects to a Hyprwire server over a Unix socket path.
-    pub fn open(path: &path::Path) -> io::Result<Self> {
+    pub fn open<T>(path: T) -> io::Result<Self>
+    where
+        T: AsRef<path::Path>,
+    {
         Ok(Self(client_socket::ClientSocket::open(path)?))
     }
 
@@ -24,7 +27,10 @@ impl Client {
     /// Creates a client from an already-connected Unix socket file descriptor.
     ///
     /// The returned client takes ownership of `fd`.
-    pub fn from_fd(fd: fd::RawFd) -> Self {
+    pub fn from_fd<T>(fd: T) -> Self
+    where
+        T: AsRawFd,
+    {
         Self(client_socket::ClientSocket::from_fd(fd))
     }
 
@@ -48,10 +54,8 @@ impl Client {
     /// `state` receives generated event callbacks. If `block` is `true`, this
     /// call waits until new protocol traffic is available.
     pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> Result<(), io::Error> {
-        crate::set_dispatch_state(ptr::from_mut::<D>(state).cast::<ffi::c_void>());
-        let result = self.0.dispatch_events(block);
-        crate::set_dispatch_state(std::ptr::null_mut());
-        result
+        self.0
+            .dispatch_events(ptr::from_mut::<D>(state).cast::<ffi::c_void>(), block)
     }
 
     /// Performs a roundtrip against the server.
@@ -60,10 +64,8 @@ impl Client {
     /// acknowledgment is received, dispatching events into `state` while
     /// waiting.
     pub fn roundtrip<D>(&self, state: &mut D) -> Result<(), io::Error> {
-        crate::set_dispatch_state(ptr::from_mut::<D>(state).cast::<ffi::c_void>());
-        let result = self.0.roundtrip();
-        crate::set_dispatch_state(std::ptr::null_mut());
-        result
+        self.0
+            .roundtrip(ptr::from_mut::<D>(state).cast::<ffi::c_void>())
     }
 
     #[must_use]
@@ -123,10 +125,7 @@ impl Client {
     ///
     /// This is a low-level helper primarily used by generated code and manual
     /// protocol integrations.
-    pub fn object_for_id(
-        &self,
-        id: u32,
-    ) -> Option<rc::Rc<dyn implementation::object::RawObject>> {
+    pub fn object_for_id(&self, id: u32) -> Option<rc::Rc<dyn implementation::object::RawObject>> {
         self.0
             .object_for_id(id)
             .map(|obj| obj as rc::Rc<dyn implementation::object::RawObject>)

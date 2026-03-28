@@ -139,7 +139,7 @@ fn dispatch_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStre
 
 fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
     match arg_type {
-        ArgType::Varchar => quote! { &str },
+        ArgType::Varchar => quote! { impl AsRef<str> },
         ArgType::Fd => quote! { impl AsFd },
         ArgType::Int => quote! { i32 },
         ArgType::Uint => quote! { u32 },
@@ -159,7 +159,7 @@ fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
 fn call_arg_expr(name_ident: &proc_macro2::Ident, arg_type: &ArgType) -> TokenStream {
     match arg_type {
         ArgType::Varchar => {
-            quote! { hyprwire::implementation::types::CallArg::Varchar(#name_ident.as_bytes()) }
+            quote! { hyprwire::implementation::types::CallArg::Varchar(#name_ident.as_ref().as_bytes()) }
         }
         ArgType::Fd => {
             quote! { hyprwire::implementation::types::CallArg::Fd(#name_ident.as_fd().as_raw_fd()) }
@@ -597,8 +597,8 @@ fn write_dispatch_fn(
         unsafe extern "C" fn #fn_ident<D: hyprwire::Dispatch<#obj_ident>>(
             #(#fn_params,)*
         ) {
-            let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-            let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+            let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+            let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
             unsafe { rc::Rc::increment_strong_count(dispatch.object) };
             let proxy = #obj_ident {
                 object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -691,7 +691,7 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
 
 fn write_server_create_helper(m: &Method) -> Option<TokenStream> {
     let returned = m.returns.as_deref()?;
-    let helper_ident = format_ident!("create_{}", m.name);
+    let helper_ident = format_ident!("{}", raw_ident(&m.name));
     let returned_obj_ident = format_ident!("{}Object", snake_to_pascal(returned));
     let docs = method_doc_attrs(m, true);
     Some(quote! {
@@ -881,8 +881,8 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
             impl #obj_ident {
                 #new_fn
 
-                pub fn error(&self, error_id: u32, error_msg: &str) {
-                    self.object.error(error_id, error_msg);
+                pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
+                    self.object.error(error_id, error_msg.as_ref());
                 }
 
                 pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {

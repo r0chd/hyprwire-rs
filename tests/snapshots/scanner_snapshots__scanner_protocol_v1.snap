@@ -1,9 +1,8 @@
 ---
 source: tests/scanner_snapshots.rs
-assertion_line: 10
 expression: code
 ---
-// Generated with hyprwire-scanner 0.1.16. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.2.0. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:
@@ -119,8 +118,8 @@ pub mod server {
         data: *mut ffi::c_void,
         message: *const ffi::c_char,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -140,8 +139,8 @@ pub mod server {
         data: *mut ffi::c_void,
         message: i32,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -160,8 +159,8 @@ pub mod server {
         message: *const i32,
         message_len: u32,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -185,8 +184,8 @@ pub mod server {
         message: *const *const ffi::c_char,
         message_len: u32,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -210,8 +209,8 @@ pub mod server {
         message: *const u32,
         message_len: u32,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -232,8 +231,8 @@ pub mod server {
         data: *mut ffi::c_void,
         seq: u32,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -267,8 +266,8 @@ pub mod server {
             object.listen(5u32, my_manager_v1_method5::<D> as *mut ffi::c_void);
             Self { object }
         }
-        pub fn error(&self, error_id: u32, error_msg: &str) {
-            self.object.error(error_id, error_msg);
+        pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
+            self.object.error(error_id, error_msg.as_ref());
         }
         pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
             self.object.set_on_drop(Box::new(callback));
@@ -278,7 +277,7 @@ pub mod server {
         /// Makes a test object
         ///
         /// Returns a new `MyObjectV1Object`.
-        pub fn create_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
+        pub fn make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
             seq: u32,
         ) -> Option<MyObjectV1Object> {
@@ -291,13 +290,13 @@ pub mod server {
         ///
         /// Arguments:
         /// `message`: message
-        pub fn send_send_message(&self, message: &str) {
+        pub fn send_send_message(&self, message: impl AsRef<str>) {
             self.object
                 .call(
                     0u32,
                     &[
                         hyprwire::implementation::types::CallArg::Varchar(
-                            message.as_bytes(),
+                            message.as_ref().as_bytes(),
                         ),
                     ],
                 );
@@ -349,8 +348,8 @@ pub mod server {
         data: *mut ffi::c_void,
         message: *const ffi::c_char,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -370,8 +369,8 @@ pub mod server {
         data: *mut ffi::c_void,
         message: super::spec::MyEnum,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -387,8 +386,8 @@ pub mod server {
     unsafe extern "C" fn my_object_v1_method2<D: hyprwire::Dispatch<MyObjectV1Object>>(
         data: *mut ffi::c_void,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -399,8 +398,8 @@ pub mod server {
         data: *mut ffi::c_void,
         seq: u32,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -426,8 +425,8 @@ pub mod server {
             object.listen(3u32, my_object_v1_method3::<D> as *mut ffi::c_void);
             Self { object }
         }
-        pub fn error(&self, error_id: u32, error_msg: &str) {
-            self.object.error(error_id, error_msg);
+        pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
+            self.object.error(error_id, error_msg.as_ref());
         }
         pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
             self.object.set_on_drop(Box::new(callback));
@@ -437,7 +436,7 @@ pub mod server {
         /// Makes a test object from a test object
         ///
         /// Returns a new `MyObjectV1Object`.
-        pub fn create_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
+        pub fn make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
             seq: u32,
         ) -> Option<MyObjectV1Object> {
@@ -450,13 +449,13 @@ pub mod server {
         ///
         /// Arguments:
         /// `message`: message
-        pub fn send_send_message(&self, message: &str) {
+        pub fn send_send_message(&self, message: impl AsRef<str>) {
             self.object
                 .call(
                     0u32,
                     &[
                         hyprwire::implementation::types::CallArg::Varchar(
-                            message.as_bytes(),
+                            message.as_ref().as_bytes(),
                         ),
                     ],
                 );
@@ -604,8 +603,8 @@ pub mod client {
         data: *mut ffi::c_void,
         message: *const ffi::c_char,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -628,8 +627,8 @@ pub mod client {
         message: *const u32,
         message_len: u32,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyManagerV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -678,13 +677,13 @@ pub mod client {
         ///
         /// Arguments:
         /// `message`: message
-        pub fn send_send_message(&self, message: &str) {
+        pub fn send_send_message(&self, message: impl AsRef<str>) {
             self.object
                 .call(
                     0u32,
                     &[
                         hyprwire::implementation::types::CallArg::Varchar(
-                            message.as_bytes(),
+                            message.as_ref().as_bytes(),
                         ),
                     ],
                 );
@@ -802,8 +801,8 @@ pub mod client {
         data: *mut ffi::c_void,
         message: *const ffi::c_char,
     ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchData) };
-        let __dispatch = unsafe { &mut *(hyprwire::get_dispatch_state() as *mut D) };
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = MyObjectV1Object {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
@@ -850,13 +849,13 @@ pub mod client {
         ///
         /// Arguments:
         /// `message`: message
-        pub fn send_send_message(&self, message: &str) {
+        pub fn send_send_message(&self, message: impl AsRef<str>) {
             self.object
                 .call(
                     0u32,
                     &[
                         hyprwire::implementation::types::CallArg::Varchar(
-                            message.as_bytes(),
+                            message.as_ref().as_bytes(),
                         ),
                     ],
                 );

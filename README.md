@@ -53,7 +53,8 @@ mod test_protocol_v1 {
     pub use client::*;
 }
 
-use hyprwire::client::Client;
+use std::{path, io};
+use hyprwire::client;
 use hyprwire::implementation::client::ProtocolImplementations;
 use hyprwire::implementation::types::ProtocolSpec;
 
@@ -73,9 +74,9 @@ impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
     }
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> io::Result<()> {
     // Connect to the server.
-    let mut client = Client::open(std::path::Path::new("/tmp/test-hw.sock"))?;
+    let mut client = client::Client::open(path::Path::new("/tmp/test-hw.sock"))?;
 
     // Register the generated client-side implementation so incoming events
     // can be decoded into typed callbacks.
@@ -118,6 +119,7 @@ mod test_protocol_v1 {
     pub use server::*;
 }
 
+use std::path;
 use hyprwire::server::Server;
 
 #[derive(Default)]
@@ -146,7 +148,7 @@ fn main() -> std::io::Result<()> {
     let mut app = App;
 
     // Create a listening server socket.
-    let mut server = Server::open(Some(std::path::Path::new("/tmp/test-hw.sock")))?;
+    let mut server = Server::open(Some(path::Path::new("/tmp/test-hw.sock")))?;
 
     // Register the generated server-side implementation.
     let implementation = test_protocol_v1::TestProtocolV1Impl::new(1, &mut app);
@@ -165,6 +167,3 @@ The repository includes:
 - [`examples/basic/client.rs`](examples/basic/client.rs)
 - [`examples/basic/server.rs`](examples/basic/server.rs)
 - [`examples/fork/main.rs`](examples/fork/main.rs)
-
-The `fork` example runs a client and server against each other over a
-`socketpair`.

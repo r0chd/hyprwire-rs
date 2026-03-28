@@ -1,7 +1,7 @@
 use crate::implementation::types;
 use crate::{client, server};
-use std::rc;
 use std::os::raw;
+use std::rc;
 
 pub trait RawObject {
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32;

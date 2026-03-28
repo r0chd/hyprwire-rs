@@ -7,9 +7,10 @@ use hyprwire::implementation::client::ProtocolImplementations;
 use hyprwire::implementation::types::ProtocolSpec;
 use hyprwire::server;
 use nix::libc;
-use std::fs;
-use std::io::{self, Read};
+use std::io;
+use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::{fs, path};
 
 const TEST_PROTOCOL_VERSION: u32 = 1;
 
@@ -60,7 +61,7 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyManagerV1Object> for ServerA
             }
             test_protocol_v1::server::MyManagerV1Event::MakeObject { seq } => {
                 let object = object
-                    .create_make_object::<Self>(seq)
+                    .make_object::<Self>(seq)
                     .expect("failed to create object");
                 object.send_send_message("Hello object");
                 self.objects.push(object);
@@ -91,7 +92,7 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyObjectV1Object> for ServerAp
             }
             test_protocol_v1::server::MyObjectV1Event::MakeObject { seq } => {
                 let object = object
-                    .create_make_object::<Self>(seq)
+                    .make_object::<Self>(seq)
                     .expect("failed to create nested object");
                 object.send_send_message("Hello object");
                 self.objects.push(object);
@@ -199,7 +200,7 @@ fn make_pipe_with_message(message: &[u8]) -> io::Result<OwnedFd> {
 }
 
 fn server_main(client_fd: RawFd) -> io::Result<()> {
-    let mut socket = server::Server::open(None)?;
+    let mut socket = server::Server::open::<&path::Path>(None)?;
     let mut app = ServerApp::default();
     let implementation = test_protocol_v1::server::TestProtocolV1Impl::new(1, &mut app);
     socket.add_implementation(implementation);

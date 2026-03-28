@@ -29,7 +29,13 @@ pub trait WireObject: object::RawObject {
 
     fn seq(&self) -> u32;
 
-    fn called(&self, id: u32, data: &[u8], fds: &[i32]) -> Result<(), message::MessageError> {
+    fn called(
+        &self,
+        id: u32,
+        data: &[u8],
+        fds: &[i32],
+        dispatch: *mut raw::c_void,
+    ) -> Result<(), message::MessageError> {
         let methods = self.methods_in();
 
         if methods.len() <= id as usize {
@@ -180,10 +186,17 @@ pub trait WireObject: object::RawObject {
         let mut strings: Vec<Vec<u8>> = Vec::new();
         let mut fd_no: usize = 0;
 
-        // Prepend data pointer as first avalue so trampolines can access user data
-        let data_ptr = self.get_data();
+        // Prepend the per-call dispatch context so trampolines can access both
+        // the object and the current dispatch target without TLS.
+        let object_data = unsafe { &*(self.get_data() as *const crate::DispatchData) };
+        let call_ctx = crate::DispatchContext {
+            object: object_data.object,
+            dispatch,
+        };
         let mut data_ptr_slot = vec![0u8; std::mem::size_of::<*mut raw::c_void>()];
-        data_ptr_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
+        data_ptr_slot.copy_from_slice(
+            &((&call_ctx as *const crate::DispatchContext) as usize).to_ne_bytes(),
+        );
         avalues.push(data_ptr_slot.as_mut_ptr().cast::<raw::c_void>());
         other_buffers.push(data_ptr_slot);
 

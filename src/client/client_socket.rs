@@ -6,10 +6,9 @@ use crate::message::Message;
 use crate::{SharedState, implementation, message, socket, steady_millis, trace};
 use nix::sys;
 use nix::{errno, poll};
-use std::os::fd;
-use std::os::fd::{BorrowedFd, FromRawFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd};
 use std::os::unix::net;
-use std::{cell, io, ops, path, rc, time};
+use std::{cell, ffi, io, ops, path, rc, time};
 
 pub struct ClientSocket {
     impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
@@ -49,13 +48,19 @@ impl ClientSocket {
         client_socket
     }
 
-    pub fn open(path: &path::Path) -> io::Result<rc::Rc<Self>> {
+    pub fn open<T>(path: T) -> io::Result<rc::Rc<Self>>
+    where
+        T: AsRef<path::Path>,
+    {
         let stream = net::UnixStream::connect(path)?;
         Ok(Self::new(stream))
     }
 
-    pub fn from_fd(fd: fd::RawFd) -> rc::Rc<Self> {
-        let stream = unsafe { net::UnixStream::from_raw_fd(fd) };
+    pub fn from_fd<T>(fd: T) -> rc::Rc<Self>
+    where
+        T: AsRawFd,
+    {
+        let stream = unsafe { net::UnixStream::from_raw_fd(fd.as_raw_fd()) };
         Self::new(stream)
     }
 
@@ -68,7 +73,7 @@ impl ClientSocket {
 
     pub fn wait_for_handshake(&self) -> Result<(), io::Error> {
         while !self.state.error.get() && !self.handshake_done.get() {
-            self.dispatch_events(true)?;
+            self.dispatch_events(std::ptr::null_mut(), true)?;
         }
 
         if self.state.error.get() {
@@ -136,7 +141,7 @@ impl ClientSocket {
         object: &rc::Rc<client_object::ClientObject>,
     ) -> Result<(), io::Error> {
         while object.id.get() == 0 && !self.state.error.get() {
-            self.dispatch_events(true)?;
+            self.dispatch_events(std::ptr::null_mut(), true)?;
         }
 
         if self.state.error.get() {
@@ -212,7 +217,7 @@ impl ClientSocket {
             .unwrap();
     }
 
-    pub fn roundtrip(&self) -> Result<(), io::Error> {
+    pub fn roundtrip(&self, dispatch: *mut ffi::c_void) -> Result<(), io::Error> {
         if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
@@ -226,13 +231,17 @@ impl ClientSocket {
             .send_message(&message::RoundtripRequest::new(next_seq));
 
         while self.last_ackd_roundtrip_seq.get() < next_seq {
-            self.dispatch_events(true)?;
+            self.dispatch_events(dispatch, true)?;
         }
 
         Ok(())
     }
 
-    pub fn dispatch_events(&self, block: bool) -> Result<(), io::Error> {
+    pub fn dispatch_events(
+        &self,
+        dispatch: *mut ffi::c_void,
+        block: bool,
+    ) -> Result<(), io::Error> {
         if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
@@ -366,7 +375,7 @@ impl ClientSocket {
             ));
         }
 
-        if message::handle_message(&mut data, &message::Role::Client(self)).is_err() {
+        if message::handle_message(&mut data, &message::Role::Client(self), dispatch).is_err() {
             log::error!("fatal: failed to handle message on wire");
             self.disconnect_on_error();
             return Err(io::Error::new(
@@ -378,9 +387,7 @@ impl ClientSocket {
         let pending = std::mem::take(&mut *self.pending_outgoing.borrow_mut());
         for mut msg in pending {
             let seq = msg.depends_on_seq();
-            let obj_id = self
-                .object_for_seq(seq)
-                .map(|obj| obj.id.get());
+            let obj_id = self.object_for_seq(seq).map(|obj| obj.id.get());
 
             match obj_id {
                 None => continue,
@@ -416,7 +423,11 @@ impl ClientSocket {
         }
     }
 
-    pub fn on_generic(&self, msg: &message::GenericProtocolMessage<ops::Range<usize>>) {
+    pub fn on_generic(
+        &self,
+        msg: &message::GenericProtocolMessage<ops::Range<usize>>,
+        dispatch: *mut ffi::c_void,
+    ) {
         let obj = self
             .objects
             .borrow()
@@ -426,7 +437,7 @@ impl ClientSocket {
 
         match obj {
             Some(obj) => {
-                if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds()) {
+                if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
                     log::error!(
                         "[{} @ {:.3}] object {} called method error: {e}",
                         self.state.fd,

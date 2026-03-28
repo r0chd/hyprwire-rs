@@ -186,19 +186,11 @@ pub struct DispatchData {
     pub object: *const dyn object::RawObject,
 }
 
-thread_local! {
-    static DISPATCH_STATE: cell::Cell<*mut ffi::c_void> = const { cell::Cell::new(std::ptr::null_mut()) };
-}
-
-fn set_dispatch_state(state: *mut ffi::c_void) {
-    DISPATCH_STATE.set(state);
-}
-
-#[must_use]
 #[doc(hidden)]
 #[allow(missing_docs)]
-pub fn get_dispatch_state() -> *mut ffi::c_void {
-    DISPATCH_STATE.get()
+pub struct DispatchContext {
+    pub object: *const dyn object::RawObject,
+    pub dispatch: *mut ffi::c_void,
 }
 
 static START: sync::OnceLock<time::Instant> = sync::OnceLock::new();

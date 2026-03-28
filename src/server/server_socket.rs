@@ -4,10 +4,16 @@ use nix::poll;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd};
 use std::os::unix::net;
 use std::sync;
-use std::{cell, fs, io, path, rc, thread};
+use std::{cell, ffi, fs, io, path, ptr, rc, thread};
 
 use crate::implementation;
 
+/// Server-side entry point for accepting clients and dispatching Hyprwire
+/// protocol traffic.
+///
+/// A `ServerSocket` can either listen on a Unix socket path or operate without
+/// a listener and accept already-connected client file descriptors via
+/// [`ServerSocket::add_client`].
 pub struct ServerSocket {
     server: Option<net::UnixListener>,
     export_fd: Option<net::UnixStream>,
@@ -28,7 +34,15 @@ pub struct ServerSocket {
 }
 
 impl ServerSocket {
-    pub fn open(path: Option<&path::Path>) -> io::Result<Self> {
+    /// Opens a Hyprwire server socket.
+    ///
+    /// If `path` is `Some`, the server listens on that Unix socket path. If it
+    /// is `None`, the server starts without a listener and can be used only
+    /// with clients added through [`ServerSocket::add_client`].
+    pub fn open<T>(path: Option<T>) -> io::Result<Self>
+    where
+        T: AsRef<path::Path>,
+    {
         let wake_pipes = net::UnixStream::pair()?;
         let exit_pipes = net::UnixStream::pair()?;
 
@@ -36,7 +50,7 @@ impl ServerSocket {
         let export_poll_mtx = sync::Arc::new(sync::Mutex::new(false));
         let export_poll_cv = sync::Arc::new(sync::Condvar::new());
 
-        let mut this = match path {
+        let mut this = match path.as_ref() {
             Some(path) => {
                 if fs::exists(path)? {
                     match net::UnixStream::connect(path) {
@@ -96,23 +110,28 @@ impl ServerSocket {
         Ok(this)
     }
 
-    pub fn add_implementation(
-        &mut self,
-        implementation: Box<dyn implementation::server::ProtocolImplementations>,
-    ) {
+    /// Registers a protocol implementation on the server.
+    ///
+    /// Implementations must be added before any clients connect. Once a client
+    /// has been added, the server freezes the implementation list and further
+    /// calls will panic.
+    pub fn add_implementation<T>(&mut self, implementation: T)
+    where
+        T: implementation::server::ProtocolImplementations + 'static,
+    {
         rc::Rc::get_mut(&mut self.impls)
             .expect("cannot add implementations after clients connect")
-            .push(implementation);
+            .push(Box::new(implementation));
     }
 
-    pub fn dispatch_pending(&mut self) -> bool {
+    pub(crate) fn dispatch_pending(&mut self, dispatch: *mut ffi::c_void) -> bool {
         let _ = poll::poll(&mut self.pollfds, poll::PollTimeout::ZERO);
 
         if self.dispatch_new_connections() {
-            return self.dispatch_pending();
+            return self.dispatch_pending(dispatch);
         }
 
-        self.dispatch_existing_connections()
+        self.dispatch_existing_connections(dispatch)
     }
 
     fn clear_fd(fd: &net::UnixStream) {
@@ -147,7 +166,11 @@ impl ServerSocket {
         }
     }
 
-    fn dispatch_client(&self, client: &rc::Rc<cell::RefCell<server_client::ServerClient>>) {
+    fn dispatch_client(
+        &self,
+        client: &rc::Rc<cell::RefCell<server_client::ServerClient>>,
+        dispatch: *mut ffi::c_void,
+    ) {
         let state = rc::Rc::clone(&client.borrow().state);
 
         let mut data = {
@@ -170,7 +193,13 @@ impl ServerSocket {
             return;
         }
 
-        if message::handle_message(&mut data, &message::Role::Server(&client.borrow())).is_err() {
+        if message::handle_message(
+            &mut data,
+            &message::Role::Server(&client.borrow()),
+            dispatch,
+        )
+        .is_err()
+        {
             state.send_message(&message::FatalProtocolError::new(
                 0,
                 u32::MAX,
@@ -187,7 +216,7 @@ impl ServerSocket {
         }
     }
 
-    pub fn dispatch_existing_connections(&mut self) -> bool {
+    pub(crate) fn dispatch_existing_connections(&mut self, dispatch: *mut ffi::c_void) -> bool {
         let mut had_any = false;
         let mut needs_poll_recheck = false;
 
@@ -203,7 +232,7 @@ impl ServerSocket {
             }
 
             let client_idx = i - internal_fds;
-            self.dispatch_client(&self.clients[client_idx].clone());
+            self.dispatch_client(&self.clients[client_idx].clone(), dispatch);
 
             had_any = true;
 
@@ -243,7 +272,7 @@ impl ServerSocket {
         if self.is_empty_listener { 2 } else { 3 }
     }
 
-    pub fn dispatch_new_connections(&mut self) -> bool {
+    pub(crate) fn dispatch_new_connections(&mut self) -> bool {
         if self.is_empty_listener {
             return false;
         }
@@ -309,11 +338,18 @@ impl ServerSocket {
         }
     }
 
-    pub fn dispatch_events(&mut self, block: bool) -> bool {
+    /// Processes pending protocol traffic for connected clients.
+    ///
+    /// Pass the dispatch state that receives generated event callbacks. If
+    /// `block` is `true`, this call waits until at least one event source
+    /// becomes ready before dispatching work.
+    pub fn dispatch_events<D>(&mut self, state: &mut D, block: bool) -> bool {
+        let dispatch = ptr::from_mut::<D>(state).cast::<ffi::c_void>();
+
         let mtx = sync::Arc::clone(&self.poll_mtx);
         let poll_guard = mtx.lock().unwrap();
 
-        while self.dispatch_pending() {}
+        while self.dispatch_pending(dispatch) {}
 
         self.clear_event_fd();
         self.clear_exit_fd();
@@ -321,7 +357,7 @@ impl ServerSocket {
 
         if block {
             let _ = poll::poll(&mut self.pollfds, poll::PollTimeout::NONE);
-            while self.dispatch_pending() {}
+            while self.dispatch_pending(dispatch) {}
         }
 
         drop(poll_guard);
@@ -335,8 +371,14 @@ impl ServerSocket {
         true
     }
 
-    pub fn add_client(&mut self, fd: i32) -> rc::Rc<cell::RefCell<server_client::ServerClient>> {
-        let stream = unsafe { net::UnixStream::from_raw_fd(fd) };
+    /// Adds an already-connected Unix socket as a server client.
+    ///
+    /// This is primarily useful when the server is running without a listener.
+    pub fn add_client<T>(&mut self, fd: T) -> server_client::ServerClientHandle
+    where
+        T: AsRawFd,
+    {
+        let stream = unsafe { net::UnixStream::from_raw_fd(fd.as_raw_fd()) };
         let state = rc::Rc::new(SharedState::with_impls(stream, rc::Rc::clone(&self.impls)));
         let client = server_client::ServerClient::new(rc::Rc::clone(&state));
 
@@ -346,12 +388,19 @@ impl ServerSocket {
         // wake up any poller
         let _ = io::Write::write(&mut &self.wakeup_write_fd, b"x");
 
-        client
+        server_client::ServerClientHandle(client)
     }
 
-    pub fn remove_client(&mut self, fd: i32) -> bool {
+    /// Removes a client previously added to the server.
+    ///
+    /// Returns `true` if a matching client file descriptor was present.
+    pub fn remove_client<T>(&mut self, fd: T) -> bool
+    where
+        T: AsRawFd,
+    {
         let before = self.clients.len();
-        self.clients.retain(|c| c.borrow().state.fd != fd);
+        self.clients
+            .retain(|c| c.borrow().state.fd != fd.as_raw_fd());
         let removed = self.clients.len() < before;
 
         if removed {
@@ -361,6 +410,15 @@ impl ServerSocket {
         removed
     }
 
+    /// Returns a file descriptor that becomes readable when the server has
+    /// work to process.
+    ///
+    /// This can be integrated into an external event loop. When the returned
+    /// descriptor is readable, call [`ServerSocket::dispatch_events`] to accept
+    /// new clients and process pending protocol traffic.
+    ///
+    /// The returned descriptor remains owned by the server and is valid for as
+    /// long as the server stays alive.
     pub fn extract_loop_fd(&mut self) -> io::Result<i32> {
         if let Some(export_fd) = self.export_fd.as_ref() {
             return Ok(export_fd.as_raw_fd());

@@ -59,7 +59,7 @@ impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
             }
             test_protocol_v1::MyManagerV1Event::MakeObject { seq } => {
                 let obj = object
-                    .create_make_object::<Self>(seq)
+                    .make_object::<Self>(seq)
                     .expect("failed to create object");
                 obj.send_send_message("Hello object");
                 self.object = Some(obj);

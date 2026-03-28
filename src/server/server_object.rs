@@ -78,11 +78,7 @@ impl object::RawObject for ServerObject {
         listeners.push(callback);
     }
 
-    fn create_object(
-        &self,
-        object_name: &str,
-        seq: u32,
-    ) -> Option<rc::Rc<dyn object::RawObject>> {
+    fn create_object(&self, object_name: &str, seq: u32) -> Option<rc::Rc<dyn object::RawObject>> {
         let client = self.client.upgrade()?;
         let obj = client.borrow().create_object(
             &self.protocol_name,

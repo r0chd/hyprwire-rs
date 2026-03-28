@@ -12,7 +12,7 @@ pub mod roundtrip_request;
 use super::{MessageError, MessageType};
 use crate::implementation::types;
 use crate::message;
-use std::{fmt::Write, mem, result};
+use std::{fmt::Write, result};
 
 pub type Result<T> = result::Result<T, MessageError>;
 
@@ -34,8 +34,7 @@ pub trait Message {
         let mut first = true;
         let mut needle: usize = 1;
         while needle < data.len() {
-            // SAFETY: Message was already validated
-            let magic: types::MessageMagic = unsafe { mem::transmute(data[needle]) };
+            let magic = types::MessageMagic::try_from(data[needle]).unwrap();
             needle += 1;
 
             match magic {
