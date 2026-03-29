@@ -15,11 +15,13 @@ pub fn configure() -> Builder {
 }
 
 impl Builder {
+    #[must_use]
     pub fn out_dir(mut self, path: impl Into<path::PathBuf>) -> Self {
         self.out_dir = Some(path.into());
         self
     }
 
+    #[must_use]
     pub fn with_targets(mut self, targets: generate::Targets) -> Self {
         self.targets = targets;
         self

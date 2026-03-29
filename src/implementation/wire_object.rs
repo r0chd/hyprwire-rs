@@ -2,6 +2,7 @@ use super::types;
 use crate::implementation::object;
 use crate::{message, steady_millis, trace};
 use libffi::low as ffi;
+use std::os::fd::AsRawFd;
 use std::os::raw;
 
 pub trait WireObject: object::RawObject {
@@ -195,7 +196,7 @@ pub trait WireObject: object::RawObject {
         };
         let mut data_ptr_slot = vec![0u8; std::mem::size_of::<*mut raw::c_void>()];
         data_ptr_slot.copy_from_slice(
-            &((&call_ctx as *const crate::DispatchContext) as usize).to_ne_bytes(),
+            &((&raw const call_ctx) as usize).to_ne_bytes(),
         );
         avalues.push(data_ptr_slot.as_mut_ptr().cast::<raw::c_void>());
         other_buffers.push(data_ptr_slot);
@@ -460,7 +461,7 @@ pub trait WireObject: object::RawObject {
         if !method_returns_type.is_empty() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    eprintln!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.state.fd, steady_millis(), id, method_returns_type);
+                    eprintln!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.state.stream.as_raw_fd(), steady_millis(), id, method_returns_type);
                 }
             }
 
@@ -600,7 +601,7 @@ pub trait WireObject: object::RawObject {
         if self.id() == 0 && !self.server() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    eprintln!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.state.fd, steady_millis(), method_returns_type);
+                    eprintln!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.state.stream.as_raw_fd(), steady_millis(), method_returns_type);
                 }
             }
 

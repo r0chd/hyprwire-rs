@@ -6,7 +6,8 @@ use crate::message::Message;
 use crate::{SharedState, implementation, message, socket, steady_millis, trace};
 use nix::sys;
 use nix::{errno, poll};
-use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd};
+use std::os::fd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
 use std::{cell, ffi, io, ops, path, rc, time};
 
@@ -22,7 +23,7 @@ pub struct ClientSocket {
     pub(crate) seq: cell::Cell<u32>,
     pub(crate) pending_outgoing:
         cell::RefCell<Vec<message::GenericProtocolMessage<ops::Range<usize>>>>,
-    _self: rc::Weak<Self>,
+    self_ref: rc::Weak<Self>,
 }
 
 const HANDSHAKE_MAX_MS: u64 = 5000;
@@ -41,7 +42,7 @@ impl ClientSocket {
             handshake_done: cell::Cell::new(false),
             handshake_begin: time::Instant::now(),
             pending_outgoing: cell::RefCell::new(Vec::new()),
-            _self: weak_self.clone(),
+            self_ref: weak_self.clone(),
         });
         state.send_message(&message::Hello::new());
 
@@ -58,9 +59,9 @@ impl ClientSocket {
 
     pub fn from_fd<T>(fd: T) -> rc::Rc<Self>
     where
-        T: AsRawFd,
+        T: Into<fd::OwnedFd>,
     {
-        let stream = unsafe { net::UnixStream::from_raw_fd(fd.as_raw_fd()) };
+        let stream = net::UnixStream::from(fd.into());
         Self::new(stream)
     }
 
@@ -116,7 +117,7 @@ impl ClientSocket {
         }
 
         let mut object =
-            client_object::ClientObject::new(self._self.clone(), rc::Rc::clone(&self.state));
+            client_object::ClientObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
         let objects = spec.objects();
         object.spec = Some(std::sync::Arc::clone(&objects[0]));
         let seq = self.seq.get() + 1;
@@ -161,7 +162,7 @@ impl ClientSocket {
         seq: u32,
     ) -> Result<rc::Rc<client_object::ClientObject>, message::MessageError> {
         let mut object =
-            client_object::ClientObject::new(self._self.clone(), rc::Rc::clone(&self.state));
+            client_object::ClientObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
         object.protocol_name = protocol_name.to_string();
 
         if let Some(obj) = self
@@ -191,8 +192,8 @@ impl ClientSocket {
         Ok(object)
     }
 
-    pub fn extract_loop_fd(&self) -> i32 {
-        self.state.fd
+    pub fn extract_loop_fd(&self) -> fd::BorrowedFd<'_> {
+        self.state.stream.as_fd()
     }
 
     pub fn server_specs(&self, specs: &[rc::Rc<str>]) {
@@ -210,11 +211,7 @@ impl ClientSocket {
 
     pub fn disconnect_on_error(&self) {
         self.state.error.set(true);
-        self.state
-            .stream
-            .borrow()
-            .shutdown(std::net::Shutdown::Both)
-            .unwrap();
+        let _ = self.state.stream.shutdown(std::net::Shutdown::Both);
     }
 
     pub fn roundtrip(&self, dispatch: *mut ffi::c_void) -> Result<(), io::Error> {
@@ -249,8 +246,6 @@ impl ClientSocket {
             ));
         }
 
-        let borrowed_fd = unsafe { BorrowedFd::borrow_raw(self.state.fd) };
-
         if !self.handshake_done.get() {
             #[allow(clippy::cast_possible_truncation)]
             let elapsed_ms = self.handshake_begin.elapsed().as_millis() as u64;
@@ -264,7 +259,10 @@ impl ClientSocket {
                 poll::PollTimeout::ZERO
             };
 
-            let mut pfd = [poll::PollFd::new(borrowed_fd, poll::PollFlags::POLLIN)];
+            let mut pfd = [poll::PollFd::new(
+                self.state.stream.as_fd(),
+                poll::PollFlags::POLLIN,
+            )];
 
             let ready = poll::poll(&mut pfd, timeout)
                 .map_err(|e| io::Error::from_raw_os_error(e as i32))?;
@@ -283,7 +281,7 @@ impl ClientSocket {
             // peek to check for HUP (0 bytes = connection closed)
             let mut peek_buf = [0u8; 1];
             match sys::socket::recv(
-                self.state.fd,
+                self.state.stream.as_raw_fd(),
                 &mut peek_buf,
                 sys::socket::MsgFlags::MSG_PEEK,
             ) {
@@ -308,7 +306,10 @@ impl ClientSocket {
                 poll::PollTimeout::ZERO
             };
 
-            let mut pfd = [poll::PollFd::new(borrowed_fd, poll::PollFlags::POLLIN)];
+            let mut pfd = [poll::PollFd::new(
+                self.state.stream.as_fd(),
+                poll::PollFlags::POLLIN,
+            )];
 
             let ready = poll::poll(&mut pfd, timeout)
                 .map_err(|e| io::Error::from_raw_os_error(e as i32))?;
@@ -326,7 +327,7 @@ impl ClientSocket {
             // peek to check for HUP (0 bytes = connection closed)
             let mut peek_buf = [0u8; 1];
             match sys::socket::recv(
-                self.state.fd,
+                self.state.stream.as_raw_fd(),
                 &mut peek_buf,
                 sys::socket::MsgFlags::MSG_PEEK,
             ) {
@@ -353,10 +354,8 @@ impl ClientSocket {
         // dispatch
 
         let mut data = {
-            let stream = self.state.stream.borrow();
-            match socket::SocketRawParsedMessage::read_from_socket(&stream) {
+            match socket::SocketRawParsedMessage::read_from_socket(&self.state.stream) {
                 Err(_) => {
-                    drop(stream);
                     log::error!("fatal: received malformed message from server");
                     self.disconnect_on_error();
                     return Err(io::Error::new(
@@ -398,7 +397,7 @@ impl ClientSocket {
                 Some(id) => {
                     msg.resolve_seq(id);
                     trace! {
-                        eprintln!("[hw] trace: [{} @ {:.3}] -> Handle deferred {}", self.state.fd, steady_millis(), msg.parse_data())
+                        eprintln!("[hw] trace: [{} @ {:.3}] -> Handle deferred {}", self.state.stream.as_raw_fd(), steady_millis(), msg.parse_data())
                     }
                 }
             }
@@ -440,7 +439,7 @@ impl ClientSocket {
                 if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
                     log::error!(
                         "[{} @ {:.3}] object {} called method error: {e}",
-                        self.state.fd,
+                        self.state.stream.as_raw_fd(),
                         steady_millis(),
                         msg.object(),
                     );
@@ -450,7 +449,7 @@ impl ClientSocket {
                 trace! {
                     eprintln!(
                         "[hw] trace: [{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-                        self.state.fd,
+                        self.state.stream.as_raw_fd(),
                         steady_millis(),
                         msg.object(),
                     )

@@ -25,6 +25,14 @@ path = "examples/basic/server.rs"
 name = "fork"
 path = "examples/fork/main.rs"
 
+[[example]]
+name = "calloop-client"
+path = "examples/calloop/client.rs"
+
+[[example]]
+name = "calloop-server"
+path = "examples/calloop/server.rs"
+
 [dependencies]
 libffi = { version = "5.1.0", default-features = false }
 log = { version = "0.4.29", default-features = false }
@@ -38,6 +46,7 @@ nix = { version = "0.31.1", features = [
 hyprwire-scanner = { version = "0.2.0", path = "scanner" }
 
 [dev-dependencies]
+calloop = "0.14.4"
 hyprwire-scanner = { version = "0.2.0", path = "scanner" }
 insta = "1"
 env_logger = { version = "0.11.9", default-features = false }

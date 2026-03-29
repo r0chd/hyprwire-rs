@@ -982,8 +982,8 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 
     for obj in &protocol.objects {
         let pascal = snake_to_pascal(&obj.name);
-        let obj_ident = format_ident!("{}Object", pascal);
-        let pascal_str = format!("{}Object", pascal);
+        let obj_ident = format_ident!("{pascal}Object");
+        let pascal_str = format!("{pascal}Object");
         let raw_obj = raw_object_type();
         let docs = object_doc_attrs(obj.description.as_ref());
 

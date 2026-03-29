@@ -9,7 +9,8 @@ use hyprwire::server;
 use nix::libc;
 use std::io;
 use std::io::Read;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::{fs, path};
 
 const TEST_PROTOCOL_VERSION: u32 = 1;
@@ -153,7 +154,7 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyObjectV1Object> for ClientAp
     }
 }
 
-fn poll_readable(fd: RawFd, timeout_ms: i32) -> io::Result<bool> {
+fn poll_readable(fd: fd::RawFd, timeout_ms: i32) -> io::Result<bool> {
     let mut pfd = libc::pollfd {
         fd,
         events: libc::POLLIN,
@@ -174,7 +175,7 @@ fn poll_readable(fd: RawFd, timeout_ms: i32) -> io::Result<bool> {
     }
 }
 
-fn make_pipe_with_message(message: &[u8]) -> io::Result<OwnedFd> {
+fn make_pipe_with_message(message: &[u8]) -> io::Result<fd::OwnedFd> {
     let mut pipe_fds = [0; 2];
     let rc = unsafe { libc::pipe(pipe_fds.as_mut_ptr()) };
     if rc != 0 {
@@ -192,20 +193,18 @@ fn make_pipe_with_message(message: &[u8]) -> io::Result<OwnedFd> {
     }
 
     let [read_fd, write_fd] = pipe_fds;
-    let read_fd = unsafe { OwnedFd::from_raw_fd(read_fd) };
-    let write_fd = unsafe { OwnedFd::from_raw_fd(write_fd) };
+    let read_fd = unsafe { fd::OwnedFd::from_raw_fd(read_fd) };
+    let write_fd = unsafe { fd::OwnedFd::from_raw_fd(write_fd) };
     drop(write_fd);
 
     Ok(read_fd)
 }
 
-fn server_main(client_fd: RawFd) -> io::Result<()> {
+fn server_main(client_fd: fd::RawFd) -> io::Result<()> {
     let mut socket = server::Server::open::<&path::Path>(None)?;
     let mut app = ServerApp::default();
     let implementation = test_protocol_v1::server::TestProtocolV1Impl::new(1, &mut app);
     socket.add_implementation(implementation);
-    let loop_fd = socket.extract_loop_fd()?;
-
     if !poll_readable(client_fd, 1000)? {
         return Err(io::Error::new(
             io::ErrorKind::TimedOut,
@@ -213,10 +212,10 @@ fn server_main(client_fd: RawFd) -> io::Result<()> {
         ));
     }
 
-    socket.add_client(client_fd);
+    socket.add_client(unsafe { fd::OwnedFd::from_raw_fd(client_fd) });
 
     while !app.quit {
-        if !poll_readable(loop_fd, -1)? {
+        if !poll_readable(socket.extract_loop_fd()?.as_raw_fd(), -1)? {
             continue;
         }
 
@@ -228,7 +227,7 @@ fn server_main(client_fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
-fn client_main(server_fd: RawFd) -> io::Result<()> {
+fn client_main(server_fd: fd::OwnedFd) -> io::Result<()> {
     let mut socket = client::Client::from_fd(server_fd);
     let implementation = test_protocol_v1::client::TestProtocolV1Impl::default();
     socket.add_implementation(implementation.clone());
@@ -286,7 +285,7 @@ fn client_main(server_fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
-fn socketpair() -> io::Result<[RawFd; 2]> {
+fn socketpair() -> io::Result<[fd::RawFd; 2]> {
     let mut fds = [0; 2];
     let rc = unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) };
     if rc != 0 {
@@ -317,7 +316,7 @@ fn main() {
             libc::close(server_fd);
         }
 
-        if let Err(err) = client_main(client_fd) {
+        if let Err(err) = client_main(unsafe { fd::OwnedFd::from_raw_fd(client_fd) }) {
             eprintln!("client error: {err}");
             unsafe { libc::_exit(1) };
         }

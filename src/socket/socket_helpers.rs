@@ -1,5 +1,5 @@
 use crate::trace;
-use nix::sys::socket::{self, ControlMessageOwned};
+use nix::sys::socket;
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
 
@@ -34,7 +34,7 @@ impl SocketRawParsedMessage {
 
         let mut fds = Vec::new();
         for cmsg in msg.cmsgs().map_err(|_| nix::errno::Errno::ENOBUFS)? {
-            if let ControlMessageOwned::ScmRights(received_fds) = cmsg {
+            if let socket::ControlMessageOwned::ScmRights(received_fds) = cmsg {
                 trace! {
                     eprintln!(
                         "[hw] trace: SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",

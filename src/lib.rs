@@ -10,7 +10,6 @@ pub mod client;
 pub(crate) mod helpers;
 /// Traits and low-level types used by generated client/server protocol
 /// bindings.
-#[allow(missing_docs)]
 pub mod implementation;
 pub(crate) mod message;
 /// Server-side APIs for hosting Hyprwire protocols and dispatching client
@@ -26,18 +25,15 @@ use std::{cell, ffi, io, rc, sync, time};
 
 pub(crate) struct SharedState {
     pub(crate) error: cell::Cell<bool>,
-    pub(crate) stream: cell::RefCell<net::UnixStream>,
-    pub(crate) fd: i32,
+    pub(crate) stream: net::UnixStream,
     pub(crate) impls: Option<rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
 impl SharedState {
     pub(crate) fn new(stream: net::UnixStream) -> Self {
-        let fd = stream.as_raw_fd();
         Self {
             error: cell::Cell::new(false),
-            stream: cell::RefCell::new(stream),
-            fd,
+            stream,
             impls: None,
         }
     }
@@ -46,25 +42,22 @@ impl SharedState {
         stream: net::UnixStream,
         impls: rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
     ) -> Self {
-        let fd = stream.as_raw_fd();
         Self {
             error: cell::Cell::new(false),
-            stream: cell::RefCell::new(stream),
-            fd,
+            stream,
             impls: Some(impls),
         }
     }
 
     pub(crate) fn send_message(&self, message: &dyn message::Message) {
-        trace! { eprintln!("[hw] trace: [{} @ {:.3}] -> {}", self.fd, steady_millis(), message.parse_data()) };
+        trace! { eprintln!("[hw] trace: [{} @ {:.3}] -> {}", self.stream.as_raw_fd(), steady_millis(), message.parse_data()) };
 
-        let stream = self.stream.borrow();
         let buf = message.data();
         let iov = [io::IoSlice::new(buf)];
         let cmsg = [sys::socket::ControlMessage::ScmRights(message.fds())];
         loop {
             match sys::socket::sendmsg::<()>(
-                stream.as_raw_fd(),
+                self.stream.as_raw_fd(),
                 &iov,
                 &cmsg,
                 sys::socket::MsgFlags::empty(),
@@ -73,13 +66,13 @@ impl SharedState {
                 Ok(_) => break,
                 Err(errno::Errno::EAGAIN) => {
                     let mut pfd = [poll::PollFd::new(
-                        stream.as_fd(),
+                        self.stream.as_fd(),
                         poll::PollFlags::POLLOUT | poll::PollFlags::POLLWRBAND,
                     )];
                     if let Err(e) = poll::poll(&mut pfd, poll::PollTimeout::NONE) {
                         log::error!(
                             "[{} @ {:.3}] poll error during send_message: {e}",
-                            self.fd,
+                            self.stream.as_raw_fd(),
                             steady_millis(),
                         );
                         break;
@@ -119,7 +112,6 @@ macro_rules! include_protocol {
 
 /// Trait representing a hyprwire interface
 #[doc(hidden)]
-#[allow(missing_docs)]
 pub trait Object: Sized {
     /// The event enum for this interface
     type Event<'a>;

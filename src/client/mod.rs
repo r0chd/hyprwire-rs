@@ -4,7 +4,7 @@ mod server_spec;
 
 use crate::implementation;
 use implementation::client::ProtocolImplementations;
-use std::os::fd::AsRawFd;
+use std::os::fd;
 use std::{ffi, io, path, ptr, rc};
 
 /// Client-side entry point for connecting to a Hyprwire server and dispatching
@@ -29,7 +29,7 @@ impl Client {
     /// The returned client takes ownership of `fd`.
     pub fn from_fd<T>(fd: T) -> Self
     where
-        T: AsRawFd,
+        T: Into<fd::OwnedFd>,
     {
         Self(client_socket::ClientSocket::from_fd(fd))
     }
@@ -74,7 +74,7 @@ impl Client {
     ///
     /// The descriptor remains owned by the client and must not be closed by
     /// the caller.
-    pub fn extract_loop_fd(&self) -> i32 {
+    pub fn extract_loop_fd(&self) -> fd::BorrowedFd<'_> {
         self.0.extract_loop_fd()
     }
 

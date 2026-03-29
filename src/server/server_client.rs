@@ -5,27 +5,15 @@ use crate::{SharedState, message, steady_millis, trace};
 use nix::sys;
 use std::ffi;
 use std::ops;
-use std::os::fd::RawFd;
+use std::os::fd::AsRawFd;
 use std::{cell, rc};
 
 /// A handle to a connected client managed by a [`super::Server`].
 #[derive(Clone)]
-pub struct ServerClientHandle(pub(crate) rc::Rc<cell::RefCell<ServerClient>>);
-
-impl ServerClientHandle {
-    /// Returns the peer process id when it was available via socket
-    /// credentials.
-    pub fn get_pid(&self) -> i32 {
-        self.0.borrow().get_pid()
-    }
-
-    /// Returns the underlying connected socket file descriptor.
-    pub fn fd(&self) -> RawFd {
-        self.0.borrow().state.fd
-    }
-}
+pub struct ServerClientHandle(pub(crate) u32);
 
 pub(crate) struct ServerClient {
+    pub(crate) id: u32,
     pub(crate) pid: cell::Cell<i32>,
     pub(crate) first_poll_done: cell::Cell<bool>,
     pub(crate) version: cell::Cell<u32>,
@@ -33,13 +21,14 @@ pub(crate) struct ServerClient {
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
     pub(crate) objects: cell::RefCell<Vec<rc::Rc<server_object::ServerObject>>>,
-    _self: rc::Weak<cell::RefCell<Self>>,
+    self_ref: rc::Weak<cell::RefCell<Self>>,
 }
 
 impl ServerClient {
-    pub(crate) fn new(state: rc::Rc<SharedState>) -> rc::Rc<cell::RefCell<Self>> {
+    pub(crate) fn new(id: u32, state: rc::Rc<SharedState>) -> rc::Rc<cell::RefCell<Self>> {
         rc::Rc::new_cyclic(|weak_self| {
             cell::RefCell::new(Self {
+                id,
                 pid: cell::Cell::new(0),
                 first_poll_done: cell::Cell::new(false),
                 version: cell::Cell::new(0),
@@ -47,7 +36,7 @@ impl ServerClient {
                 state,
                 scheduled_roundtrip_seq: cell::Cell::new(0),
                 objects: cell::RefCell::new(Vec::new()),
-                _self: weak_self.clone(),
+                self_ref: weak_self.clone(),
             })
         })
     }
@@ -63,14 +52,13 @@ impl ServerClient {
         }
         self.first_poll_done.set(true);
 
-        let stream = self.state.stream.borrow();
-        match sys::socket::getsockopt(&*stream, sys::socket::sockopt::PeerCredentials) {
+        match sys::socket::getsockopt(&self.state.stream, sys::socket::sockopt::PeerCredentials) {
             Ok(cred) => {
                 self.pid.set(cred.pid());
                 trace! {
                     eprintln!(
                         "[hw] trace: [{} @ {:.3}] peer pid: {}",
-                        self.state.fd,
+                        self.state.stream.as_raw_fd(),
                         steady_millis(),
                         self.pid.get()
                     )
@@ -106,7 +94,7 @@ impl ServerClient {
         seq: u32,
     ) -> rc::Rc<server_object::ServerObject> {
         let mut server_obj =
-            server_object::ServerObject::new(self._self.clone(), rc::Rc::clone(&self.state));
+            server_object::ServerObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
         server_obj.id.set(self.max_id.get());
         self.max_id.set(self.max_id.get() + 1);
         server_obj.version.set(version);
@@ -177,7 +165,7 @@ impl ServerClient {
                 if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
                     log::error!(
                         "[{} @ {:.3}] object {} called method error: {e}",
-                        self.state.fd,
+                        self.state.stream.as_raw_fd(),
                         steady_millis(),
                         msg.object(),
                     );
@@ -187,7 +175,7 @@ impl ServerClient {
                 trace! {
                     eprintln!(
                         "[hw] trace: [{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-                        self.state.fd,
+                        self.state.stream.as_raw_fd(),
                         steady_millis(),
                         msg.object(),
                     )
@@ -200,7 +188,7 @@ impl ServerClient {
 impl Drop for ServerClient {
     fn drop(&mut self) {
         trace! {
-            eprintln!("[hw] trace: [{}] destroying client", self.state.fd)
+            eprintln!("[hw] trace: [{}] destroying client", self.state.stream.as_raw_fd())
         }
     }
 }
