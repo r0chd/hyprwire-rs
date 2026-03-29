@@ -8,7 +8,7 @@ repository = "https://git.r0chd.pl/r0chd/hyprwire-rs"
 readme = "README.md"
 keywords = ["ipc", "wire-protocol", "hyprwire", "serialization"]
 categories = ["network-programming", "encoding"]
-build = "examples/basic/build.rs"
+build = "examples/build.rs"
 
 [workspace]
 members = ["scanner"]

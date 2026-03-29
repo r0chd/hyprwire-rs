@@ -5,7 +5,7 @@ use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
 use std::sync;
-use std::{cell, ffi, fs, io, path, ptr, rc, thread};
+use std::{ffi, fs, io, path, ptr, rc, thread};
 
 use crate::implementation;
 
@@ -25,7 +25,7 @@ pub struct ServerSocket {
     exit_write_fd: net::UnixStream,
     is_empty_listener: bool,
     impls: rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
-    clients: Vec<rc::Rc<cell::RefCell<server_client::ServerClient>>>,
+    clients: Vec<rc::Rc<server_client::ServerClient>>,
     pollfds: Vec<poll::PollFd<'static>>,
     poll_thread: Option<thread::JoinHandle<()>>,
     poll_mtx: sync::Arc<sync::Mutex<()>>,
@@ -41,6 +41,11 @@ impl ServerSocket {
     /// If `path` is `Some`, the server listens on that Unix socket path. If it
     /// is `None`, the server starts without a listener and can be used only
     /// with clients added through [`ServerSocket::add_client`].
+    ///
+    /// # Errors
+    /// Returns an error if socket creation fails, the socket path cannot be
+    /// prepared or bound, or an existing live server is already listening on
+    /// the requested path.
     pub fn open<T>(path: Option<&T>) -> io::Result<Self>
     where
         T: AsRef<path::Path>,
@@ -169,11 +174,8 @@ impl ServerSocket {
         }
     }
 
-    fn dispatch_client(
-        client: &rc::Rc<cell::RefCell<server_client::ServerClient>>,
-        dispatch: *mut ffi::c_void,
-    ) {
-        let state = rc::Rc::clone(&client.borrow().state);
+    fn dispatch_client(client: &rc::Rc<server_client::ServerClient>, dispatch: *mut ffi::c_void) {
+        let state = rc::Rc::clone(&client.state);
 
         let mut data = {
             if let Ok(d) = socket::SocketRawParsedMessage::read_from_socket(&state.stream) {
@@ -194,13 +196,7 @@ impl ServerSocket {
             return;
         }
 
-        if message::handle_message(
-            &mut data,
-            &message::Role::Server(&client.borrow()),
-            dispatch,
-        )
-        .is_err()
-        {
+        if message::handle_message(&mut data, &message::Role::Server(client), dispatch).is_err() {
             state.send_message(&message::FatalProtocolError::new(
                 0,
                 u32::MAX,
@@ -211,10 +207,10 @@ impl ServerSocket {
             return;
         }
 
-        let scheduled_seq = client.borrow().scheduled_roundtrip_seq.get();
+        let scheduled_seq = client.scheduled_roundtrip_seq.get();
         if scheduled_seq > 0 {
             state.send_message(&message::RoundtripDone::new(scheduled_seq));
-            client.borrow().scheduled_roundtrip_seq.set(0);
+            client.scheduled_roundtrip_seq.set(0);
         }
     }
 
@@ -234,14 +230,13 @@ impl ServerSocket {
             }
 
             let client_idx = i - internal_fds;
-            Self::dispatch_client(&self.clients[client_idx].clone(), dispatch);
+            Self::dispatch_client(&self.clients[client_idx], dispatch);
 
             had_any = true;
 
             if revents.contains(poll::PollFlags::POLLHUP) {
-                self.clients[client_idx].borrow().state.error.set(true);
+                self.clients[client_idx].state.error.set(true);
                 let _ = self.clients[client_idx]
-                    .borrow()
                     .state
                     .stream
                     .shutdown(std::net::Shutdown::Both);
@@ -249,19 +244,19 @@ impl ServerSocket {
                 trace! {
                     eprintln!(
                         "[hw] trace: [{} @ {:.3}] Dropping client (hangup)",
-                        self.clients[client_idx].borrow().state.stream.as_raw_fd(),
+                        self.clients[client_idx].state.stream.as_raw_fd(),
                         steady_millis(),
                     )
                 }
                 continue;
             }
 
-            if self.clients[client_idx].borrow().state.error.get() {
+            if self.clients[client_idx].state.error.get() {
                 needs_poll_recheck = true;
                 trace! {
                     eprintln!(
                         "[hw] trace: [{} @ {:.3}] Dropping client (protocol error)",
-                        self.clients[client_idx].borrow().state.stream.as_raw_fd(),
+                        self.clients[client_idx].state.stream.as_raw_fd(),
                         steady_millis(),
                     )
                 }
@@ -269,7 +264,7 @@ impl ServerSocket {
         }
 
         if needs_poll_recheck {
-            self.clients.retain(|c| !c.borrow().state.error.get());
+            self.clients.retain(|c| !c.state.error.get());
             self.recheck_pollfds();
         }
 
@@ -305,7 +300,7 @@ impl ServerSocket {
             }
         };
 
-        let state = rc::Rc::new(SharedState::with_impls(stream, rc::Rc::clone(&self.impls)));
+        let state = rc::Rc::new(SharedState::new(stream, rc::Rc::clone(&self.impls)));
         let client = server_client::ServerClient::new(self.next_client_id, rc::Rc::clone(&state));
         self.next_client_id += 1;
 
@@ -335,21 +330,17 @@ impl ServerSocket {
             .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
 
         for client in &self.clients {
-            let fd =
-                unsafe { fd::BorrowedFd::borrow_raw(client.borrow().state.stream.as_raw_fd()) };
+            let fd = unsafe { fd::BorrowedFd::borrow_raw(client.state.stream.as_raw_fd()) };
             self.pollfds
                 .push(poll::PollFd::new(fd, poll::PollFlags::POLLIN));
         }
 
-        // sync client fds for the poll thread
-        if self.poll_thread.is_some() {
-            let mut cfds = self.thread_client_fds.lock().unwrap();
-            *cfds = self
-                .clients
-                .iter()
-                .map(|c| c.borrow().state.stream.as_raw_fd())
-                .collect();
-        }
+        let mut cfds = self.thread_client_fds.lock().unwrap();
+        *cfds = self
+            .clients
+            .iter()
+            .map(|c| c.state.stream.as_raw_fd())
+            .collect();
     }
 
     /// Processes pending protocol traffic for connected clients.
@@ -357,6 +348,10 @@ impl ServerSocket {
     /// Pass the dispatch state that receives generated event callbacks. If
     /// `block` is `true`, this call waits until at least one event source
     /// becomes ready before dispatching work.
+    ///
+    /// # Panics
+    /// Panics if an internal synchronization mutex has been poisoned by a
+    /// panic in another thread while coordinating poll/export state.
     pub fn dispatch_events<D>(&mut self, state: &mut D, block: bool) -> bool {
         let dispatch = ptr::from_mut::<D>(state).cast::<ffi::c_void>();
 
@@ -393,7 +388,7 @@ impl ServerSocket {
         T: Into<fd::OwnedFd>,
     {
         let stream = net::UnixStream::from(fd.into());
-        let state = rc::Rc::new(SharedState::with_impls(stream, rc::Rc::clone(&self.impls)));
+        let state = rc::Rc::new(SharedState::new(stream, rc::Rc::clone(&self.impls)));
         let client_id = self.next_client_id;
         let client = server_client::ServerClient::new(client_id, rc::Rc::clone(&state));
         self.next_client_id += 1;
@@ -412,7 +407,7 @@ impl ServerSocket {
     /// Returns `true` if a matching client handle was present.
     pub fn remove_client(&mut self, client: &server_client::ServerClientHandle) -> bool {
         let before = self.clients.len();
-        self.clients.retain(|c| c.borrow().id != client.0);
+        self.clients.retain(|c| c.id != client.0);
         let removed = self.clients.len() < before;
 
         if removed {
@@ -428,6 +423,14 @@ impl ServerSocket {
     /// This can be integrated into an external event loop. When the returned
     /// descriptor is readable, call [`ServerSocket::dispatch_events`] to accept
     /// new clients and process pending protocol traffic.
+    ///
+    /// # Errors
+    /// Returns an error if creating the internal wakeup pipe for exported loop
+    /// integration fails.
+    ///
+    /// # Panics
+    /// Panics if an internal synchronization mutex has been poisoned by a
+    /// panic in another thread while coordinating poll/export state.
     pub fn extract_loop_fd(&mut self) -> io::Result<fd::BorrowedFd<'_>> {
         if self.export_fd.is_none() {
             let export_pipes = net::UnixStream::pair()?;

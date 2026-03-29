@@ -50,6 +50,10 @@ pub trait WireObject: object::RawObject {
             return Ok(());
         }
 
+        if self.listener(id as usize).is_null() {
+            return Ok(());
+        }
+
         let method = &methods[id as usize];
         let mut params: Vec<u8> = Vec::new();
 
@@ -195,9 +199,7 @@ pub trait WireObject: object::RawObject {
             dispatch,
         };
         let mut data_ptr_slot = vec![0u8; std::mem::size_of::<*mut raw::c_void>()];
-        data_ptr_slot.copy_from_slice(
-            &((&raw const call_ctx) as usize).to_ne_bytes(),
-        );
+        data_ptr_slot.copy_from_slice(&((&raw const call_ctx) as usize).to_ne_bytes());
         avalues.push(data_ptr_slot.as_mut_ptr().cast::<raw::c_void>());
         other_buffers.push(data_ptr_slot);
 
@@ -605,25 +607,25 @@ pub trait WireObject: object::RawObject {
                 }
             }
 
-            let protocol_name = self.protocol_name().to_string();
+            let protocol_name = self.protocol_name();
             msg.set_depends_on_seq(self.seq());
             if let Some(client) = self.client_sock() {
                 client.0.pending_outgoing.borrow_mut().push(msg);
                 if return_seq != 0 {
                     client
                         .0
-                        .make_object(&protocol_name, method_returns_type, return_seq)?;
+                        .make_object(protocol_name, method_returns_type, return_seq)?;
                     return Ok(return_seq);
                 }
             }
         } else {
             self.send_message(&msg);
             if return_seq != 0 {
-                let protocol_name = self.protocol_name().to_string();
+                let protocol_name = self.protocol_name();
                 if let Some(client) = self.client_sock() {
                     client
                         .0
-                        .make_object(&protocol_name, method_returns_type, return_seq)?;
+                        .make_object(protocol_name, method_returns_type, return_seq)?;
                     return Ok(return_seq);
                 }
             }

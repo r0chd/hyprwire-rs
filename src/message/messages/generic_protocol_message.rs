@@ -31,6 +31,8 @@ impl GenericProtocolMessage<ops::Range<usize>> {
     }
 
     pub fn from_bytes(data: &[u8], fds: &mut Vec<i32>, offset: usize) -> Result<Self> {
+        let mut fds_cursor = 0;
+
         if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
             != MessageType::GenericProtocolMessage as u8
         {
@@ -107,10 +109,12 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                         }
                         MessageMagic::TypeFd => {
                             for _ in 0..arr_len {
-                                if fds.is_empty() {
+                                if let Some(fd) = fds.get(fds_cursor) {
+                                    consumed_fds.push(*fd);
+                                    fds_cursor += 1;
+                                } else {
                                     return Err(MessageError::MalformedMessage);
                                 }
-                                consumed_fds.push(fds.remove(0));
                             }
                         }
                         _ => {
@@ -124,13 +128,15 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                     i += arr_message_len;
                 }
                 MessageMagic::TypeFd => {
-                    if fds.is_empty() {
+                    if let Some(fd) = fds.get(fds_cursor) {
+                        consumed_fds.push(*fd);
+                        fds_cursor += 1;
+                    } else {
                         trace! {
                             eprintln!("[hw] trace: GenericProtocolMessage: MessageMagic::TypeFd but fd queue is empty")
                         }
                         return Err(MessageError::MalformedMessage);
                     }
-                    consumed_fds.push(fds.remove(0));
                     i += 1;
                 }
                 _ => {
@@ -143,6 +149,10 @@ impl GenericProtocolMessage<ops::Range<usize>> {
         }
 
         let len = i + 1; // include the End byte
+
+        if fds_cursor > 0 {
+            fds.drain(..fds_cursor);
+        }
 
         Ok(Self {
             depends_on_seq: 0,

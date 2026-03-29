@@ -1,16 +1,19 @@
 use super::{Message, MessageError, MessageType, Result};
 use crate::implementation::types::MessageMagic;
 use crate::message;
-use std::{borrow, rc};
+use std::borrow;
 
 #[derive(Debug)]
 pub struct HandshakeProtocols<'a> {
-    protocols: Vec<rc::Rc<str>>,
+    protocols: Vec<Box<str>>,
     data: borrow::Cow<'a, [u8]>,
 }
 
 impl<'a> HandshakeProtocols<'a> {
-    pub fn new(protocols: &[&str]) -> Self {
+    pub fn new<T>(protocols: &[T]) -> Self
+    where
+        T: AsRef<str>,
+    {
         let mut data = Vec::new();
 
         data.push(MessageType::HandshakeProtocols as u8);
@@ -23,20 +26,20 @@ impl<'a> HandshakeProtocols<'a> {
 
         for protocol in protocols {
             let mut str_len_buf = [0u8; 10];
-            let var_int = message::encode_var_int(protocol.len(), &mut str_len_buf);
+            let var_int = message::encode_var_int(protocol.as_ref().len(), &mut str_len_buf);
             data.extend_from_slice(var_int);
-            data.extend_from_slice(protocol.as_bytes());
+            data.extend_from_slice(protocol.as_ref().as_bytes());
         }
 
         data.push(MessageMagic::End as u8);
 
         Self {
-            protocols: protocols.iter().map(|&s| rc::Rc::from(s)).collect(),
+            protocols: protocols.iter().map(|s| Box::from(s.as_ref())).collect(),
             data: borrow::Cow::Owned(data),
         }
     }
 
-    pub fn protocols(&self) -> &[rc::Rc<str>] {
+    pub fn protocols(&self) -> &[Box<str>] {
         &self.protocols
     }
 
@@ -71,7 +74,7 @@ impl<'a> HandshakeProtocols<'a> {
             let (str_len, var_int_len) = message::parse_var_int(data, offset + needle);
             needle += var_int_len;
 
-            let protocol: rc::Rc<str> = std::str::from_utf8(
+            let protocol: Box<str> = std::str::from_utf8(
                 data.get(offset + needle..offset + needle + str_len)
                     .ok_or(MessageError::UnexpectedEof)?,
             )
@@ -151,7 +154,7 @@ mod tests {
 
     #[test]
     fn handshake_protocols_empty() {
-        let msg = HandshakeProtocols::new(&[]);
+        let msg = HandshakeProtocols::new::<&str>(&[]);
         let parsed = HandshakeProtocols::from_bytes(msg.data(), 0).unwrap();
         assert!(parsed.protocols.is_empty());
     }

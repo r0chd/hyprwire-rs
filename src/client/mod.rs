@@ -16,6 +16,9 @@ pub struct Client(pub(crate) rc::Rc<client_socket::ClientSocket>);
 
 impl Client {
     /// Connects to a Hyprwire server over a Unix socket path.
+    ///
+    /// # Errors
+    /// Returns any I/O error produced while opening the Unix socket.
     pub fn open<T>(path: T) -> io::Result<Self>
     where
         T: AsRef<path::Path>,
@@ -45,6 +48,10 @@ impl Client {
     /// Blocks until the initial Hyprwire handshake completes.
     ///
     /// Returns an error if the connection closes or the handshake fails.
+    ///
+    /// # Errors
+    /// Returns an error if the connection closes, the handshake times out, or
+    /// the server sends invalid handshake traffic.
     pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
         self.0.wait_for_handshake()
     }
@@ -53,6 +60,10 @@ impl Client {
     ///
     /// `state` receives generated event callbacks. If `block` is `true`, this
     /// call waits until new protocol traffic is available.
+    ///
+    /// # Errors
+    /// Returns an error if the connection closes, polling fails, or incoming
+    /// protocol traffic is malformed.
     pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> Result<(), io::Error> {
         self.0
             .dispatch_events(ptr::from_mut::<D>(state).cast::<ffi::c_void>(), block)
@@ -63,6 +74,10 @@ impl Client {
     /// This sends a roundtrip request and blocks until the matching
     /// acknowledgment is received, dispatching events into `state` while
     /// waiting.
+    ///
+    /// # Errors
+    /// Returns an error if the connection closes or dispatching protocol
+    /// traffic fails while waiting for the roundtrip acknowledgment.
     pub fn roundtrip<D>(&self, state: &mut D) -> Result<(), io::Error> {
         self.0
             .roundtrip(ptr::from_mut::<D>(state).cast::<ffi::c_void>())
@@ -89,6 +104,11 @@ impl Client {
     /// The provided `spec` must come from [`Client::get_spec`]. `version`
     /// selects the protocol version to bind and must not exceed the version
     /// advertised by the server for that spec.
+    ///
+    /// # Errors
+    /// Returns an error if the requested version is invalid, the connection
+    /// closes during binding, or the server does not complete object creation
+    /// successfully.
     pub fn bind<T: crate::Object, D: crate::Dispatch<T>>(
         &self,
         spec: &dyn implementation::types::ProtocolSpec,

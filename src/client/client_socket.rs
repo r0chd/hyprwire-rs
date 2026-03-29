@@ -30,7 +30,7 @@ const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
     fn new(stream: net::UnixStream) -> rc::Rc<Self> {
-        let state = rc::Rc::new(SharedState::new(stream));
+        let state = rc::Rc::new(SharedState::new(stream, rc::Rc::new(Vec::new())));
         let client_socket = rc::Rc::new_cyclic(|weak_self| Self {
             last_ackd_roundtrip_seq: cell::Cell::new(0),
             last_sent_roundtrip_seq: cell::Cell::new(0),
@@ -196,7 +196,7 @@ impl ClientSocket {
         self.state.stream.as_fd()
     }
 
-    pub fn server_specs(&self, specs: &[rc::Rc<str>]) {
+    pub fn server_specs(&self, specs: &[Box<str>]) {
         let mut server_specs = self.server_specs.borrow_mut();
         for spec in specs {
             let at_pos = spec.rfind('@').unwrap();

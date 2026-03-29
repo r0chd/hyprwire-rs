@@ -21,23 +21,21 @@ pub(crate) struct ServerClient {
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
     pub(crate) objects: cell::RefCell<Vec<rc::Rc<server_object::ServerObject>>>,
-    self_ref: rc::Weak<cell::RefCell<Self>>,
+    self_ref: rc::Weak<Self>,
 }
 
 impl ServerClient {
-    pub(crate) fn new(id: u32, state: rc::Rc<SharedState>) -> rc::Rc<cell::RefCell<Self>> {
-        rc::Rc::new_cyclic(|weak_self| {
-            cell::RefCell::new(Self {
-                id,
-                pid: cell::Cell::new(0),
-                first_poll_done: cell::Cell::new(false),
-                version: cell::Cell::new(0),
-                max_id: cell::Cell::new(1),
-                state,
-                scheduled_roundtrip_seq: cell::Cell::new(0),
-                objects: cell::RefCell::new(Vec::new()),
-                self_ref: weak_self.clone(),
-            })
+    pub(crate) fn new(id: u32, state: rc::Rc<SharedState>) -> rc::Rc<Self> {
+        rc::Rc::new_cyclic(|weak_self| Self {
+            id,
+            pid: cell::Cell::new(0),
+            first_poll_done: cell::Cell::new(false),
+            version: cell::Cell::new(0),
+            max_id: cell::Cell::new(1),
+            state,
+            scheduled_roundtrip_seq: cell::Cell::new(0),
+            objects: cell::RefCell::new(Vec::new()),
+            self_ref: weak_self.clone(),
         })
     }
 
@@ -72,20 +70,6 @@ impl ServerClient {
         }
     }
 
-    pub(crate) fn protocol_names(&self) -> Vec<String> {
-        let impls = self.state.impls.as_ref().unwrap();
-        impls
-            .iter()
-            .map(|imp| {
-                format!(
-                    "{}@{}",
-                    imp.protocol().spec_name(),
-                    imp.protocol().spec_ver()
-                )
-            })
-            .collect()
-    }
-
     pub(crate) fn create_object(
         &self,
         protocol: &str,
@@ -101,8 +85,7 @@ impl ServerClient {
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();
 
-        let impls = self.state.impls.as_ref().unwrap();
-        for imp in impls.iter() {
+        for imp in self.state.impls.iter() {
             if imp.protocol().spec_name() == protocol {
                 for spec in imp.protocol().objects() {
                     if object_name.is_empty() || spec.object_name() == object_name {
@@ -133,8 +116,7 @@ impl ServerClient {
             .map(|spec| spec.object_name().to_string())
             .unwrap_or_default();
 
-        let impls = self.state.impls.as_ref().unwrap();
-        for imp in impls.iter() {
+        for imp in self.state.impls.iter() {
             if imp.protocol().spec_name() == protocol_name {
                 if let Some(obj_impl) = imp
                     .implementation()

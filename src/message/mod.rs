@@ -361,14 +361,22 @@ fn parse_single_message_server(
 
                 client.version.set(msg.version());
 
-                let protocol_names = client.protocol_names();
-                let protocol_refs: Vec<&str> = protocol_names
+                let protocol_names = client
+                    .state
+                    .impls
                     .iter()
-                    .map(std::string::String::as_str)
-                    .collect();
+                    .map(|imp| {
+                        format!(
+                            "{}@{}",
+                            imp.protocol().spec_name(),
+                            imp.protocol().spec_ver()
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
                 client
                     .state
-                    .send_message(&HandshakeProtocols::new(&protocol_refs));
+                    .send_message(&HandshakeProtocols::new(&protocol_names));
 
                 return Ok(msg.data().len());
             }

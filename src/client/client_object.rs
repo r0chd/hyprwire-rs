@@ -73,9 +73,9 @@ impl object::RawObject for ClientObject {
     fn listen(&self, id: u32, callback: *mut raw::c_void) {
         let mut listeners = self.listeners.borrow_mut();
         if listeners.len() <= id as usize {
-            listeners.reserve_exact(id as usize + 1);
+            listeners.resize(id as usize + 1, std::ptr::null_mut());
         }
-        listeners.push(callback);
+        listeners[id as usize] = callback;
     }
 
     fn client_sock(&self) -> Option<client::Client> {
