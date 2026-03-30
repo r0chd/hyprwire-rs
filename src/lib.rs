@@ -17,7 +17,7 @@ pub(crate) mod message;
 pub mod server;
 pub(crate) mod socket;
 
-use implementation::object;
+use implementation::object as impl_object;
 use nix::{errno, poll, sys};
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
@@ -110,7 +110,7 @@ pub trait Object: Sized {
 
     const NAME: &str;
 
-    fn from_object<D: Dispatch<Self>>(object: rc::Rc<dyn object::RawObject>) -> Self;
+    fn from_object<D: Dispatch<Self>>(object: rc::Rc<dyn impl_object::RawObject>) -> Self;
 }
 
 #[doc(hidden)]
@@ -167,13 +167,13 @@ macro_rules! delegate_noop {
 #[doc(hidden)]
 #[allow(missing_docs)]
 pub struct DispatchData {
-    pub object: *const dyn object::RawObject,
+    pub object: *const dyn impl_object::RawObject,
 }
 
 #[doc(hidden)]
 #[allow(missing_docs)]
 pub struct DispatchContext {
-    pub object: *const dyn object::RawObject,
+    pub object: *const dyn impl_object::RawObject,
     pub dispatch: *mut ffi::c_void,
 }
 
