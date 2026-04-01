@@ -1,5 +1,6 @@
 mod test_protocol_v1 {
     hyprwire::include_protocol!("test_protocol_v1");
+    pub use spec::*;
 }
 
 use hyprwire::client;
@@ -87,7 +88,7 @@ impl hyprwire::Dispatch<test_protocol_v1::server::MyObjectV1Object> for ServerAp
 
                 self.quit = true;
                 object.error(
-                    test_protocol_v1::server::MyErrorEnum::ErrorImportant as u32,
+                    test_protocol_v1::MyErrorEnum::ErrorImportant as u32,
                     "Important error occurred!",
                 );
             }
@@ -147,7 +148,7 @@ impl hyprwire::Dispatch<test_protocol_v1::client::MyObjectV1Object> for ClientAp
 
         if self.object2.as_ref() == Some(object) {
             if let Some(object) = self.object.as_ref() {
-                object.send_send_enum(test_protocol_v1::server::MyEnum::World);
+                object.send_send_enum(test_protocol_v1::MyEnum::World);
             }
             self.quit = true;
         }

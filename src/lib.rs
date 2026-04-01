@@ -115,8 +115,8 @@ pub trait Object: Sized {
 
 #[doc(hidden)]
 #[allow(missing_docs)]
-pub trait Dispatch<I: Object> {
-    fn event(&mut self, object: &I, event: <I as Object>::Event<'_>);
+pub trait Dispatch<I: crate::Object> {
+    fn event(&mut self, object: &I, event: <I as crate::Object>::Event<'_>);
 }
 
 /// A helper macro which delegates a set of [`Dispatch`] implementations for proxies to a static handler.

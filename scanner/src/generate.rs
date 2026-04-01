@@ -171,7 +171,14 @@ fn call_arg_expr(name_ident: &proc_macro2::Ident, arg_type: &ArgType) -> TokenSt
             quote! { hyprwire::implementation::types::CallArg::Uint(#name_ident as u32) }
         }
         ArgType::ArrayVarchar => {
-            quote! { hyprwire::implementation::types::CallArg::VarcharArray(&bytes) }
+            quote! {
+                hyprwire::implementation::types::CallArg::VarcharArray(
+                    &#name_ident
+                        .iter()
+                        .map(|s| s.as_ref().as_bytes())
+                        .collect::<Vec<_>>(),
+                )
+            }
         }
         ArgType::ArrayFd => {
             let raw_name = format_ident!("{}_raw_fds", name_ident);
@@ -714,9 +721,6 @@ fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> Toke
         .filter_map(|arg| {
             let aname = raw_ident(&arg.name);
             match &arg.arg_type {
-                ArgType::ArrayVarchar => Some(quote! {
-                    let bytes: Vec<&[u8]> = #aname.iter().map(|s| s.as_ref().as_bytes()).collect();
-                }),
                 ArgType::ArrayFd => {
                     let raw_name = format_ident!("{}_raw_fds", aname);
                     Some(quote! {
@@ -970,7 +974,6 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         #[allow(dead_code, unused_imports)]
         pub mod server {
             use std::{ffi, os::fd::*, rc, sync};
-            pub use super::spec::*;
 
             #(#items)*
         }
@@ -1128,7 +1131,6 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
         #[allow(dead_code, unused_imports)]
         pub mod client {
             use std::{ffi, os::fd::*, rc, sync};
-            pub use super::spec::*;
 
             #(#items)*
         }

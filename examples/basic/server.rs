@@ -1,6 +1,7 @@
 mod test_protocol_v1 {
     hyprwire::include_protocol!("test_protocol_v1");
     pub use server::*;
+    pub use spec::*;
 }
 
 use hyprwire::server;

@@ -44,6 +44,14 @@
       <arg name="message" type="array varchar" summary="message"/>
     </c2s>
 
+    <c2s name="send_start">
+      <description summary="Send command and environment">
+            Sends command and environment arrays to the server
+      </description>
+      <arg name="cmd" type="array varchar" summary="command"/>
+      <arg name="env" type="array varchar" summary="environment"/>
+    </c2s>
+
     <c2s name="send_message_array_uint">
       <description summary="Send an uint array message">
             Sends an array message to the server

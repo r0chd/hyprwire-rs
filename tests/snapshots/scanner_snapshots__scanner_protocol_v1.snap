@@ -1,5 +1,6 @@
 ---
 source: tests/scanner_snapshots.rs
+assertion_line: 10
 expression: code
 ---
 // Generated with hyprwire-scanner 0.2.0. Made with pure malice and hatred by r0chd.
@@ -14,7 +15,6 @@ expression: code
 #[allow(dead_code, unused_imports)]
 pub mod server {
     use std::{ffi, os::fd::*, rc, sync};
-    pub use super::spec::*;
     /// manager object
     ///
     /// This object is an example manager object for the protocol
@@ -96,6 +96,10 @@ pub mod server {
         ///
         /// Sends an array message to the server
         SendMessageArray { message: Vec<String> },
+        /// Send command and environment
+        ///
+        /// Sends command and environment arrays to the server
+        SendStart { cmd: Vec<String>, env: Vec<String> },
         /// Send an uint array message
         ///
         /// Sends an array message to the server
@@ -206,6 +210,40 @@ pub mod server {
     }
     unsafe extern "C" fn my_manager_v1_method4<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
+        cmd: *const *const ffi::c_char,
+        cmd_len: u32,
+        env: *const *const ffi::c_char,
+        env_len: u32,
+    ) {
+        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
+        let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
+        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
+        let proxy = MyManagerV1Object {
+            object: unsafe { rc::Rc::from_raw(dispatch.object) },
+        };
+        let cmd: Vec<String> = unsafe {
+            std::slice::from_raw_parts(cmd, cmd_len as usize)
+        }
+            .iter()
+            .map(|&p| unsafe { ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
+            .collect();
+        let env: Vec<String> = unsafe {
+            std::slice::from_raw_parts(env, env_len as usize)
+        }
+            .iter()
+            .map(|&p| unsafe { ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
+            .collect();
+        __dispatch
+            .event(
+                &proxy,
+                MyManagerV1Event::SendStart {
+                    cmd,
+                    env,
+                },
+            );
+    }
+    unsafe extern "C" fn my_manager_v1_method5<D: hyprwire::Dispatch<MyManagerV1Object>>(
+        data: *mut ffi::c_void,
         message: *const u32,
         message_len: u32,
     ) {
@@ -227,7 +265,7 @@ pub mod server {
                 },
             );
     }
-    unsafe extern "C" fn my_manager_v1_method5<D: hyprwire::Dispatch<MyManagerV1Object>>(
+    unsafe extern "C" fn my_manager_v1_method6<D: hyprwire::Dispatch<MyManagerV1Object>>(
         data: *mut ffi::c_void,
         seq: u32,
     ) {
@@ -264,6 +302,7 @@ pub mod server {
             object.listen(3u32, my_manager_v1_method3::<D> as *mut ffi::c_void);
             object.listen(4u32, my_manager_v1_method4::<D> as *mut ffi::c_void);
             object.listen(5u32, my_manager_v1_method5::<D> as *mut ffi::c_void);
+            object.listen(6u32, my_manager_v1_method6::<D> as *mut ffi::c_void);
             Self { object }
         }
         pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
@@ -507,7 +546,6 @@ pub mod server {
 #[allow(dead_code, unused_imports)]
 pub mod client {
     use std::{ffi, os::fd::*, rc, sync};
-    pub use super::spec::*;
     /// manager object
     ///
     /// This object is an example manager object for the protocol
@@ -733,14 +771,44 @@ pub mod client {
         /// Arguments:
         /// `message`: message
         pub fn send_send_message_array<S: AsRef<str>>(&self, message: &[S]) {
-            let bytes: Vec<&[u8]> = message
-                .iter()
-                .map(|s| s.as_ref().as_bytes())
-                .collect();
             self.object
                 .call(
                     3u32,
-                    &[hyprwire::implementation::types::CallArg::VarcharArray(&bytes)],
+                    &[
+                        hyprwire::implementation::types::CallArg::VarcharArray(
+                            &message
+                                .iter()
+                                .map(|s| s.as_ref().as_bytes())
+                                .collect::<Vec<_>>(),
+                        ),
+                    ],
+                );
+        }
+        /// Send command and environment
+        ///
+        /// Sends command and environment arrays to the server
+        ///
+        /// Arguments:
+        /// `cmd`: command
+        /// `env`: environment
+        pub fn send_send_start<S: AsRef<str>>(&self, cmd: &[S], env: &[S]) {
+            self.object
+                .call(
+                    4u32,
+                    &[
+                        hyprwire::implementation::types::CallArg::VarcharArray(
+                            &cmd
+                                .iter()
+                                .map(|s| s.as_ref().as_bytes())
+                                .collect::<Vec<_>>(),
+                        ),
+                        hyprwire::implementation::types::CallArg::VarcharArray(
+                            &env
+                                .iter()
+                                .map(|s| s.as_ref().as_bytes())
+                                .collect::<Vec<_>>(),
+                        ),
+                    ],
                 );
         }
         /// Send an uint array message
@@ -752,7 +820,7 @@ pub mod client {
         pub fn send_send_message_array_uint(&self, message: &[u32]) {
             self.object
                 .call(
-                    4u32,
+                    5u32,
                     &[hyprwire::implementation::types::CallArg::UintArray(message)],
                 );
         }
@@ -764,7 +832,7 @@ pub mod client {
         pub fn send_make_object<D: hyprwire::Dispatch<MyObjectV1Object>>(
             &self,
         ) -> Option<MyObjectV1Object> {
-            let seq = self.object.call(5u32, &[]);
+            let seq = self.object.call(6u32, &[]);
             let obj = self
                 .object
                 .client_sock()
@@ -977,7 +1045,9 @@ mod spec {
                 idx: 4u32,
                 params: &[
                     hyprwire::implementation::types::MessageMagic::TypeArray as u8,
-                    hyprwire::implementation::types::MessageMagic::TypeUint as u8,
+                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
+                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
+                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
                 ],
                 returns_type: "",
                 since: 0,
@@ -985,6 +1055,16 @@ mod spec {
             },
             hyprwire::implementation::types::Method {
                 idx: 5u32,
+                params: &[
+                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
+                    hyprwire::implementation::types::MessageMagic::TypeUint as u8,
+                ],
+                returns_type: "",
+                since: 0,
+                destructor: false,
+            },
+            hyprwire::implementation::types::Method {
+                idx: 6u32,
                 params: &[],
                 returns_type: "my_object_v1",
                 since: 0,
