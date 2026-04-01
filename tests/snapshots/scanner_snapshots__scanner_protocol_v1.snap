@@ -1,9 +1,8 @@
 ---
 source: tests/scanner_snapshots.rs
-assertion_line: 10
 expression: code
 ---
-// Generated with hyprwire-scanner 0.2.0. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.2.1. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:
