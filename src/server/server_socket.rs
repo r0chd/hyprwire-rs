@@ -25,7 +25,7 @@ pub struct ServerSocket {
     exit_write_fd: net::UnixStream,
     is_empty_listener: bool,
     impls: rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
-    clients: Vec<rc::Rc<server_client::ServerClient>>,
+    clients: Vec<rc::Rc<server_client::ServerClientState>>,
     pollfds: Vec<poll::PollFd<'static>>,
     poll_thread: Option<thread::JoinHandle<()>>,
     poll_mtx: sync::Arc<sync::Mutex<()>>,
@@ -174,7 +174,10 @@ impl ServerSocket {
         }
     }
 
-    fn dispatch_client(client: &rc::Rc<server_client::ServerClient>, dispatch: *mut ffi::c_void) {
+    fn dispatch_client(
+        client: &rc::Rc<server_client::ServerClientState>,
+        dispatch: *mut ffi::c_void,
+    ) {
         let state = rc::Rc::clone(&client.state);
 
         let mut data = {
@@ -301,7 +304,8 @@ impl ServerSocket {
         };
 
         let state = rc::Rc::new(SharedState::new(stream, rc::Rc::clone(&self.impls)));
-        let client = server_client::ServerClient::new(self.next_client_id, rc::Rc::clone(&state));
+        let client =
+            server_client::ServerClientState::new(self.next_client_id, rc::Rc::clone(&state));
         self.next_client_id += 1;
 
         self.clients.push(client);
@@ -383,14 +387,14 @@ impl ServerSocket {
     /// Adds an already-connected Unix socket as a server client.
     ///
     /// This is primarily useful when the server is running without a listener.
-    pub fn add_client<T>(&mut self, fd: T) -> server_client::ServerClientHandle
+    pub fn add_client<T>(&mut self, fd: T) -> server_client::ServerClient
     where
         T: Into<fd::OwnedFd>,
     {
         let stream = net::UnixStream::from(fd.into());
         let state = rc::Rc::new(SharedState::new(stream, rc::Rc::clone(&self.impls)));
         let client_id = self.next_client_id;
-        let client = server_client::ServerClient::new(client_id, rc::Rc::clone(&state));
+        let client = server_client::ServerClientState::new(client_id, rc::Rc::clone(&state));
         self.next_client_id += 1;
 
         self.clients.push(rc::Rc::clone(&client));
@@ -399,15 +403,18 @@ impl ServerSocket {
         // wake up any poller
         let _ = io::Write::write(&mut &self.wakeup_write_fd, b"x");
 
-        server_client::ServerClientHandle(client_id)
+        server_client::ServerClient {
+            id: client_id,
+            pid: client.pid.clone(),
+        }
     }
 
     /// Removes a client previously added to the server.
     ///
     /// Returns `true` if a matching client handle was present.
-    pub fn remove_client(&mut self, client: &server_client::ServerClientHandle) -> bool {
+    pub fn remove_client(&mut self, client: &server_client::ServerClient) -> bool {
         let before = self.clients.len();
-        self.clients.retain(|c| c.id != client.0);
+        self.clients.retain(|c| c.id != client.id());
         let removed = self.clients.len() < before;
 
         if removed {

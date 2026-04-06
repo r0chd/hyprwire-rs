@@ -3,18 +3,57 @@ use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
 use crate::{SharedState, message, steady_millis, trace};
 use nix::sys;
+use std::hash::{Hash, Hasher};
 use std::ffi;
 use std::ops;
 use std::os::fd::AsRawFd;
 use std::{cell, rc};
 
 /// A handle to a connected client managed by a [`super::Server`].
-#[derive(Clone)]
-pub struct ServerClientHandle(pub(crate) u32);
-
-pub(crate) struct ServerClient {
+#[derive(Clone, Debug)]
+pub struct ServerClient {
     pub(crate) id: u32,
-    pub(crate) pid: cell::Cell<i32>,
+    pub(crate) pid: rc::Rc<cell::Cell<i32>>,
+}
+
+impl PartialEq for ServerClient {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for ServerClient {}
+
+impl Hash for ServerClient {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl ServerClient {
+    /// Returns the server-local client id for this handle.
+    #[must_use]
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    /// Returns the peer process id reported by the Unix socket credentials.
+    ///
+    /// This value is populated after the server has polled the client at least
+    /// once. Until then, or if credential lookup fails, this returns `0`.
+    #[must_use]
+    pub fn pid(&self) -> i32 {
+        self.pid.get()
+    }
+}
+
+/// Server-side state for a connected client.
+///
+/// This type is attached to server-created objects and can be used to inspect
+/// metadata about the peer connection.
+pub(crate) struct ServerClientState {
+    pub(crate) id: u32,
+    pub(crate) pid: rc::Rc<cell::Cell<i32>>,
     pub(crate) first_poll_done: cell::Cell<bool>,
     pub(crate) version: cell::Cell<u32>,
     pub(crate) max_id: cell::Cell<u32>,
@@ -24,11 +63,11 @@ pub(crate) struct ServerClient {
     self_ref: rc::Weak<Self>,
 }
 
-impl ServerClient {
+impl ServerClientState {
     pub(crate) fn new(id: u32, state: rc::Rc<SharedState>) -> rc::Rc<Self> {
         rc::Rc::new_cyclic(|weak_self| Self {
             id,
-            pid: cell::Cell::new(0),
+            pid: rc::Rc::new(cell::Cell::new(0)),
             first_poll_done: cell::Cell::new(false),
             version: cell::Cell::new(0),
             max_id: cell::Cell::new(1),
@@ -39,9 +78,11 @@ impl ServerClient {
         })
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn get_pid(&self) -> i32 {
-        self.pid.get()
+    pub fn handle(&self) -> ServerClient {
+        ServerClient {
+            id: self.id,
+            pid: rc::Rc::clone(&self.pid),
+        }
     }
 
     pub(crate) fn dispatch_first_poll(&self) {
@@ -167,7 +208,7 @@ impl ServerClient {
     }
 }
 
-impl Drop for ServerClient {
+impl Drop for ServerClientState {
     fn drop(&mut self) {
         trace! {
             eprintln!("[hw] trace: [{}] destroying client", self.state.stream.as_raw_fd())

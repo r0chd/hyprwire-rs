@@ -7,7 +7,7 @@ use std::os::raw;
 use std::{rc, sync};
 
 pub(crate) struct ServerObject {
-    pub(crate) client: rc::Weak<server_client::ServerClient>,
+    pub(crate) client: rc::Weak<server_client::ServerClientState>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Cell<*mut raw::c_void>,
@@ -35,7 +35,10 @@ impl Drop for ServerObject {
 }
 
 impl ServerObject {
-    pub fn new(client: rc::Weak<server_client::ServerClient>, state: rc::Rc<SharedState>) -> Self {
+    pub fn new(
+        client: rc::Weak<server_client::ServerClientState>,
+        state: rc::Rc<SharedState>,
+    ) -> Self {
         Self {
             client,
             state,
@@ -79,6 +82,10 @@ impl object::RawObject for ServerObject {
         let client = self.client.upgrade()?;
         let obj = client.create_object(&self.protocol_name, object_name, self.version.get(), seq);
         Some(obj as rc::Rc<dyn object::RawObject>)
+    }
+
+    fn server_client(&self) -> Option<server_client::ServerClient> {
+        self.client.upgrade().map(|client| client.handle())
     }
 
     fn set_data(&self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>) {

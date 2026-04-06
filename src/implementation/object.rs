@@ -1,4 +1,5 @@
 use crate::implementation::types;
+use crate::server::server_client;
 use crate::{client, server};
 use std::os::raw;
 use std::rc;
@@ -13,6 +14,10 @@ pub trait RawObject {
     }
 
     fn server_sock(&self) -> Option<server::Server> {
+        None
+    }
+
+    fn server_client(&self) -> Option<server_client::ServerClient> {
         None
     }
 

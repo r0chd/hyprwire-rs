@@ -4,4 +4,5 @@ pub mod server_client;
 mod server_object;
 mod server_socket;
 
+pub use server_client::ServerClient;
 pub use server_socket::ServerSocket as Server;

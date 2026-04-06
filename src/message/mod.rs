@@ -121,7 +121,7 @@ impl TryFrom<u8> for MessageType {
 
 pub enum Role<'a> {
     Client(&'a client_socket::ClientSocket),
-    Server(&'a server_client::ServerClient),
+    Server(&'a server_client::ServerClientState),
 }
 
 pub fn handle_message(
@@ -317,7 +317,7 @@ fn parse_single_message_client(
 fn parse_single_message_server(
     raw: &mut socket::SocketRawParsedMessage,
     off: usize,
-    client: &server_client::ServerClient,
+    client: &server_client::ServerClientState,
     dispatch: *mut ffi::c_void,
 ) -> Result<usize, MessageError> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {

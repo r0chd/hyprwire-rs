@@ -893,6 +893,10 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                     self.object.set_on_drop(Box::new(callback));
                 }
 
+                pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
+                    self.object.server_client()
+                }
+
                 #(#create_helpers)*
 
                 #(#send_methods)*
