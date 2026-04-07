@@ -36,6 +36,37 @@ fn raw_object_type() -> TokenStream {
     quote! { rc::Rc<dyn hyprwire::implementation::object::RawObject> }
 }
 
+#[derive(Clone)]
+struct TypeAttribute {
+    path: String,
+    tokens: TokenStream,
+}
+
+fn parse_type_attributes(attributes: &[(String, String)]) -> Vec<TypeAttribute> {
+    attributes
+        .iter()
+        .map(|(path, attribute)| {
+            let path = path.trim().to_string();
+            let tokens = attribute
+                .parse::<TokenStream>()
+                .unwrap_or_else(|err| panic!("failed to parse type attribute for '{path}': {err}"));
+            TypeAttribute { path, tokens }
+        })
+        .collect()
+}
+
+fn type_path_matches(attribute_path: &str, full_path: &str) -> bool {
+    if attribute_path == "." {
+        return true;
+    }
+
+    if attribute_path.starts_with('.') {
+        return attribute_path == full_path;
+    }
+
+    full_path.ends_with(attribute_path)
+}
+
 fn snake_to_pascal(s: &str) -> String {
     s.split('_')
         .map(|part| {
@@ -370,7 +401,7 @@ fn write_method_spec(idx: usize, m: &Method) -> TokenStream {
     }
 }
 
-fn generate_spec(protocol: &Protocol) -> TokenStream {
+fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> TokenStream {
     let enum_items: Vec<TokenStream> = protocol
         .enums
         .iter()
@@ -385,7 +416,15 @@ fn generate_spec(protocol: &Protocol) -> TokenStream {
                     quote! { #name = #idx, }
                 })
                 .collect();
+            let type_name = &e.name;
+            let full_path = format!(".{}.{}", protocol.name, type_name);
+            let enum_attributes: Vec<TokenStream> = type_attributes
+                .iter()
+                .filter(|attr| type_path_matches(&attr.path, &full_path))
+                .map(|attr| attr.tokens.clone())
+                .collect();
             quote! {
+                #(#enum_attributes)*
                 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
                 #[repr(u32)]
                 pub enum #ident {
@@ -1142,7 +1181,11 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 }
 
 #[must_use]
-pub fn generate(protocol: &Protocol, targets: Targets) -> String {
+pub fn generate(
+    protocol: &Protocol,
+    targets: Targets,
+    type_attributes: &[(String, String)],
+) -> String {
     let header_comment = format!(
         "// Generated with hyprwire-scanner {SCANNER_VERSION}. Made with pure malice and hatred by r0chd.\n// {}\n",
         protocol.name
@@ -1175,7 +1218,8 @@ pub fn generate(protocol: &Protocol, targets: Targets) -> String {
         String::new()
     };
 
-    let spec = generate_spec(protocol);
+    let parsed_type_attributes = parse_type_attributes(type_attributes);
+    let spec = generate_spec(protocol, &parsed_type_attributes);
     let server = targets
         .contains(Targets::SERVER)
         .then(|| generate_server(protocol));
@@ -1188,4 +1232,69 @@ pub fn generate(protocol: &Protocol, targets: Targets) -> String {
     let formatted = prettyplease::unparse(&file);
 
     format!("{header_comment}{copyright_block}{formatted}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse::{Enum, EnumValue, Object, Protocol};
+
+    fn sample_object() -> Object {
+        Object {
+            name: "dummy_object".to_string(),
+            version: 1,
+            c2s: Vec::new(),
+            s2c: Vec::new(),
+            description: None,
+        }
+    }
+
+    fn sample_protocol() -> Protocol {
+        Protocol {
+            name: "simple".to_string(),
+            version: 1,
+            objects: vec![sample_object()],
+            enums: vec![Enum {
+                name: "my_enum".to_string(),
+                values: vec![EnumValue {
+                    name: "first".to_string(),
+                    idx: 0,
+                    description: None,
+                }],
+            }],
+            copyright: None,
+        }
+    }
+
+    #[test]
+    fn type_attribute_suffix_match() {
+        let protocol = sample_protocol();
+        let attributes = vec![("my_enum".to_string(), "#[allow(dead_code)]".to_string())];
+        let code = generate(&protocol, Targets::ALL, &attributes);
+        assert!(code.contains("#[allow(dead_code)]"));
+    }
+
+    #[test]
+    fn type_attribute_exact_match_with_dot() {
+        let protocol = sample_protocol();
+        let attributes = vec![(".simple.my_enum".to_string(), "#[doc(hidden)]".to_string())];
+        let code = generate(&protocol, Targets::ALL, &attributes);
+        assert!(code.contains("#[doc(hidden)]"));
+    }
+
+    #[test]
+    fn type_attribute_dot_path_matches_everything() {
+        let protocol = sample_protocol();
+        let attributes = vec![(".".to_string(), "#[cfg(test)]".to_string())];
+        let code = generate(&protocol, Targets::ALL, &attributes);
+        assert!(code.contains("#[cfg(test)]"));
+    }
+
+    #[test]
+    fn type_attribute_dot_path_requires_exact_match() {
+        let protocol = sample_protocol();
+        let attributes = vec![(".other.my_enum".to_string(), "#[test_attr]".to_string())];
+        let code = generate(&protocol, Targets::ALL, &attributes);
+        assert!(!code.contains("#[test_attr]"));
+    }
 }

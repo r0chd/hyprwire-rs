@@ -4,11 +4,13 @@ use std::{env, fs, io, path};
 pub struct Builder {
     out_dir: Option<path::PathBuf>,
     targets: generate::Targets,
+    type_attributes: Vec<(String, String)>,
 }
 
 #[must_use]
 pub fn configure() -> Builder {
     Builder {
+        type_attributes: Vec::new(),
         out_dir: None,
         targets: generate::Targets::ALL,
     }
@@ -24,6 +26,13 @@ impl Builder {
     #[must_use]
     pub fn with_targets(mut self, targets: generate::Targets) -> Self {
         self.targets = targets;
+        self
+    }
+
+    /// Add additional attribute to matched enums.
+    pub fn type_attribute<P: AsRef<str>, A: AsRef<str>>(mut self, path: P, attribute: A) -> Self {
+        self.type_attributes
+            .push((path.as_ref().to_string(), attribute.as_ref().to_string()));
         self
     }
 
@@ -50,7 +59,7 @@ impl Builder {
                 )
             })?;
 
-            let code = generate::generate(&protocol, self.targets);
+            let code = generate::generate(&protocol, self.targets, &self.type_attributes);
 
             let out_name = format!("{}.rs", protocol.name);
             let out_path = out_dir.join(&out_name);
