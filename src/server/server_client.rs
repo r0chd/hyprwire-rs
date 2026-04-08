@@ -206,6 +206,21 @@ impl ServerClientState {
             }
         }
     }
+
+    pub(crate) fn destroy_objects_for_disconnect(&self, dispatch: *mut ffi::c_void) {
+        let objects = self
+            .objects
+            .borrow()
+            .iter()
+            .map(rc::Rc::clone)
+            .collect::<Vec<_>>();
+
+        for obj in objects.iter().rev() {
+            obj.destroy_for_disconnect(dispatch);
+        }
+
+        self.objects.borrow_mut().clear();
+    }
 }
 
 impl Drop for ServerClientState {

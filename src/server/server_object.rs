@@ -14,6 +14,7 @@ pub(crate) struct ServerObject {
     data_destructor: Cell<Option<unsafe fn(*mut raw::c_void)>>,
     on_drop: RefCell<Option<Box<dyn FnOnce()>>>,
     listeners: RefCell<Vec<*mut raw::c_void>>,
+    destroyed: Cell<bool>,
     pub(crate) id: Cell<u32>,
     pub(crate) version: Cell<u32>,
     pub(crate) seq: u32,
@@ -23,14 +24,7 @@ pub(crate) struct ServerObject {
 impl Drop for ServerObject {
     fn drop(&mut self) {
         trace! {eprintln!("[hw] trace: destroying server object {}", self.id.get())}
-        if let Some(on_drop) = self.on_drop.borrow_mut().take() {
-            on_drop();
-        }
-        if let Some(destructor) = self.data_destructor.get()
-            && !self.data.get().is_null()
-        {
-            unsafe { destructor(self.data.get()) };
-        }
+        self.destroy();
     }
 }
 
@@ -47,16 +41,71 @@ impl ServerObject {
             data_destructor: Cell::new(None),
             on_drop: RefCell::new(None),
             listeners: RefCell::new(Vec::new()),
+            destroyed: Cell::new(false),
             id: Cell::new(0),
             version: Cell::new(0),
             seq: 0,
             protocol_name: String::new(),
         }
     }
+
+    pub(crate) fn destroy_for_disconnect(&self, dispatch: *mut raw::c_void) {
+        if self.destroyed.get() {
+            return;
+        }
+
+        self.dispatch_no_arg_destructor(dispatch);
+        self.destroy();
+    }
+
+    fn dispatch_no_arg_destructor(&self, dispatch: *mut raw::c_void) {
+        if dispatch.is_null() {
+            return;
+        }
+
+        let Some(method) = self.spec.as_ref().and_then(|spec| {
+            spec.c2s().iter().find(|method| {
+                method.destructor && method.params.is_empty() && method.returns_type.is_empty()
+            })
+        }) else {
+            return;
+        };
+
+        if let Err(e) = wire_object::WireObject::called(self, method.idx, &[], &[], dispatch) {
+            log::error!(
+                "server object {} (protocol {}) destructor dispatch error: {e}",
+                self.id.get(),
+                self.protocol_name
+            );
+        }
+    }
+
+    fn destroy(&self) {
+        if self.destroyed.replace(true) {
+            return;
+        }
+
+        if let Some(on_drop) = self.on_drop.borrow_mut().take() {
+            on_drop();
+        }
+
+        if let Some(destructor) = self.data_destructor.replace(None)
+            && !self.data.get().is_null()
+        {
+            unsafe { destructor(self.data.get()) };
+            self.data.set(std::ptr::null_mut());
+        }
+
+        self.listeners.borrow_mut().clear();
+    }
 }
 
 impl object::RawObject for ServerObject {
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32 {
+        if self.destroyed.get() {
+            return 0;
+        }
+
         match wire_object::WireObject::call(self, id, args) {
             Ok(v) => v,
             Err(e) => {
@@ -71,6 +120,10 @@ impl object::RawObject for ServerObject {
     }
 
     fn listen(&self, id: u32, callback: *mut raw::c_void) {
+        if self.destroyed.get() {
+            return;
+        }
+
         let mut listeners = self.listeners.borrow_mut();
         if listeners.len() <= id as usize {
             listeners.resize(id as usize + 1, std::ptr::null_mut());
@@ -79,6 +132,10 @@ impl object::RawObject for ServerObject {
     }
 
     fn create_object(&self, object_name: &str, seq: u32) -> Option<rc::Rc<dyn object::RawObject>> {
+        if self.destroyed.get() {
+            return None;
+        }
+
         let client = self.client.upgrade()?;
         let obj = client.create_object(&self.protocol_name, object_name, self.version.get(), seq);
         Some(obj as rc::Rc<dyn object::RawObject>)
@@ -98,12 +155,21 @@ impl object::RawObject for ServerObject {
     }
 
     fn error(&self, error_id: u32, error_msg: &str) {
+        if self.destroyed.get() {
+            return;
+        }
+
         let msg = message::FatalProtocolError::new(self.id.get(), error_id, error_msg);
         self.state.send_message(&msg);
         self.errd();
     }
 
     fn set_on_drop(&self, func: Box<dyn FnOnce()>) {
+        if self.destroyed.get() {
+            func();
+            return;
+        }
+
         *self.on_drop.borrow_mut() = Some(func);
     }
 }

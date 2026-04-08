@@ -196,6 +196,8 @@ impl ServerSocket {
         };
 
         if data.data.is_empty() {
+            state.error.set(true);
+            let _ = state.stream.shutdown(std::net::Shutdown::Both);
             return;
         }
 
@@ -228,21 +230,28 @@ impl ServerSocket {
                 continue;
             };
 
-            if !revents.contains(poll::PollFlags::POLLIN) {
+            let has_input = revents.contains(poll::PollFlags::POLLIN);
+            let has_hangup = revents.contains(poll::PollFlags::POLLHUP);
+
+            if !has_input && !has_hangup {
                 continue;
             }
 
             let client_idx = i - internal_fds;
-            Self::dispatch_client(&self.clients[client_idx], dispatch);
 
-            had_any = true;
+            if has_input {
+                Self::dispatch_client(&self.clients[client_idx], dispatch);
+                had_any = true;
+            }
 
-            if revents.contains(poll::PollFlags::POLLHUP) {
+            if has_hangup {
+                had_any = true;
                 self.clients[client_idx].state.error.set(true);
                 let _ = self.clients[client_idx]
                     .state
                     .stream
                     .shutdown(std::net::Shutdown::Both);
+                self.clients[client_idx].destroy_objects_for_disconnect(dispatch);
                 needs_poll_recheck = true;
                 trace! {
                     eprintln!(
@@ -255,6 +264,7 @@ impl ServerSocket {
             }
 
             if self.clients[client_idx].state.error.get() {
+                self.clients[client_idx].destroy_objects_for_disconnect(dispatch);
                 needs_poll_recheck = true;
                 trace! {
                     eprintln!(
@@ -413,6 +423,12 @@ impl ServerSocket {
     ///
     /// Returns `true` if a matching client handle was present.
     pub fn remove_client(&mut self, client: &server_client::ServerClient) -> bool {
+        for state in self.clients.iter().filter(|c| c.id == client.id()) {
+            state.state.error.set(true);
+            let _ = state.state.stream.shutdown(std::net::Shutdown::Both);
+            state.destroy_objects_for_disconnect(ptr::null_mut());
+        }
+
         let before = self.clients.len();
         self.clients.retain(|c| c.id != client.id());
         let removed = self.clients.len() < before;
