@@ -229,10 +229,11 @@ fn server_main(client_fd: fd::RawFd) -> io::Result<()> {
 }
 
 fn client_main(server_fd: fd::OwnedFd) -> io::Result<()> {
-    let mut socket = client::Client::from_fd(server_fd);
+    let mut socket = client::Client::from_fd(server_fd)?;
+    let mut app = ClientApp::default();
     let implementation = test_protocol_v1::client::TestProtocolV1Impl::default();
     socket.add_implementation(implementation.clone());
-    socket.wait_for_handshake()?;
+    socket.wait_for_handshake(&mut app)?;
 
     println!("OK!");
 
@@ -245,11 +246,11 @@ fn client_main(server_fd: fd::OwnedFd) -> io::Result<()> {
         spec.spec_ver()
     );
 
-    let mut app = ClientApp::default();
     let manager = socket
         .bind::<test_protocol_v1::client::MyManagerV1Object, ClientApp>(
             implementation.protocol(),
             TEST_PROTOCOL_VERSION,
+            &mut app,
         )
         .map_err(io::Error::other)?;
 

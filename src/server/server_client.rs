@@ -1,13 +1,12 @@
 use super::server_object;
+use crate::SharedState;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
-use crate::{SharedState, message, steady_millis, trace};
+use crate::{message, steady_millis, trace};
 use nix::sys;
-use std::ffi;
 use std::hash::{Hash, Hasher};
-use std::ops;
 use std::os::fd::AsRawFd;
-use std::{cell, rc};
+use std::{cell, ops, rc};
 
 /// A handle to a connected client managed by a [`super::Server`].
 #[derive(Clone, Debug)]
@@ -171,10 +170,10 @@ impl ServerClientState {
         }
     }
 
-    pub(crate) fn on_generic(
+    pub(crate) fn on_generic<D>(
         &self,
         msg: &message::GenericProtocolMessage<ops::Range<usize>>,
-        dispatch: *mut ffi::c_void,
+        dispatch: &mut D,
     ) {
         let obj = self
             .objects
@@ -207,7 +206,7 @@ impl ServerClientState {
         }
     }
 
-    pub(crate) fn destroy_objects_for_disconnect(&self, dispatch: *mut ffi::c_void) {
+    pub(crate) fn destroy_objects_for_disconnect<D>(&self, dispatch: &mut D) {
         let objects = self
             .objects
             .borrow()

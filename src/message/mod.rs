@@ -14,8 +14,8 @@ pub(crate) use messages::hello::Hello;
 pub(crate) use messages::new_object::NewObject;
 pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
+use std::fmt;
 use std::os::fd::AsRawFd;
-use std::{ffi, fmt};
 
 #[derive(Debug)]
 pub enum MessageError {
@@ -124,10 +124,10 @@ pub enum Role<'a> {
     Server(&'a server_client::ServerClientState),
 }
 
-pub fn handle_message(
+pub fn handle_message<D>(
     data: &mut socket::SocketRawParsedMessage,
     role: &Role,
-    dispatch: *mut ffi::c_void,
+    dispatch: &mut D,
 ) -> Result<(), MessageError> {
     match role {
         Role::Client(client) => {
@@ -165,11 +165,11 @@ pub fn handle_message(
     Ok(())
 }
 
-fn parse_single_message_client(
+fn parse_single_message_client<D>(
     raw: &mut socket::SocketRawParsedMessage,
     off: usize,
     client: &client_socket::ClientSocket,
-    dispatch: *mut ffi::c_void,
+    dispatch: &mut D,
 ) -> Result<usize, MessageError> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {
@@ -251,9 +251,10 @@ fn parse_single_message_client(
                     eprintln!("[hw] trace: [{} @ {:.3}] <- {}", client.state.stream.as_raw_fd(), steady_millis(), msg.parse_data())
                 }
 
+                let msg_len = msg.data().len();
                 client.on_generic(&msg, dispatch);
 
-                return Ok(msg.data().len());
+                return Ok(msg_len);
             }
             MessageType::FatalProtocolError => {
                 let msg = FatalProtocolError::from_bytes(&raw.data, off)
@@ -314,11 +315,11 @@ fn parse_single_message_client(
     Err(MessageError::InvalidMessage)
 }
 
-fn parse_single_message_server(
+fn parse_single_message_server<D>(
     raw: &mut socket::SocketRawParsedMessage,
     off: usize,
     client: &server_client::ServerClientState,
-    dispatch: *mut ffi::c_void,
+    dispatch: &mut D,
 ) -> Result<usize, MessageError> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {

@@ -643,8 +643,11 @@ fn write_dispatch_fn(
         unsafe extern "C" fn #fn_ident<D: hyprwire::Dispatch<#obj_ident>>(
             #(#fn_params,)*
         ) {
-            let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext) };
-            let __dispatch = unsafe { &mut *(dispatch.dispatch as *mut D) };
+            let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
+            if dispatch.dispatch.is_null() {
+                return;
+            }
+            let __dispatch = unsafe { &mut *dispatch.dispatch };
             unsafe { rc::Rc::increment_strong_count(dispatch.object) };
             let proxy = #obj_ident {
                 object: unsafe { rc::Rc::from_raw(dispatch.object) },

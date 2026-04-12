@@ -83,7 +83,7 @@ fn main() -> io::Result<()> {
     client.add_implementation(implementation.clone());
 
     // Finish protocol negotiation.
-    client.wait_for_handshake()?;
+    client.wait_for_handshake(&mut state)?;
 
     // Look up the protocol advertised by the server.
     let spec = client

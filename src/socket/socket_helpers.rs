@@ -13,40 +13,51 @@ impl SocketRawParsedMessage {
         const BUFFER_SIZE: usize = 8192;
         const MAX_FDS_PER_MSG: usize = 255;
 
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let mut iov = [std::io::IoSliceMut::new(&mut buffer)];
-        let mut cmsg_buf = nix::cmsg_space!([i32; MAX_FDS_PER_MSG]);
-
-        let msg = socket::recvmsg::<()>(
-            stream.as_raw_fd(),
-            &mut iov,
-            Some(&mut cmsg_buf),
-            socket::MsgFlags::empty(),
-        )?;
-
-        let bytes_received = msg.bytes;
-        if bytes_received == 0 {
-            return Ok(Self {
-                data: [].into(),
-                fds: Vec::new(),
-            });
-        }
-
+        let mut data = Vec::new();
         let mut fds = Vec::new();
-        for cmsg in msg.cmsgs().map_err(|_| nix::errno::Errno::ENOBUFS)? {
-            if let socket::ControlMessageOwned::ScmRights(received_fds) = cmsg {
-                trace! {
-                    eprintln!(
-                        "[hw] trace: SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",
-                        received_fds.len()
-                    )
+
+        loop {
+            let mut buffer = [0u8; BUFFER_SIZE];
+            let mut iov = [std::io::IoSliceMut::new(&mut buffer)];
+            let mut cmsg_buf = nix::cmsg_space!([i32; MAX_FDS_PER_MSG]);
+
+            let msg = match socket::recvmsg::<()>(
+                stream.as_raw_fd(),
+                &mut iov,
+                Some(&mut cmsg_buf),
+                socket::MsgFlags::empty(),
+            ) {
+                Ok(msg) => msg,
+                Err(nix::errno::Errno::EAGAIN) => break,
+                Err(e) => return Err(e),
+            };
+
+            let bytes_received = msg.bytes;
+            if bytes_received == 0 {
+                break;
+            }
+
+            for cmsg in msg.cmsgs().map_err(|_| nix::errno::Errno::ENOBUFS)? {
+                if let socket::ControlMessageOwned::ScmRights(received_fds) = cmsg {
+                    trace! {
+                        eprintln!(
+                            "[hw] trace: SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",
+                            received_fds.len()
+                        )
+                    }
+                    fds.extend(received_fds);
                 }
-                fds.extend(received_fds);
+            }
+
+            data.extend_from_slice(&buffer[..bytes_received]);
+
+            if bytes_received < BUFFER_SIZE {
+                break;
             }
         }
 
         Ok(Self {
-            data: buffer[..bytes_received].into(),
+            data: data.into_boxed_slice(),
             fds,
         })
     }

@@ -4,6 +4,7 @@ use crate::{message, steady_millis, trace};
 use libffi::low as ffi;
 use std::os::fd::AsRawFd;
 use std::os::raw;
+use std::ptr;
 
 pub trait WireObject: object::RawObject {
     fn set_version(&self, version: u32);
@@ -30,12 +31,12 @@ pub trait WireObject: object::RawObject {
 
     fn seq(&self) -> u32;
 
-    fn called(
+    fn called<D>(
         &self,
         id: u32,
         data: &[u8],
         fds: &[i32],
-        dispatch: *mut raw::c_void,
+        dispatch: &mut D,
     ) -> Result<(), message::MessageError> {
         let methods = self.methods_in();
 
@@ -196,7 +197,7 @@ pub trait WireObject: object::RawObject {
         let object_data = unsafe { &*(self.get_data() as *const crate::DispatchData) };
         let call_ctx = crate::DispatchContext {
             object: object_data.object,
-            dispatch,
+            dispatch: ptr::from_mut(dispatch),
         };
         let mut data_ptr_slot = vec![0u8; std::mem::size_of::<*mut raw::c_void>()];
         data_ptr_slot.copy_from_slice(&((&raw const call_ctx) as usize).to_ne_bytes());

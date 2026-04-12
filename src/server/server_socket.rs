@@ -5,7 +5,7 @@ use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
 use std::sync;
-use std::{ffi, fs, io, path, ptr, rc, thread};
+use std::{fs, io, path, rc, thread};
 
 use crate::implementation;
 
@@ -132,7 +132,7 @@ impl ServerSocket {
             .push(Box::new(implementation));
     }
 
-    pub(crate) fn dispatch_pending(&mut self, dispatch: *mut ffi::c_void) -> bool {
+    pub(crate) fn dispatch_pending<D>(&mut self, dispatch: &mut D) -> bool {
         let _ = poll::poll(&mut self.pollfds, poll::PollTimeout::ZERO);
 
         if self.dispatch_new_connections() {
@@ -174,10 +174,7 @@ impl ServerSocket {
         }
     }
 
-    fn dispatch_client(
-        client: &rc::Rc<server_client::ServerClientState>,
-        dispatch: *mut ffi::c_void,
-    ) {
+    fn dispatch_client<D>(client: &rc::Rc<server_client::ServerClientState>, dispatch: &mut D) {
         let state = rc::Rc::clone(&client.state);
 
         let mut data = {
@@ -219,7 +216,7 @@ impl ServerSocket {
         }
     }
 
-    pub(crate) fn dispatch_existing_connections(&mut self, dispatch: *mut ffi::c_void) -> bool {
+    pub(crate) fn dispatch_existing_connections<D>(&mut self, dispatch: &mut D) -> bool {
         let mut had_any = false;
         let mut needs_poll_recheck = false;
 
@@ -367,12 +364,10 @@ impl ServerSocket {
     /// Panics if an internal synchronization mutex has been poisoned by a
     /// panic in another thread while coordinating poll/export state.
     pub fn dispatch_events<D>(&mut self, state: &mut D, block: bool) -> bool {
-        let dispatch = ptr::from_mut::<D>(state).cast::<ffi::c_void>();
-
         let mtx = sync::Arc::clone(&self.poll_mtx);
         let poll_guard = mtx.lock().unwrap();
 
-        while self.dispatch_pending(dispatch) {}
+        while self.dispatch_pending(state) {}
 
         self.clear_event_fd();
         self.clear_exit_fd();
@@ -380,7 +375,7 @@ impl ServerSocket {
 
         if block {
             let _ = poll::poll(&mut self.pollfds, poll::PollTimeout::NONE);
-            while self.dispatch_pending(dispatch) {}
+            while self.dispatch_pending(state) {}
         }
 
         drop(poll_guard);
@@ -422,11 +417,15 @@ impl ServerSocket {
     /// Removes a client previously added to the server.
     ///
     /// Returns `true` if a matching client handle was present.
-    pub fn remove_client(&mut self, client: &server_client::ServerClient) -> bool {
+    pub fn remove_client<D>(
+        &mut self,
+        client: &server_client::ServerClient,
+        dispatch: &mut D,
+    ) -> bool {
         for state in self.clients.iter().filter(|c| c.id == client.id()) {
             state.state.error.set(true);
             let _ = state.state.stream.shutdown(std::net::Shutdown::Both);
-            state.destroy_objects_for_disconnect(ptr::null_mut());
+            state.destroy_objects_for_disconnect(dispatch);
         }
 
         let before = self.clients.len();

@@ -1,15 +1,16 @@
 use super::client_object;
+use crate::SharedState;
 use crate::client::server_spec;
 use crate::implementation::types::ProtocolSpec;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
-use crate::{SharedState, implementation, message, socket, steady_millis, trace};
+use crate::{implementation, message, socket, steady_millis, trace};
 use nix::sys;
 use nix::{errno, poll};
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
-use std::{cell, ffi, io, ops, path, rc, time};
+use std::{cell, io, ops, path, rc, time};
 
 pub struct ClientSocket {
     impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
@@ -54,15 +55,17 @@ impl ClientSocket {
         T: AsRef<path::Path>,
     {
         let stream = net::UnixStream::connect(path)?;
+        stream.set_nonblocking(true)?;
         Ok(Self::new(stream))
     }
 
-    pub fn from_fd<T>(fd: T) -> rc::Rc<Self>
+    pub fn from_fd<T>(fd: T) -> io::Result<rc::Rc<Self>>
     where
         T: Into<fd::OwnedFd>,
     {
         let stream = net::UnixStream::from(fd.into());
-        Self::new(stream)
+        stream.set_nonblocking(true)?;
+        Ok(Self::new(stream))
     }
 
     pub fn add_implementation(
@@ -72,9 +75,9 @@ impl ClientSocket {
         self.impls.borrow_mut().push(p_impl);
     }
 
-    pub fn wait_for_handshake(&self) -> Result<(), io::Error> {
+    pub fn wait_for_handshake<D>(&self, dispatch: &mut D) -> Result<(), io::Error> {
         while !self.state.error.get() && !self.handshake_done.get() {
-            self.dispatch_events(std::ptr::null_mut(), true)?;
+            self.dispatch_events(dispatch, true)?;
         }
 
         if self.state.error.get() {
@@ -99,7 +102,7 @@ impl ClientSocket {
         &self,
         spec: &dyn ProtocolSpec,
         version: u32,
-    ) -> Result<rc::Rc<dyn implementation::object::RawObject>, io::Error> {
+    ) -> Result<rc::Rc<client_object::ClientObject>, io::Error> {
         if version > spec.spec_ver() {
             log::error!(
                 "version {} is larger than current spec ver of {}",
@@ -132,17 +135,16 @@ impl ClientSocket {
         let bind_message = message::BindProtocol::new(spec.spec_name(), seq, version);
         self.state.send_message(&bind_message);
 
-        self.wait_for_object(&object)?;
-
         Ok(object)
     }
 
-    fn wait_for_object(
+    pub(crate) fn wait_for_object<D>(
         &self,
         object: &rc::Rc<client_object::ClientObject>,
+        dispatch: &mut D,
     ) -> Result<(), io::Error> {
         while object.id.get() == 0 && !self.state.error.get() {
-            self.dispatch_events(std::ptr::null_mut(), true)?;
+            self.dispatch_events(dispatch, true)?;
         }
 
         if self.state.error.get() {
@@ -214,7 +216,7 @@ impl ClientSocket {
         let _ = self.state.stream.shutdown(std::net::Shutdown::Both);
     }
 
-    pub fn roundtrip(&self, dispatch: *mut ffi::c_void) -> Result<(), io::Error> {
+    pub fn roundtrip<D>(&self, dispatch: &mut D) -> Result<(), io::Error> {
         if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
@@ -234,11 +236,7 @@ impl ClientSocket {
         Ok(())
     }
 
-    pub fn dispatch_events(
-        &self,
-        dispatch: *mut ffi::c_void,
-        block: bool,
-    ) -> Result<(), io::Error> {
+    pub fn dispatch_events<D>(&self, dispatch: &mut D, block: bool) -> Result<(), io::Error> {
         if self.state.error.get() {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
@@ -422,10 +420,10 @@ impl ClientSocket {
         }
     }
 
-    pub fn on_generic(
+    pub fn on_generic<D>(
         &self,
         msg: &message::GenericProtocolMessage<ops::Range<usize>>,
-        dispatch: *mut ffi::c_void,
+        dispatch: &mut D,
     ) {
         let obj = self
             .objects

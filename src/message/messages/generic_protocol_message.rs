@@ -4,7 +4,7 @@ use crate::message;
 use crate::trace;
 use std::ops;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GenericProtocolMessage<R>
 where
     R: ops::RangeBounds<usize>,

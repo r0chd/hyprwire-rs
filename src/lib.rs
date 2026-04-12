@@ -21,7 +21,7 @@ use implementation::object as impl_object;
 use nix::{errno, poll, sys};
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
-use std::{cell, ffi, io, rc, sync, time};
+use std::{cell, io, rc, sync, time};
 
 pub(crate) struct SharedState {
     pub(crate) error: cell::Cell<bool>,
@@ -172,9 +172,9 @@ pub struct DispatchData {
 
 #[doc(hidden)]
 #[allow(missing_docs)]
-pub struct DispatchContext {
+pub struct DispatchContext<D: ?Sized> {
     pub object: *const dyn impl_object::RawObject,
-    pub dispatch: *mut ffi::c_void,
+    pub dispatch: *mut D,
 }
 
 static START: sync::OnceLock<time::Instant> = sync::OnceLock::new();

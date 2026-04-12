@@ -49,7 +49,7 @@ impl ServerObject {
         }
     }
 
-    pub(crate) fn destroy_for_disconnect(&self, dispatch: *mut raw::c_void) {
+    pub(crate) fn destroy_for_disconnect<D>(&self, dispatch: &mut D) {
         if self.destroyed.get() {
             return;
         }
@@ -58,11 +58,7 @@ impl ServerObject {
         self.destroy();
     }
 
-    fn dispatch_no_arg_destructor(&self, dispatch: *mut raw::c_void) {
-        if dispatch.is_null() {
-            return;
-        }
-
+    fn dispatch_no_arg_destructor<D>(&self, dispatch: &mut D) {
         let Some(method) = self.spec.as_ref().and_then(|spec| {
             spec.c2s().iter().find(|method| {
                 method.destructor && method.params.is_empty() && method.returns_type.is_empty()

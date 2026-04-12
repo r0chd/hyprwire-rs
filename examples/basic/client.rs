@@ -58,10 +58,11 @@ fn main() {
 
     let path = socket_path();
     let mut socket = client::Client::open(&path).unwrap();
+    let mut state = App::default();
 
     let implementation = test_protocol_v1::TestProtocolV1Impl::default();
     socket.add_implementation(implementation.clone());
-    socket.wait_for_handshake().unwrap();
+    socket.wait_for_handshake(&mut state).unwrap();
 
     let spec = socket
         .get_spec(implementation.protocol().spec_name())
@@ -72,10 +73,8 @@ fn main() {
         spec.spec_ver()
     );
 
-    let mut state = App::default();
-
     let manager = socket
-        .bind::<test_protocol_v1::MyManagerV1Object, App>(implementation.protocol(), 1)
+        .bind::<test_protocol_v1::MyManagerV1Object, App>(implementation.protocol(), 1, &mut state)
         .unwrap();
 
     println!("Bound!");

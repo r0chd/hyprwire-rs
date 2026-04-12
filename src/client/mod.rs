@@ -5,7 +5,7 @@ mod server_spec;
 use crate::implementation;
 use implementation::client::ProtocolImplementations;
 use std::os::fd;
-use std::{ffi, io, path, ptr, rc};
+use std::{io, path, rc};
 
 /// Client-side entry point for connecting to a Hyprwire server and dispatching
 /// protocol events.
@@ -30,11 +30,11 @@ impl Client {
     /// Creates a client from an already-connected Unix socket file descriptor.
     ///
     /// The returned client takes ownership of `fd`.
-    pub fn from_fd<T>(fd: T) -> Self
+    pub fn from_fd<T>(fd: T) -> io::Result<Self>
     where
         T: Into<fd::OwnedFd>,
     {
-        Self(client_socket::ClientSocket::from_fd(fd))
+        Ok(Self(client_socket::ClientSocket::from_fd(fd)?))
     }
 
     /// Registers a protocol implementation on the client.
@@ -52,8 +52,8 @@ impl Client {
     /// # Errors
     /// Returns an error if the connection closes, the handshake times out, or
     /// the server sends invalid handshake traffic.
-    pub fn wait_for_handshake(&mut self) -> Result<(), io::Error> {
-        self.0.wait_for_handshake()
+    pub fn wait_for_handshake<D>(&mut self, state: &mut D) -> Result<(), io::Error> {
+        self.0.wait_for_handshake(state)
     }
 
     /// Dispatches pending events from the server.
@@ -65,8 +65,7 @@ impl Client {
     /// Returns an error if the connection closes, polling fails, or incoming
     /// protocol traffic is malformed.
     pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> Result<(), io::Error> {
-        self.0
-            .dispatch_events(ptr::from_mut::<D>(state).cast::<ffi::c_void>(), block)
+        self.0.dispatch_events(state, block)
     }
 
     /// Performs a roundtrip against the server.
@@ -79,8 +78,7 @@ impl Client {
     /// Returns an error if the connection closes or dispatching protocol
     /// traffic fails while waiting for the roundtrip acknowledgment.
     pub fn roundtrip<D>(&self, state: &mut D) -> Result<(), io::Error> {
-        self.0
-            .roundtrip(ptr::from_mut::<D>(state).cast::<ffi::c_void>())
+        self.0.roundtrip(state)
     }
 
     #[must_use]
@@ -113,9 +111,13 @@ impl Client {
         &self,
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,
+        state: &mut D,
     ) -> Result<T, io::Error> {
         let obj = self.0.bind_protocol(spec, version)?;
-        Ok(T::from_object::<D>(obj))
+        let raw_obj: rc::Rc<dyn implementation::object::RawObject> = obj.clone();
+        let typed = T::from_object::<D>(raw_obj);
+        self.0.wait_for_object(&obj, state)?;
+        Ok(typed)
     }
 
     #[must_use]
