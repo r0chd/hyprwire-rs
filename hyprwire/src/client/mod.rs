@@ -3,7 +3,7 @@ pub(crate) mod client_socket;
 mod server_spec;
 
 use crate::implementation;
-use implementation::client::ProtocolImplementations;
+use crate::implementation::client::ProtocolImplementations;
 use std::os::fd;
 use std::{io, path, rc};
 
@@ -19,9 +19,9 @@ impl Client {
     ///
     /// # Errors
     /// Returns any I/O error produced while opening the Unix socket.
-    pub fn open<T>(path: T) -> io::Result<Self>
+    pub fn open<P>(path: P) -> io::Result<Self>
     where
-        T: AsRef<path::Path>,
+        P: AsRef<path::Path>,
     {
         Ok(Self(client_socket::ClientSocket::open(path)?))
     }
@@ -29,19 +29,19 @@ impl Client {
     /// Creates a client from an already-connected Unix socket file descriptor.
     ///
     /// The returned client takes ownership of `fd`.
-    pub fn from_fd<T>(fd: T) -> io::Result<Self>
+    pub fn from_fd<F>(fd: F) -> io::Result<Self>
     where
-        T: Into<fd::OwnedFd>,
+        F: Into<fd::OwnedFd>,
     {
         Ok(Self(client_socket::ClientSocket::from_fd(fd)?))
     }
 
     /// Registers a protocol implementation on the client.
-    pub fn add_implementation<T>(&mut self, p_impl: T)
+    pub fn add_implementation<I>(&mut self)
     where
-        T: ProtocolImplementations + 'static,
+        I: ProtocolImplementations + 'static,
     {
-        self.0.add_implementation(Box::new(p_impl));
+        self.0.add_implementation(Box::new(I::new()));
     }
 
     /// Blocks until the initial Hyprwire handshake completes.
@@ -106,15 +106,15 @@ impl Client {
     /// Returns an error if the requested version is invalid, the connection
     /// closes during binding, or the server does not complete object creation
     /// successfully.
-    pub fn bind<T: crate::Object, D: crate::Dispatch<T>>(
+    pub fn bind<O: crate::Object, D: crate::Dispatch<O>>(
         &self,
         spec: &dyn implementation::types::ProtocolSpec,
         version: u32,
         state: &mut D,
-    ) -> Result<T, io::Error> {
+    ) -> Result<O, io::Error> {
         let obj = self.0.bind_protocol(spec, version)?;
         let raw_obj: rc::Rc<dyn implementation::object::RawObject> = obj.clone();
-        let typed = T::from_object::<D>(raw_obj);
+        let typed = O::from_object::<D>(raw_obj);
         self.0.wait_for_object(&obj, state)?;
         Ok(typed)
     }
@@ -122,8 +122,13 @@ impl Client {
     #[must_use]
     /// Returns the server-advertised protocol specification with the given
     /// name, if present.
-    pub fn get_spec(&self, name: &str) -> Option<server_spec::ServerSpec> {
-        self.0.get_spec(name)
+    pub fn get_spec<I>(&self) -> Option<server_spec::ServerSpec<I>>
+    where
+        I: ProtocolImplementations,
+    {
+        self.0
+            .get_spec(I::spec_name())
+            .map(|spec| server_spec::ServerSpec::new(spec.version()))
     }
 
     #[must_use]

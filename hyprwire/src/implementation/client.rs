@@ -7,6 +7,18 @@ pub struct ObjectImplementation<'a> {
 }
 
 pub trait ProtocolImplementations {
+    fn new() -> Self
+    where
+        Self: Sized;
+
+    fn protocol_spec() -> Box<dyn types::ProtocolSpec>
+    where
+        Self: Sized;
+
+    fn spec_name() -> &'static str
+    where
+        Self: Sized;
+
     fn protocol(&self) -> &dyn types::ProtocolSpec;
 
     fn implementation(&self) -> &[ObjectImplementation<'_>];

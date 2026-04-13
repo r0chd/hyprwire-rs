@@ -13,7 +13,7 @@ use std::{cell, io, ops, path, rc, time};
 
 pub struct ClientSocket {
     impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
-    server_specs: cell::RefCell<Vec<server_spec::ServerSpec>>,
+    server_specs: cell::RefCell<Vec<server_spec::AdvertisedSpec>>,
     objects: cell::RefCell<Vec<rc::Rc<client_object::ClientObject>>>,
     handshake_begin: time::Instant,
     pub(crate) state: rc::Rc<SharedState>,
@@ -52,18 +52,18 @@ impl ClientSocket {
         client_socket
     }
 
-    pub fn open<T>(path: T) -> io::Result<rc::Rc<Self>>
+    pub fn open<P>(path: P) -> io::Result<rc::Rc<Self>>
     where
-        T: AsRef<path::Path>,
+        P: AsRef<path::Path>,
     {
         let stream = net::UnixStream::connect(path)?;
         stream.set_nonblocking(true)?;
         Ok(Self::new(stream))
     }
 
-    pub fn from_fd<T>(fd: T) -> io::Result<rc::Rc<Self>>
+    pub fn from_fd<F>(fd: F) -> io::Result<rc::Rc<Self>>
     where
-        T: Into<fd::OwnedFd>,
+        F: Into<fd::OwnedFd>,
     {
         let stream = net::UnixStream::from(fd.into());
         stream.set_nonblocking(true)?;
@@ -92,11 +92,11 @@ impl ClientSocket {
         Ok(())
     }
 
-    pub fn get_spec(&self, name: &str) -> Option<server_spec::ServerSpec> {
+    pub fn get_spec(&self, name: &str) -> Option<server_spec::AdvertisedSpec> {
         self.server_specs
             .borrow()
             .iter()
-            .find(|spec| spec.spec_name() == name)
+            .find(|spec| spec.name() == name)
             .cloned()
     }
 
@@ -124,6 +124,15 @@ impl ClientSocket {
         let mut object =
             client_object::ClientObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
         let objects = spec.objects();
+        if objects.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "protocol {} does not expose object metadata; bind requires a generated protocol spec",
+                    spec.spec_name()
+                ),
+            ));
+        }
         object.spec = Some(std::sync::Arc::clone(&objects[0]));
         let seq = self.seq.get() + 1;
         self.seq.set(seq);
@@ -205,7 +214,7 @@ impl ClientSocket {
         for spec in specs {
             let at_pos = spec.rfind('@').unwrap();
 
-            let s = server_spec::ServerSpec::new(
+            let s = server_spec::AdvertisedSpec::new(
                 spec[0..at_pos].to_string(),
                 spec[at_pos + 1..].parse().unwrap(),
             );

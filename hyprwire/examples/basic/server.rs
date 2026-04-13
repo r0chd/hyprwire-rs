@@ -9,6 +9,7 @@ use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::str::FromStr;
 use std::{env, fs, path};
+use test_protocol_v1::{my_manager_v1, my_object_v1};
 
 fn socket_path() -> path::PathBuf {
     let mut runtime_dir = env::var("XDG_RUNTIME_DIR").unwrap();
@@ -19,21 +20,21 @@ fn socket_path() -> path::PathBuf {
 
 #[derive(Default)]
 struct App {
-    manager: Option<test_protocol_v1::MyManagerV1Object>,
-    object: Option<test_protocol_v1::MyObjectV1Object>,
+    manager: Option<my_manager_v1::MyManagerV1>,
+    object: Option<my_object_v1::MyObjectV1>,
 }
 
-impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
+impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
     fn event(
         &mut self,
-        object: &test_protocol_v1::MyManagerV1Object,
-        event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
+        object: &my_manager_v1::MyManagerV1,
+        event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
     ) {
         match event {
-            test_protocol_v1::MyManagerV1Event::SendMessage { message } => {
+            my_manager_v1::Event::SendMessage { message } => {
                 println!("Recvd message: {}", message)
             }
-            test_protocol_v1::MyManagerV1Event::SendMessageArrayFd { message } => {
+            my_manager_v1::Event::SendMessageArrayFd { message } => {
                 println!("Received {} fds", message.len());
 
                 for fd in message {
@@ -44,21 +45,21 @@ impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
                     println!("fd {} with data: {}", file.as_raw_fd(), data);
                 }
             }
-            test_protocol_v1::MyManagerV1Event::SendMessageFd { message } => {
+            my_manager_v1::Event::SendMessageFd { message } => {
                 let mut file = fs::File::from(message);
                 let mut buf = [0u8; 64];
                 let n = file.read(&mut buf).unwrap_or(0);
                 let data = String::from_utf8_lossy(&buf[..n]);
                 println!("Recvd fd {} with data: {}", file.as_raw_fd(), data);
             }
-            test_protocol_v1::MyManagerV1Event::SendMessageArray { message } => {
+            my_manager_v1::Event::SendMessageArray { message } => {
                 println!("Got array message: \"{}\"", message.join(", "));
             }
-            test_protocol_v1::MyManagerV1Event::SendMessageArrayUint { message } => {
+            my_manager_v1::Event::SendMessageArrayUint { message } => {
                 let conct: Vec<String> = message.iter().map(|v| v.to_string()).collect();
                 println!("Got uint array message: \"{}\"", conct.join(", "));
             }
-            test_protocol_v1::MyManagerV1Event::MakeObject { seq } => {
+            my_manager_v1::Event::MakeObject { seq } => {
                 let obj = object
                     .make_object::<Self>(seq)
                     .expect("failed to create object");
@@ -69,17 +70,17 @@ impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
     }
 }
 
-impl hyprwire::Dispatch<test_protocol_v1::MyObjectV1Object> for App {
+impl hyprwire::Dispatch<my_object_v1::MyObjectV1> for App {
     fn event(
         &mut self,
-        object: &test_protocol_v1::MyObjectV1Object,
-        event: <test_protocol_v1::MyObjectV1Object as hyprwire::Object>::Event<'_>,
+        object: &my_object_v1::MyObjectV1,
+        event: <my_object_v1::MyObjectV1 as hyprwire::Object>::Event<'_>,
     ) {
         match event {
-            test_protocol_v1::MyObjectV1Event::SendMessage { message } => {
+            my_object_v1::Event::SendMessage { message } => {
                 println!("Object says hello: {}", message);
             }
-            test_protocol_v1::MyObjectV1Event::SendEnum { message } => {
+            my_object_v1::Event::SendEnum { message } => {
                 println!("Object sent enum: {:?}", message);
 
                 println!("Erroring out the client!");
@@ -95,7 +96,7 @@ impl hyprwire::Dispatch<test_protocol_v1::MyObjectV1Object> for App {
 }
 
 impl test_protocol_v1::TestProtocolV1Handler for App {
-    fn bind(&mut self, object: test_protocol_v1::MyManagerV1Object) {
+    fn bind(&mut self, object: my_manager_v1::MyManagerV1) {
         println!("{:?}", object.client().unwrap().creds().pid());
         object.client();
         println!("Object bound XD");
@@ -112,8 +113,7 @@ fn main() {
     let path = socket_path();
     let mut sock = server::Server::open(Some(&path)).unwrap();
     let mut app = App::default();
-    let implementation = test_protocol_v1::TestProtocolV1Impl::new(1, &mut app);
-    sock.add_implementation(implementation);
+    sock.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut app);
 
     while sock.dispatch_events(&mut app, true) {}
 }

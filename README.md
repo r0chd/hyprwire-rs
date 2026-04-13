@@ -55,19 +55,18 @@ mod test_protocol_v1 {
 
 use std::{path, io};
 use hyprwire::client;
-use hyprwire::implementation::client::ProtocolImplementations;
-use hyprwire::implementation::types::ProtocolSpec;
+use test_protocol_v1::my_manager_v1;
 
 #[derive(Default)]
 struct App;
 
-impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
+impl hyprwire::Dispatch<my_manager_v1::Object> for App {
     fn event(
         &mut self,
-        _object: &test_protocol_v1::MyManagerV1Object,
-        event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
+        _object: &my_manager_v1::Object,
+        event: <my_manager_v1::Object as hyprwire::Object>::Event<'_>,
     ) {
-        if let test_protocol_v1::MyManagerV1Event::SendMessage { message } = event {
+        if let my_manager_v1::Event::SendMessage { message } = event {
             println!("server says {message}");
         }
     }
@@ -76,25 +75,23 @@ impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
 fn main() -> io::Result<()> {
     // Connect to the server.
     let mut client = client::Client::open(path::Path::new("/tmp/test-hw.sock"))?;
+    let mut app = App::default();
 
     // Register the generated client-side implementation so incoming events
     // can be decoded into typed callbacks.
-    let implementation = test_protocol_v1::TestProtocolV1Impl::default();
-    client.add_implementation(implementation.clone());
+    client.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
 
     // Finish protocol negotiation.
-    client.wait_for_handshake(&mut state)?;
+    client.wait_for_handshake(&mut app)?;
 
     // Look up the protocol advertised by the server.
-    let spec = client
-        .get_spec(implementation.protocol().spec_name())
+    let server_spec = client
+        .get_spec::<test_protocol_v1::TestProtocolV1Impl>()
         .expect("protocol unsupported");
-
-    let mut app = App;
 
     // Bind the protocol's root object.
     let manager = client
-        .bind::<test_protocol_v1::MyManagerV1Object, App>(&spec, 1)?;
+        .bind::<my_manager_v1::Object, App>(&server_spec, server_spec.spec_ver(), &mut app)?;
 
     manager.send_send_message("hello");
 
@@ -120,24 +117,25 @@ mod test_protocol_v1 {
 
 use std::path;
 use hyprwire::server::Server;
+use test_protocol_v1::my_manager_v1;
 
 #[derive(Default)]
 struct App;
 
-impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
+impl hyprwire::Dispatch<my_manager_v1::Object> for App {
     fn event(
         &mut self,
-        _object: &test_protocol_v1::MyManagerV1Object,
-        event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
+        _object: &my_manager_v1::Object,
+        event: <my_manager_v1::Object as hyprwire::Object>::Event<'_>,
     ) {
-        if let test_protocol_v1::MyManagerV1Event::SendMessage { message } = event {
+        if let my_manager_v1::Event::SendMessage { message } = event {
             println!("client says {message}");
         }
     }
 }
 
 impl test_protocol_v1::TestProtocolV1Handler for App {
-    fn bind(&mut self, object: test_protocol_v1::MyManagerV1Object) {
+    fn bind(&mut self, object: my_manager_v1::Object) {
         object.send_send_message("hello from server");
     }
 }
@@ -149,8 +147,7 @@ fn main() -> std::io::Result<()> {
     let mut server = Server::open(Some(path::Path::new("/tmp/test-hw.sock")))?;
 
     // Register the generated server-side implementation.
-    let implementation = test_protocol_v1::TestProtocolV1Impl::new(1, &mut app);
-    server.add_implementation(implementation);
+    server.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut app);
 
     // Block and dispatch client requests forever.
     while server.dispatch_events(&mut app, true) {}

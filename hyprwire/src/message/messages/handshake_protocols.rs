@@ -24,9 +24,9 @@ pub struct HandshakeProtocols<'a> {
 }
 
 impl<'a> HandshakeProtocols<'a> {
-    pub fn new<T>(protocols: &[T]) -> Self
+    pub fn new<S>(protocols: &[S]) -> Self
     where
-        T: AsRef<str>,
+        S: AsRef<str>,
     {
         let mut data = Vec::new();
 

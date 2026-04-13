@@ -140,7 +140,7 @@ fn event_field_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream 
         ArgType::Uint => quote! { u32 },
         ArgType::Enum => {
             let ident = format_ident!("{}", snake_to_pascal(interface.unwrap()));
-            quote! { super::spec::#ident }
+            quote! { super::super::spec::#ident }
         }
         ArgType::F32 => quote! { f32 },
         ArgType::ArrayVarchar => quote! { Vec<String> },
@@ -177,7 +177,7 @@ fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
         ArgType::F32 => quote! { f32 },
         ArgType::Enum => {
             let ident = format_ident!("{}", snake_to_pascal(interface.unwrap()));
-            quote! { super::spec::#ident }
+            quote! { super::super::spec::#ident }
         }
         ArgType::ArrayVarchar => quote! { &[S] },
         ArgType::ArrayFd => quote! { &[F] },
@@ -353,8 +353,8 @@ fn method_doc_attrs(method: &Method, returns_named_object: bool) -> TokenStream 
             lines.push(String::new());
         }
         let returned = format!(
-            "Returns a new `{}`.",
-            snake_to_pascal(method.returns.as_deref().expect("checked above")) + "Object"
+            "Returns a new `{}` object.",
+            method.returns.as_deref().expect("checked above")
         );
         lines.push(returned);
     }
@@ -549,8 +549,8 @@ fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> Tok
 
 fn write_dispatch_fn(
     obj_name: &str,
-    obj_ident: &proc_macro2::Ident,
-    event_ident: &proc_macro2::Ident,
+    obj_path: &TokenStream,
+    event_path: &TokenStream,
     idx: usize,
     m: &Method,
     has_on_destroy: bool,
@@ -634,13 +634,13 @@ fn write_dispatch_fn(
     }
 
     let dispatch_call = if event_fields.is_empty() {
-        quote! { __dispatch.event(&proxy, #event_ident::#variant_ident); }
+        quote! { __dispatch.event(&proxy, #event_path::#variant_ident); }
     } else {
-        quote! { __dispatch.event(&proxy, #event_ident::#variant_ident { #(#event_fields)* }); }
+        quote! { __dispatch.event(&proxy, #event_path::#variant_ident { #(#event_fields)* }); }
     };
 
     quote! {
-        unsafe extern "C" fn #fn_ident<D: hyprwire::Dispatch<#obj_ident>>(
+        unsafe extern "C" fn #fn_ident<D: hyprwire::Dispatch<#obj_path>>(
             #(#fn_params,)*
         ) {
             let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
@@ -649,7 +649,7 @@ fn write_dispatch_fn(
             }
             let __dispatch = unsafe { &mut *dispatch.dispatch };
             unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-            let proxy = #obj_ident {
+            let proxy = #obj_path {
                 object: unsafe { rc::Rc::from_raw(dispatch.object) },
                 #on_destroy_field
             };
@@ -688,22 +688,24 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
 
     if m.returns.is_some() {
         let call_body = build_call_body(idx, &m.args, true);
+        let returned_mod_ident = format_ident!("{}", m.returns.as_deref().expect("checked above"));
         let returned_obj_ident = format_ident!(
-            "{}Object",
+            "{}",
             snake_to_pascal(m.returns.as_deref().expect("checked above"))
         );
+        let returned_obj_path = quote! { super::#returned_mod_ident::#returned_obj_ident };
         quote! {
             #docs
-            pub fn #method_ident<#s_bound #f_bound D: hyprwire::Dispatch<#returned_obj_ident>>(
+            pub fn #method_ident<#s_bound #f_bound D: hyprwire::Dispatch<#returned_obj_path>>(
                 &self,
                 #(#param_pairs,)*
-            ) -> Option<#returned_obj_ident> {
+            ) -> Option<#returned_obj_path> {
                 #call_body
                 let obj = self
                     .object
                     .client_sock()
                     .and_then(|sock| sock.object_for_seq(seq));
-                Some(<#returned_obj_ident as hyprwire::Object>::from_object::<D>(obj?))
+                Some(<#returned_obj_path as hyprwire::Object>::from_object::<D>(obj?))
             }
         }
     } else if m.destructor && has_on_destroy && !m.args.is_empty() {
@@ -741,16 +743,18 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
 fn write_server_create_helper(m: &Method) -> Option<TokenStream> {
     let returned = m.returns.as_deref()?;
     let helper_ident = format_ident!("{}", raw_ident(&m.name));
-    let returned_obj_ident = format_ident!("{}Object", snake_to_pascal(returned));
+    let returned_mod_ident = format_ident!("{}", returned);
+    let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
+    let returned_obj_path = quote! { super::#returned_mod_ident::#returned_obj_ident };
     let docs = method_doc_attrs(m, true);
     Some(quote! {
         #docs
-        pub fn #helper_ident<D: hyprwire::Dispatch<#returned_obj_ident>>(
+        pub fn #helper_ident<D: hyprwire::Dispatch<#returned_obj_path>>(
             &self,
             seq: u32,
-        ) -> Option<#returned_obj_ident> {
+        ) -> Option<#returned_obj_path> {
             let obj = self.object.create_object(#returned, seq)?;
-            Some(<#returned_obj_ident as hyprwire::Object>::from_object::<D>(obj))
+            Some(<#returned_obj_path as hyprwire::Object>::from_object::<D>(obj))
         }
     })
 }
@@ -839,77 +843,19 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     let mut items: Vec<TokenStream> = Vec::new();
 
     for obj in &protocol.objects {
-        let obj_ident = format_ident!("{}Object", snake_to_pascal(&obj.name));
-        let pascal_str = format!("{}Object", snake_to_pascal(&obj.name));
+        let obj_mod_ident = format_ident!("{}", obj.name);
+        let obj_type_ident = format_ident!("{}", snake_to_pascal(&obj.name));
         let raw_obj = raw_object_type();
         let docs = object_doc_attrs(obj.description.as_ref());
-        items.push(quote! {
-            #docs
-            pub struct #obj_ident {
-                object: #raw_obj,
-            }
-
-            impl std::fmt::Debug for #obj_ident {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.debug_struct(#pascal_str).field("object", &rc::Rc::as_ptr(&self.object)).finish()
-                }
-            }
-
-            impl Clone for #obj_ident {
-                fn clone(&self) -> Self {
-                    Self { object: rc::Rc::clone(&self.object) }
-                }
-            }
-
-            impl PartialEq for #obj_ident {
-                fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
-            }
-
-            impl Eq for #obj_ident {}
-
-            impl std::hash::Hash for #obj_ident {
-                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
-            }
-        });
-    }
-
-    for obj in &protocol.objects {
-        let pascal = snake_to_pascal(&obj.name);
-        let obj_ident = format_ident!("{}Object", pascal);
-        let event_ident = format_ident!("{}Event", pascal);
         let obj_name_str = &obj.name;
-        let event_docs = format!("Incoming events for `{obj_ident}`.");
+        let event_docs = format!(
+            "Incoming events for `{obj_mod_ident}::{}`.",
+            snake_to_pascal(&obj.name)
+        );
+        let event_ident = format_ident!("Event");
         let event_enum = write_event_enum(&event_ident, &obj.c2s);
-
-        items.push(quote! {
-            #[doc = #event_docs]
-            #event_enum
-        });
-
-        {
-            let raw_obj = raw_object_type();
-            items.push(quote! {
-                impl hyprwire::Object for #obj_ident {
-                    type Event<'a> = #event_ident;
-                    const NAME: &str = #obj_name_str;
-                    fn from_object<D: hyprwire::Dispatch<Self>>(object: #raw_obj) -> Self {
-                        Self::new::<D>(object)
-                    }
-                }
-            });
-        }
-
-        for (idx, m) in obj.c2s.iter().enumerate() {
-            items.push(write_dispatch_fn(
-                &obj.name,
-                &obj_ident,
-                &event_ident,
-                idx,
-                m,
-                false,
-            ));
-        }
-
+        let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
+        let event_path = quote! { #obj_mod_ident::Event };
         let new_fn = write_new_fn(&obj.name, &obj.c2s, None);
         let create_helpers: Vec<TokenStream> = obj
             .c2s
@@ -924,22 +870,75 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
             .collect();
 
         items.push(quote! {
-            impl #obj_ident {
-                #new_fn
+            pub mod #obj_mod_ident {
+                use super::*;
 
-                pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
-                    self.object.error(error_id, error_msg.as_ref());
+                #docs
+                pub struct #obj_type_ident {
+                    pub(super) object: #raw_obj,
                 }
 
-                pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
-                    self.object.server_client()
+                impl std::fmt::Debug for #obj_type_ident {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        f.debug_struct("Object").field("object", &rc::Rc::as_ptr(&self.object)).finish()
+                    }
                 }
 
-                #(#create_helpers)*
+                impl Clone for #obj_type_ident {
+                    fn clone(&self) -> Self {
+                        Self { object: rc::Rc::clone(&self.object) }
+                    }
+                }
 
-                #(#send_methods)*
+                impl PartialEq for #obj_type_ident {
+                    fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
+                }
+
+                impl Eq for #obj_type_ident {}
+
+                impl std::hash::Hash for #obj_type_ident {
+                    fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
+                }
+
+                #[doc = #event_docs]
+                #event_enum
+
+                impl hyprwire::Object for #obj_type_ident {
+                    type Event<'a> = Event;
+                    const NAME: &str = #obj_name_str;
+                    fn from_object<D: hyprwire::Dispatch<Self>>(object: #raw_obj) -> Self {
+                        Self::new::<D>(object)
+                    }
+                }
+
+                impl #obj_type_ident {
+                    #new_fn
+
+                    pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
+                        self.object.error(error_id, error_msg.as_ref());
+                    }
+
+                    pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
+                        self.object.server_client()
+                    }
+
+                    #(#create_helpers)*
+
+                    #(#send_methods)*
+                }
             }
         });
+
+        for (idx, m) in obj.c2s.iter().enumerate() {
+            items.push(write_dispatch_fn(
+                &obj.name,
+                &obj_path,
+                &event_path,
+                idx,
+                m,
+                false,
+            ));
+        }
     }
 
     let proto_pascal = snake_to_pascal(&protocol.name);
@@ -947,7 +946,9 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     let impl_ident = format_ident!("{}Impl", proto_pascal);
     let proto_spec_ident = format_ident!("{}ProtocolSpec", proto_pascal);
 
-    let first_obj_ident = format_ident!("{}Object", snake_to_pascal(&protocol.objects[0].name));
+    let first_obj_mod_ident = format_ident!("{}", protocol.objects[0].name);
+    let first_obj_type_ident = format_ident!("{}", snake_to_pascal(&protocol.objects[0].name));
+    let first_obj_path = quote! { #first_obj_mod_ident::#first_obj_type_ident };
 
     let obj_impls: Vec<TokenStream> = protocol
         .objects
@@ -956,10 +957,12 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         .map(|(idx, obj)| {
             let obj_name_str = &obj.name;
             let on_bind = if idx == 0 {
-                let bind_obj_ident = format_ident!("{}Object", snake_to_pascal(&obj.name));
+                let bind_obj_mod_ident = format_ident!("{}", obj.name);
+                let bind_obj_type_ident = format_ident!("{}", snake_to_pascal(&obj.name));
+                let bind_obj_path = quote! { #bind_obj_mod_ident::#bind_obj_type_ident };
                 quote! {
                     on_bind: Box::new(move |obj| {
-                        let typed = #bind_obj_ident::new::<D>(obj);
+                        let typed = #bind_obj_path::new::<D>(obj);
                         unsafe { &mut *handler }.bind(typed);
                     }),
                 }
@@ -980,7 +983,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         pub trait #handler_ident {
             /// Called whenever the server binds a new instance of the protocol's
             /// root object for a client.
-            fn bind(&mut self, object: #first_obj_ident);
+            fn bind(&mut self, object: #first_obj_path);
         }
 
         pub struct #impl_ident {
@@ -991,7 +994,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         }
 
         impl #impl_ident {
-            pub fn new<D: #handler_ident + hyprwire::Dispatch<#first_obj_ident> + 'static>(version: u32, handler: &mut D) -> Self {
+            pub fn new<D: #handler_ident + hyprwire::Dispatch<#first_obj_path> + 'static>(version: u32, handler: &mut D) -> Self {
                 let handler = handler as *mut dyn #handler_ident;
                 Self {
                     version,
@@ -1010,6 +1013,15 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                 &self.impls
             }
         }
+
+        impl<D> hyprwire::implementation::server::Construct<D> for #impl_ident
+        where
+            D: #handler_ident + hyprwire::Dispatch<#first_obj_path> + 'static,
+        {
+            fn new(version: u32, handler: &mut D) -> Self {
+                Self::new(version, handler)
+            }
+        }
     });
 
     quote! {
@@ -1026,81 +1038,19 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
     let mut items: Vec<TokenStream> = Vec::new();
 
     for obj in &protocol.objects {
-        let pascal = snake_to_pascal(&obj.name);
-        let obj_ident = format_ident!("{pascal}Object");
-        let pascal_str = format!("{pascal}Object");
+        let obj_mod_ident = format_ident!("{}", obj.name);
+        let obj_type_ident = format_ident!("{}", snake_to_pascal(&obj.name));
         let raw_obj = raw_object_type();
         let docs = object_doc_attrs(obj.description.as_ref());
-
-        items.push(quote! {
-            #docs
-            pub struct #obj_ident {
-                object: #raw_obj,
-                on_destroy: Option<Box<dyn FnOnce()>>,
-                owned: bool,
-            }
-
-            impl std::fmt::Debug for #obj_ident {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    f.debug_struct(#pascal_str).field("object", &rc::Rc::as_ptr(&self.object)).finish()
-                }
-            }
-
-            impl Clone for #obj_ident {
-                fn clone(&self) -> Self {
-                    Self { object: rc::Rc::clone(&self.object), on_destroy: None, owned: false }
-                }
-            }
-
-            impl PartialEq for #obj_ident {
-                fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
-            }
-
-            impl Eq for #obj_ident {}
-
-            impl std::hash::Hash for #obj_ident {
-                fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
-            }
-        });
-    }
-
-    for obj in &protocol.objects {
-        let pascal = snake_to_pascal(&obj.name);
-        let obj_ident = format_ident!("{}Object", pascal);
-        let event_ident = format_ident!("{}Event", pascal);
-        let obj_name_str = &obj.name;
-        let event_docs = format!("Incoming events for `{obj_ident}`.");
+        let event_docs = format!(
+            "Incoming events for `{obj_mod_ident}::{}`.",
+            snake_to_pascal(&obj.name)
+        );
+        let event_ident = format_ident!("Event");
         let event_enum = write_event_enum(&event_ident, &obj.s2c);
-
-        items.push(quote! {
-            #[doc = #event_docs]
-            #event_enum
-        });
-
-        {
-            let raw_obj = raw_object_type();
-            items.push(quote! {
-                impl hyprwire::Object for #obj_ident {
-                    type Event<'a> = #event_ident;
-                    const NAME: &str = #obj_name_str;
-                    fn from_object<D: hyprwire::Dispatch<Self>>(object: #raw_obj) -> Self {
-                        Self::new::<D>(object)
-                    }
-                }
-            });
-        }
-
-        for (idx, m) in obj.s2c.iter().enumerate() {
-            items.push(write_dispatch_fn(
-                &obj.name,
-                &obj_ident,
-                &event_ident,
-                idx,
-                m,
-                true,
-            ));
-        }
-
+        let obj_name_str = &obj.name;
+        let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
+        let event_path = quote! { #obj_mod_ident::Event };
         let new_fn = write_new_fn(
             &obj.name,
             &obj.s2c,
@@ -1126,32 +1076,88 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
             .collect();
 
         items.push(quote! {
-            impl #obj_ident {
-                #new_fn
+            pub mod #obj_mod_ident {
+                use super::*;
 
-                pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
-                    self.on_destroy = Some(Box::new(callback));
+                #docs
+                pub struct #obj_type_ident {
+                    pub(super) object: #raw_obj,
+                    pub(super) on_destroy: Option<Box<dyn FnOnce()>>,
+                    pub(super) owned: bool,
                 }
 
-                #(#send_methods)*
-            }
-
-            impl Drop for #obj_ident {
-                fn drop(&mut self) {
-                    if self.owned {
-                        #(#auto_destructor_calls)*
+                impl std::fmt::Debug for #obj_type_ident {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        f.debug_struct("Object").field("object", &rc::Rc::as_ptr(&self.object)).finish()
                     }
-                    if let Some(cb) = self.on_destroy.take() {
-                        cb();
+                }
+
+                impl Clone for #obj_type_ident {
+                    fn clone(&self) -> Self {
+                        Self { object: rc::Rc::clone(&self.object), on_destroy: None, owned: false }
+                    }
+                }
+
+                impl PartialEq for #obj_type_ident {
+                    fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
+                }
+
+                impl Eq for #obj_type_ident {}
+
+                impl std::hash::Hash for #obj_type_ident {
+                    fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
+                }
+
+                #[doc = #event_docs]
+                #event_enum
+
+                impl hyprwire::Object for #obj_type_ident {
+                    type Event<'a> = Event;
+                    const NAME: &str = #obj_name_str;
+                    fn from_object<D: hyprwire::Dispatch<Self>>(object: #raw_obj) -> Self {
+                        Self::new::<D>(object)
+                    }
+                }
+
+                impl #obj_type_ident {
+                    #new_fn
+
+                    pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
+                        self.on_destroy = Some(Box::new(callback));
+                    }
+
+                    #(#send_methods)*
+                }
+
+                impl Drop for #obj_type_ident {
+                    fn drop(&mut self) {
+                        if self.owned {
+                            #(#auto_destructor_calls)*
+                        }
+                        if let Some(cb) = self.on_destroy.take() {
+                            cb();
+                        }
                     }
                 }
             }
         });
+
+        for (idx, m) in obj.s2c.iter().enumerate() {
+            items.push(write_dispatch_fn(
+                &obj.name,
+                &obj_path,
+                &event_path,
+                idx,
+                m,
+                true,
+            ));
+        }
     }
 
     let proto_pascal = snake_to_pascal(&protocol.name);
     let proto_impl_ident = format_ident!("{}Impl", proto_pascal);
     let proto_spec_ident = format_ident!("{}ProtocolSpec", proto_pascal);
+    let protocol_name = &protocol.name;
 
     items.push(quote! {
         #[derive(Default, Clone)]
@@ -1160,6 +1166,18 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
         }
 
         impl hyprwire::implementation::client::ProtocolImplementations for #proto_impl_ident {
+            fn new() -> Self {
+                Self::default()
+            }
+
+            fn protocol_spec() -> Box<dyn hyprwire::implementation::types::ProtocolSpec> {
+                Box::new(super::spec::#proto_spec_ident::default())
+            }
+
+            fn spec_name() -> &'static str {
+                #protocol_name
+            }
+
             fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
                 &self.protocol
             }

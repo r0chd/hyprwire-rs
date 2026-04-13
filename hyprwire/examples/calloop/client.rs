@@ -6,13 +6,13 @@ mod test_protocol_v1 {
 
 use calloop::generic;
 use hyprwire::client;
-use hyprwire::implementation::client::ProtocolImplementations;
 use hyprwire::implementation::types::ProtocolSpec;
 use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
 use std::str::FromStr;
 use std::{env, path};
+use test_protocol_v1::{my_manager_v1, my_object_v1};
 
 fn socket_path() -> path::PathBuf {
     let mut runtime_dir = env::var("XDG_RUNTIME_DIR").unwrap();
@@ -24,30 +24,30 @@ fn socket_path() -> path::PathBuf {
 #[derive(Default)]
 struct App {}
 
-impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
+impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
     fn event(
         &mut self,
-        _object: &test_protocol_v1::MyManagerV1Object,
-        event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
+        _object: &my_manager_v1::MyManagerV1,
+        event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
     ) {
         match event {
-            test_protocol_v1::MyManagerV1Event::SendMessage { message } => {
+            my_manager_v1::Event::SendMessage { message } => {
                 println!("Server says {}", message);
             }
-            test_protocol_v1::MyManagerV1Event::RecvMessageArrayUint { message } => {
+            my_manager_v1::Event::RecvMessageArrayUint { message } => {
                 println!("Server sent uint array {:?}", message);
             }
         }
     }
 }
 
-impl hyprwire::Dispatch<test_protocol_v1::MyObjectV1Object> for App {
+impl hyprwire::Dispatch<my_object_v1::MyObjectV1> for App {
     fn event(
         &mut self,
-        _object: &test_protocol_v1::MyObjectV1Object,
-        event: <test_protocol_v1::MyObjectV1Object as hyprwire::Object>::Event<'_>,
+        _object: &my_object_v1::MyObjectV1,
+        event: <my_object_v1::MyObjectV1 as hyprwire::Object>::Event<'_>,
     ) {
-        let test_protocol_v1::MyObjectV1Event::SendMessage { message } = event;
+        let my_object_v1::Event::SendMessage { message } = event;
         println!("Server says on object {}", message);
     }
 }
@@ -61,21 +61,20 @@ fn main() {
     let mut socket = client::Client::open(&path).unwrap();
     let mut state = App::default();
 
-    let implementation = test_protocol_v1::TestProtocolV1Impl::default();
-    socket.add_implementation(implementation.clone());
+    socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
     socket.wait_for_handshake(&mut state).unwrap();
 
-    let spec = socket
-        .get_spec(implementation.protocol().spec_name())
+    let server_spec = socket
+        .get_spec::<test_protocol_v1::TestProtocolV1Impl>()
         .unwrap();
 
     println!(
         "test protocol supported at version {}. Binding.",
-        spec.spec_ver()
+        server_spec.spec_ver()
     );
 
     let manager = socket
-        .bind::<test_protocol_v1::MyManagerV1Object, App>(implementation.protocol(), 1, &mut state)
+        .bind::<my_manager_v1::MyManagerV1, App>(&server_spec, server_spec.spec_ver(), &mut state)
         .unwrap();
 
     println!("Bound!");

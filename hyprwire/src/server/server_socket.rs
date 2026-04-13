@@ -45,9 +45,9 @@ impl ServerSocket {
     /// Returns an error if socket creation fails, the socket path cannot be
     /// prepared or bound, or an existing live server is already listening on
     /// the requested path.
-    pub fn open<T>(path: Option<&T>) -> io::Result<Self>
+    pub fn open<P>(path: Option<&P>) -> io::Result<Self>
     where
-        T: AsRef<path::Path>,
+        P: AsRef<path::Path>,
     {
         let wake_pipes = net::UnixStream::pair()?;
         let exit_pipes = net::UnixStream::pair()?;
@@ -119,10 +119,11 @@ impl ServerSocket {
     }
 
     /// Registers a protocol implementation on the server.
-    pub fn add_implementation<T>(&self, implementation: T)
+    pub fn add_implementation<I, H>(&mut self, version: u32, handler: &mut H)
     where
-        T: implementation::server::ProtocolImplementations + 'static,
+        I: implementation::server::Construct<H> + 'static,
     {
+        let implementation = I::new(version, handler);
         self.impls.borrow_mut().push(Box::new(implementation));
     }
 
@@ -390,9 +391,9 @@ impl ServerSocket {
     /// Adds an already-connected Unix socket as a server client.
     ///
     /// This is primarily useful when the server is running without a listener.
-    pub fn add_client<T>(&mut self, fd: T) -> server_client::ServerClient
+    pub fn add_client<F>(&mut self, fd: F) -> server_client::ServerClient
     where
-        T: Into<fd::OwnedFd>,
+        F: Into<fd::OwnedFd>,
     {
         let stream = net::UnixStream::from(fd.into());
         _ = stream.set_nonblocking(true);

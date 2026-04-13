@@ -14,3 +14,7 @@ pub trait ProtocolImplementations {
 
     fn implementation(&self) -> &[ObjectImplementation<'_>];
 }
+
+pub trait Construct<H>: ProtocolImplementations {
+    fn new(version: u32, handler: &mut H) -> Self;
+}
