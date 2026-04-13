@@ -162,7 +162,7 @@ impl ClientSocket {
         protocol_name: &str,
         object_name: &str,
         seq: u32,
-    ) -> Result<rc::Rc<client_object::ClientObject>, message::MessageError> {
+    ) -> Result<rc::Rc<client_object::ClientObject>, message::Error> {
         let mut object =
             client_object::ClientObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
         object.protocol_name = protocol_name.to_string();
@@ -183,7 +183,7 @@ impl ClientSocket {
         }
 
         if object.spec.is_none() {
-            return Err(message::MessageError::NoSpec);
+            return Err(message::Error::NoSpec);
         }
 
         object.seq = seq;

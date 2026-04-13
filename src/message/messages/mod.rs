@@ -9,17 +9,17 @@ pub mod new_object;
 pub mod roundtrip_done;
 pub mod roundtrip_request;
 
-use super::{MessageError, MessageType};
 use crate::implementation::types;
 use crate::message;
-use std::{fmt::Write, result};
+use std::fmt::Write;
+use std::result;
 
-pub type Result<T> = result::Result<T, MessageError>;
+pub type Result<T> = result::Result<T, message::Error>;
 
 pub trait Message {
     fn data(&self) -> &[u8];
 
-    fn message_type(&self) -> MessageType;
+    fn message_type(&self) -> message::MessageType;
 
     fn fds(&self) -> &[i32] {
         &[]
@@ -149,7 +149,7 @@ fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(Strin
         types::MessageMagic::TypeUint => {
             let bytes: [u8; 4] = s
                 .get(0..4)
-                .ok_or(MessageError::UnexpectedEof)?
+                .ok_or(message::Error::UnexpectedEof)?
                 .try_into()
                 .unwrap();
             let value = u32::from_le_bytes(bytes);
@@ -158,7 +158,7 @@ fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(Strin
         types::MessageMagic::TypeInt => {
             let bytes: [u8; 4] = s
                 .get(0..4)
-                .ok_or(MessageError::UnexpectedEof)?
+                .ok_or(message::Error::UnexpectedEof)?
                 .try_into()
                 .unwrap();
             let value = i32::from_le_bytes(bytes);
@@ -167,7 +167,7 @@ fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(Strin
         types::MessageMagic::TypeF32 => {
             let bytes: [u8; 4] = s
                 .get(0..4)
-                .ok_or(MessageError::UnexpectedEof)?
+                .ok_or(message::Error::UnexpectedEof)?
                 .try_into()
                 .unwrap();
             let value = f32::from_le_bytes(bytes);
@@ -177,7 +177,7 @@ fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(Strin
         types::MessageMagic::TypeObject => {
             let bytes: [u8; 4] = s
                 .get(0..4)
-                .ok_or(MessageError::UnexpectedEof)?
+                .ok_or(message::Error::UnexpectedEof)?
                 .try_into()
                 .unwrap();
             let id = u32::from_le_bytes(bytes);
@@ -192,12 +192,12 @@ fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(Strin
             let (len, int_len) = crate::message::parse_var_int(s, 0);
             let str_data = s
                 .get(int_len..int_len + len)
-                .ok_or(MessageError::UnexpectedEof)?;
-            let value =
-                String::from_utf8(str_data.to_vec()).map_err(|_| MessageError::MalformedMessage)?;
+                .ok_or(message::Error::UnexpectedEof)?;
+            let value = String::from_utf8(str_data.to_vec())
+                .map_err(|_| message::Error::MalformedMessage)?;
             Ok((format!("\"{value}\""), len + int_len))
         }
-        _ => Err(MessageError::MalformedMessage),
+        _ => Err(message::Error::MalformedMessage),
     }
 }
 
@@ -208,14 +208,14 @@ mod tests {
 
     struct TestMessage<'a> {
         data: &'a [u8],
-        message_type: MessageType,
+        message_type: message::MessageType,
     }
 
     impl<'a> Message for TestMessage<'a> {
         fn data(&self) -> &[u8] {
             self.data
         }
-        fn message_type(&self) -> MessageType {
+        fn message_type(&self) -> message::MessageType {
             self.message_type
         }
     }
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn parse_data_integer_types() {
         let bytes: &[u8] = &[
-            MessageType::GenericProtocolMessage as u8,
+            message::MessageType::GenericProtocolMessage as u8,
             types::MessageMagic::TypeSeq as u8,
             0x01,
             0x00,
@@ -243,7 +243,7 @@ mod tests {
         ];
         let msg = TestMessage {
             data: bytes,
-            message_type: MessageType::GenericProtocolMessage,
+            message_type: message::MessageType::GenericProtocolMessage,
         };
         let data = msg.parse_data();
         let expected_f32 = f32::from_le_bytes([0x01, 0x00, 0x00, 0x00]);
@@ -256,14 +256,14 @@ mod tests {
     #[test]
     fn parse_data_varchar_empty() {
         let bytes: &[u8] = &[
-            MessageType::GenericProtocolMessage as u8,
+            message::MessageType::GenericProtocolMessage as u8,
             types::MessageMagic::TypeVarchar as u8,
             0x00,
             types::MessageMagic::End as u8,
         ];
         let msg = TestMessage {
             data: bytes,
-            message_type: MessageType::GenericProtocolMessage,
+            message_type: message::MessageType::GenericProtocolMessage,
         };
         let data = msg.parse_data();
         assert_eq!(data, "GenericProtocolMessage ( \"\" ) ");

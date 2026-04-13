@@ -1,4 +1,4 @@
-use crate::message::MessageError;
+use crate::message;
 use libffi::low;
 use std::sync::Arc;
 
@@ -45,7 +45,7 @@ impl MessageMagic {
 }
 
 impl TryFrom<u8> for MessageMagic {
-    type Error = MessageError;
+    type Error = message::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -59,7 +59,7 @@ impl TryFrom<u8> for MessageMagic {
             0x21 => Ok(Self::TypeArray),
             0x22 => Ok(Self::TypeObject),
             0x40 => Ok(Self::TypeFd),
-            _ => Err(MessageError::MalformedMessage),
+            _ => Err(message::Error::MalformedMessage),
         }
     }
 }

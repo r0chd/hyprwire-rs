@@ -1,8 +1,21 @@
-use super::{Message, MessageError, MessageType, Result};
-use crate::implementation::types::MessageMagic;
-use crate::message;
-use crate::trace;
-use std::ops;
+use crate::implementation::types;
+use crate::{message, trace};
+use std::{error, fmt, ops};
+
+#[derive(Debug)]
+pub enum Error {
+    ArrayMessageTooLong,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ArrayMessageTooLong => write!(f, "array max size is 1000"),
+        }
+    }
+}
+
+impl error::Error for Error {}
 
 #[derive(Debug, Clone)]
 pub struct GenericProtocolMessage<R>
@@ -30,36 +43,37 @@ impl GenericProtocolMessage<ops::Range<usize>> {
         }
     }
 
-    pub fn from_bytes(data: &[u8], fds: &mut Vec<i32>, offset: usize) -> Result<Self> {
+    pub fn from_bytes(data: &[u8], fds: &mut Vec<i32>, offset: usize) -> super::Result<Self> {
         let mut fds_cursor = 0;
 
-        if *data.get(offset).ok_or(MessageError::UnexpectedEof)?
-            != MessageType::GenericProtocolMessage as u8
+        if *data.get(offset).ok_or(message::Error::UnexpectedEof)?
+            != message::MessageType::GenericProtocolMessage as u8
         {
-            return Err(MessageError::InvalidMessageType);
+            return Err(message::Error::InvalidMessageType);
         }
 
-        if *data.get(offset + 1).ok_or(MessageError::UnexpectedEof)?
-            != MessageMagic::TypeObject as u8
+        if *data.get(offset + 1).ok_or(message::Error::UnexpectedEof)?
+            != types::MessageMagic::TypeObject as u8
         {
-            return Err(MessageError::InvalidFieldType);
+            return Err(message::Error::InvalidFieldType);
         }
 
         let object = u32::from_le_bytes(
             data.get(offset + 2..offset + 6)
-                .ok_or(MessageError::UnexpectedEof)?
+                .ok_or(message::Error::UnexpectedEof)?
                 .try_into()
                 .unwrap(),
         );
 
-        if *data.get(offset + 6).ok_or(MessageError::UnexpectedEof)? != MessageMagic::TypeUint as u8
+        if *data.get(offset + 6).ok_or(message::Error::UnexpectedEof)?
+            != types::MessageMagic::TypeUint as u8
         {
-            return Err(MessageError::InvalidFieldType);
+            return Err(message::Error::InvalidFieldType);
         }
 
         let method = u32::from_le_bytes(
             data.get(offset + 7..offset + 11)
-                .ok_or(MessageError::UnexpectedEof)?
+                .ok_or(message::Error::UnexpectedEof)?
                 .try_into()
                 .unwrap(),
         );
@@ -67,53 +81,61 @@ impl GenericProtocolMessage<ops::Range<usize>> {
         let mut consumed_fds = Vec::new();
 
         let mut i: usize = 11;
-        while *data.get(offset + i).ok_or(MessageError::UnexpectedEof)? != MessageMagic::End as u8 {
-            let magic =
-                MessageMagic::try_from(*data.get(offset + i).ok_or(MessageError::UnexpectedEof)?)?;
+        while *data.get(offset + i).ok_or(message::Error::UnexpectedEof)?
+            != types::MessageMagic::End as u8
+        {
+            let magic = types::MessageMagic::try_from(
+                *data.get(offset + i).ok_or(message::Error::UnexpectedEof)?,
+            )?;
 
             match magic {
-                MessageMagic::TypeUint
-                | MessageMagic::TypeF32
-                | MessageMagic::TypeInt
-                | MessageMagic::TypeObject
-                | MessageMagic::TypeSeq => {
+                types::MessageMagic::TypeUint
+                | types::MessageMagic::TypeF32
+                | types::MessageMagic::TypeInt
+                | types::MessageMagic::TypeObject
+                | types::MessageMagic::TypeSeq => {
                     i += 5;
                 }
-                MessageMagic::TypeVarchar => {
+                types::MessageMagic::TypeVarchar => {
                     let (str_len, var_int_len) = message::parse_var_int(data, offset + i + 1);
                     i += str_len + var_int_len + 1;
                 }
-                MessageMagic::TypeArray => {
-                    let arr_type = MessageMagic::try_from(
+                types::MessageMagic::TypeArray => {
+                    let arr_type = types::MessageMagic::try_from(
                         *data
                             .get(offset + i + 1)
-                            .ok_or(MessageError::UnexpectedEof)?,
+                            .ok_or(message::Error::UnexpectedEof)?,
                     )?;
                     let (arr_len, len_len) = message::parse_var_int(data, offset + i + 2);
                     let mut arr_message_len: usize = 2 + len_len;
 
+                    if arr_len >= 10000 {
+                        trace! { eprintln!("GenericProtocolMessage: failed demarshaling array message, array max size is 10000.") };
+                        return Err(message::Error::GenericProtocol(Error::ArrayMessageTooLong));
+                    }
+
                     match arr_type {
-                        MessageMagic::TypeUint
-                        | MessageMagic::TypeF32
-                        | MessageMagic::TypeInt
-                        | MessageMagic::TypeObject
-                        | MessageMagic::TypeSeq => {
+                        types::MessageMagic::TypeUint
+                        | types::MessageMagic::TypeF32
+                        | types::MessageMagic::TypeInt
+                        | types::MessageMagic::TypeObject
+                        | types::MessageMagic::TypeSeq => {
                             arr_message_len += 4 * arr_len;
                         }
-                        MessageMagic::TypeVarchar => {
+                        types::MessageMagic::TypeVarchar => {
                             for _ in 0..arr_len {
                                 let (str_len, str_len_len) =
                                     message::parse_var_int(data, offset + i + arr_message_len);
                                 arr_message_len += str_len + str_len_len;
                             }
                         }
-                        MessageMagic::TypeFd => {
+                        types::MessageMagic::TypeFd => {
                             for _ in 0..arr_len {
                                 if let Some(fd) = fds.get(fds_cursor) {
                                     consumed_fds.push(*fd);
                                     fds_cursor += 1;
                                 } else {
-                                    return Err(MessageError::MalformedMessage);
+                                    return Err(message::Error::MalformedMessage);
                                 }
                             }
                         }
@@ -121,13 +143,13 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                             trace! {
                                 eprintln!("[hw] trace: GenericProtocolMessage: failed demarshaling array message")
                             }
-                            return Err(MessageError::MalformedMessage);
+                            return Err(message::Error::MalformedMessage);
                         }
                     }
 
                     i += arr_message_len;
                 }
-                MessageMagic::TypeFd => {
+                types::MessageMagic::TypeFd => {
                     if let Some(fd) = fds.get(fds_cursor) {
                         consumed_fds.push(*fd);
                         fds_cursor += 1;
@@ -135,7 +157,7 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                         trace! {
                             eprintln!("[hw] trace: GenericProtocolMessage: MessageMagic::TypeFd but fd queue is empty")
                         }
-                        return Err(MessageError::MalformedMessage);
+                        return Err(message::Error::MalformedMessage);
                     }
                     i += 1;
                 }
@@ -143,7 +165,7 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                     trace! {
                         eprintln!("[hw] trace: GenericProtocolMessage: failed demarshaling array message")
                     }
-                    return Err(MessageError::MalformedMessage);
+                    return Err(message::Error::MalformedMessage);
                 }
             }
         }
@@ -197,7 +219,7 @@ where
     }
 }
 
-impl<R> Message for GenericProtocolMessage<R>
+impl<R> message::Message for GenericProtocolMessage<R>
 where
     R: ops::RangeBounds<usize>,
 {
@@ -205,8 +227,8 @@ where
         &self.data
     }
 
-    fn message_type(&self) -> MessageType {
-        MessageType::GenericProtocolMessage
+    fn message_type(&self) -> message::MessageType {
+        message::MessageType::GenericProtocolMessage
     }
 
     fn fds(&self) -> &[i32] {
@@ -217,22 +239,23 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::Message;
 
     #[test]
     fn from_bytes_minimal() {
         let bytes = [
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x01,
             0x00,
             0x00,
             0x00, // object = 1
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x02,
             0x00,
             0x00,
             0x00, // method = 2
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
@@ -244,29 +267,29 @@ mod tests {
     #[test]
     fn from_bytes_with_primitives() {
         let bytes = [
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x05,
             0x00,
             0x00,
             0x00, // object = 5
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x03,
             0x00,
             0x00,
             0x00, // method = 3
             // payload fields
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x0A,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeInt as u8,
+            types::MessageMagic::TypeInt as u8,
             0xFF,
             0xFF,
             0xFF,
             0xFF,
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
@@ -277,23 +300,23 @@ mod tests {
     #[test]
     fn from_bytes_with_varchar() {
         let bytes = [
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x01,
             0x00,
             0x00,
             0x00,
             // varchar "hi"
-            MessageMagic::TypeVarchar as u8,
+            types::MessageMagic::TypeVarchar as u8,
             0x02, // varint length = 2
             b'h',
             b'i',
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
@@ -304,19 +327,19 @@ mod tests {
     #[test]
     fn from_bytes_with_fd() {
         let bytes = [
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeFd as u8,
-            MessageMagic::End as u8,
+            types::MessageMagic::TypeFd as u8,
+            types::MessageMagic::End as u8,
         ];
         let mut fds = vec![42];
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
@@ -327,42 +350,42 @@ mod tests {
     #[test]
     fn from_bytes_fd_empty_queue() {
         let bytes = [
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeFd as u8,
-            MessageMagic::End as u8,
+            types::MessageMagic::TypeFd as u8,
+            types::MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
         let err = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap_err();
-        assert!(matches!(err, MessageError::MalformedMessage));
+        assert!(matches!(err, message::Error::MalformedMessage));
     }
 
     #[test]
     fn from_bytes_with_uint_array() {
         let bytes = [
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x01,
             0x00,
             0x00,
             0x00,
             // array of 2 uints
-            MessageMagic::TypeArray as u8,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeArray as u8,
+            types::MessageMagic::TypeUint as u8,
             0x02, // varint count = 2
             0x0A,
             0x00,
@@ -372,7 +395,7 @@ mod tests {
             0x00,
             0x00,
             0x00,
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
@@ -383,22 +406,22 @@ mod tests {
     #[test]
     fn from_bytes_with_fd_array() {
         let bytes = [
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x01,
             0x00,
             0x00,
             0x00,
             // array of 2 fds
-            MessageMagic::TypeArray as u8,
-            MessageMagic::TypeFd as u8,
+            types::MessageMagic::TypeArray as u8,
+            types::MessageMagic::TypeFd as u8,
             0x02, // varint count = 2
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let mut fds = vec![10, 20, 30];
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
@@ -411,18 +434,18 @@ mod tests {
         let bytes = [
             0xAA,
             0xBB,
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x07,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x09,
             0x00,
             0x00,
             0x00,
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let mut fds = Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 2).unwrap();
@@ -432,38 +455,38 @@ mod tests {
 
     #[test]
     fn from_bytes_invalid_message_type() {
-        let bytes = [MessageType::Sup as u8];
+        let bytes = [message::MessageType::Sup as u8];
         let mut fds = Vec::new();
         let err = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap_err();
-        assert!(matches!(err, MessageError::InvalidMessageType));
+        assert!(matches!(err, message::Error::InvalidMessageType));
     }
 
     #[test]
     fn from_bytes_unexpected_eof() {
         let bytes = [
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
         ];
         let mut fds = Vec::new();
         let err = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap_err();
-        assert!(matches!(err, MessageError::UnexpectedEof));
+        assert!(matches!(err, message::Error::UnexpectedEof));
     }
 
     #[test]
     fn new_ownership() {
         let data = vec![
-            MessageType::GenericProtocolMessage as u8,
-            MessageMagic::TypeObject as u8,
+            message::MessageType::GenericProtocolMessage as u8,
+            types::MessageMagic::TypeObject as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let fds = vec![1, 2, 3];
         let expected_data = data.clone();
@@ -473,7 +496,7 @@ mod tests {
         assert_eq!(msg.fds(), &expected_fds[..]);
         assert_eq!(
             msg.message_type() as u8,
-            MessageType::GenericProtocolMessage as u8
+            message::MessageType::GenericProtocolMessage as u8
         );
     }
 }

@@ -1,5 +1,4 @@
-use super::{Message, MessageError, MessageType, Result};
-use crate::implementation::types::MessageMagic;
+use crate::implementation::types;
 use crate::message;
 use std::borrow;
 
@@ -15,20 +14,20 @@ impl<'a> BindProtocol<'a> {
     pub fn new(protocol: &'a str, seq: u32, version: u32) -> Self {
         let mut data = Vec::new();
 
-        data.push(MessageType::BindProtocol as u8);
-        data.push(MessageMagic::TypeUint as u8);
+        data.push(message::MessageType::BindProtocol as u8);
+        data.push(types::MessageMagic::TypeUint as u8);
         data.extend_from_slice(&seq.to_le_bytes());
 
-        data.push(MessageMagic::TypeVarchar as u8);
+        data.push(types::MessageMagic::TypeVarchar as u8);
         let mut proto_len_buf = [0u8; 10];
         let proto_len_int = message::encode_var_int(protocol.len(), &mut proto_len_buf);
         data.extend_from_slice(proto_len_int);
         data.extend_from_slice(protocol.as_bytes());
 
-        data.push(MessageMagic::TypeUint as u8);
+        data.push(types::MessageMagic::TypeUint as u8);
         data.extend_from_slice(&version.to_le_bytes());
 
-        data.push(MessageMagic::End as u8);
+        data.push(types::MessageMagic::End as u8);
 
         Self {
             data: borrow::Cow::Owned(data),
@@ -50,31 +49,35 @@ impl<'a> BindProtocol<'a> {
         self.protocol
     }
 
-    pub fn from_bytes(data: &'a [u8], offset: usize) -> Result<Self> {
-        if *data.get(offset).ok_or(MessageError::UnexpectedEof)? != MessageType::BindProtocol as u8
+    pub fn from_bytes(data: &'a [u8], offset: usize) -> super::Result<Self> {
+        if *data.get(offset).ok_or(message::Error::UnexpectedEof)?
+            != message::MessageType::BindProtocol as u8
         {
-            return Err(MessageError::InvalidMessageType);
+            return Err(message::Error::InvalidMessageType);
         }
 
         let mut needle = offset + 1;
 
         // seq field
-        if *data.get(needle).ok_or(MessageError::UnexpectedEof)? != MessageMagic::TypeUint as u8 {
-            return Err(MessageError::InvalidFieldType);
+        if *data.get(needle).ok_or(message::Error::UnexpectedEof)?
+            != types::MessageMagic::TypeUint as u8
+        {
+            return Err(message::Error::InvalidFieldType);
         }
         needle += 1;
         let seq = u32::from_le_bytes(
             data.get(needle..needle + 4)
-                .ok_or(MessageError::UnexpectedEof)?
+                .ok_or(message::Error::UnexpectedEof)?
                 .try_into()
                 .unwrap(),
         );
         needle += 4;
 
         // protocol field (varchar)
-        if *data.get(needle).ok_or(MessageError::UnexpectedEof)? != MessageMagic::TypeVarchar as u8
+        if *data.get(needle).ok_or(message::Error::UnexpectedEof)?
+            != types::MessageMagic::TypeVarchar as u8
         {
-            return Err(MessageError::InvalidFieldType);
+            return Err(message::Error::InvalidFieldType);
         }
         needle += 1;
 
@@ -83,30 +86,33 @@ impl<'a> BindProtocol<'a> {
 
         let protocol = std::str::from_utf8(
             data.get(needle..needle + protocol_len)
-                .ok_or(MessageError::UnexpectedEof)?,
+                .ok_or(message::Error::UnexpectedEof)?,
         )
-        .map_err(|_| MessageError::MalformedMessage)?;
+        .map_err(|_| message::Error::MalformedMessage)?;
         needle += protocol_len;
 
         // version field
-        if *data.get(needle).ok_or(MessageError::UnexpectedEof)? != MessageMagic::TypeUint as u8 {
-            return Err(MessageError::InvalidFieldType);
+        if *data.get(needle).ok_or(message::Error::UnexpectedEof)?
+            != types::MessageMagic::TypeUint as u8
+        {
+            return Err(message::Error::InvalidFieldType);
         }
         needle += 1;
         let version = u32::from_le_bytes(
             data.get(needle..needle + 4)
-                .ok_or(MessageError::UnexpectedEof)?
+                .ok_or(message::Error::UnexpectedEof)?
                 .try_into()
                 .unwrap(),
         );
         if version == 0 {
-            return Err(MessageError::InvalidVersion);
+            return Err(message::Error::InvalidVersion);
         }
         needle += 4;
 
         // end marker
-        if *data.get(needle).ok_or(MessageError::UnexpectedEof)? != MessageMagic::End as u8 {
-            return Err(MessageError::MalformedMessage);
+        if *data.get(needle).ok_or(message::Error::UnexpectedEof)? != types::MessageMagic::End as u8
+        {
+            return Err(message::Error::MalformedMessage);
         }
         needle += 1;
 
@@ -119,19 +125,20 @@ impl<'a> BindProtocol<'a> {
     }
 }
 
-impl Message for BindProtocol<'_> {
+impl message::Message for BindProtocol<'_> {
     fn data(&self) -> &[u8] {
         &self.data
     }
 
-    fn message_type(&self) -> MessageType {
-        MessageType::BindProtocol
+    fn message_type(&self) -> message::MessageType {
+        message::MessageType::BindProtocol
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use message::Message;
 
     #[test]
     fn bind_protocol_new() {
@@ -143,13 +150,13 @@ mod tests {
     #[test]
     fn bind_protocol_from_bytes() {
         let bytes: &[u8] = &[
-            MessageType::BindProtocol as u8,
-            MessageMagic::TypeUint as u8,
+            message::MessageType::BindProtocol as u8,
+            types::MessageMagic::TypeUint as u8,
             0x05,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeVarchar as u8,
+            types::MessageMagic::TypeVarchar as u8,
             0x06, // length
             b't',
             b'e',
@@ -157,12 +164,12 @@ mod tests {
             b't',
             b'@',
             b'1',
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let msg = BindProtocol::from_bytes(bytes, 0).unwrap();
         let parsed = msg.parse_data();
@@ -172,23 +179,23 @@ mod tests {
     #[test]
     fn bind_protocol_from_bytes_unexpected_eof() {
         let bytes: &[u8] = &[
-            MessageType::BindProtocol as u8,
-            MessageMagic::TypeUint as u8,
+            message::MessageType::BindProtocol as u8,
+            types::MessageMagic::TypeUint as u8,
         ];
         let err = BindProtocol::from_bytes(bytes, 0).unwrap_err();
-        assert!(matches!(err, MessageError::UnexpectedEof));
+        assert!(matches!(err, message::Error::UnexpectedEof));
     }
 
     #[test]
     fn bind_protocol_from_bytes_malformed() {
         let bytes: &[u8] = &[
-            MessageType::BindProtocol as u8,
-            MessageMagic::TypeUint as u8,
+            message::MessageType::BindProtocol as u8,
+            types::MessageMagic::TypeUint as u8,
             0x05,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeVarchar as u8,
+            types::MessageMagic::TypeVarchar as u8,
             0x06, // length
             b't',
             b'e',
@@ -196,14 +203,14 @@ mod tests {
             b't',
             b'@',
             b'1',
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
             0x01,
             0x00,
             0x00,
             0x00,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
         ];
         let err = BindProtocol::from_bytes(bytes, 0).unwrap_err();
-        assert!(matches!(err, MessageError::MalformedMessage));
+        assert!(matches!(err, message::Error::MalformedMessage));
     }
 }

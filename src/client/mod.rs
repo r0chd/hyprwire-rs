@@ -26,7 +26,6 @@ impl Client {
         Ok(Self(client_socket::ClientSocket::open(path)?))
     }
 
-    #[must_use]
     /// Creates a client from an already-connected Unix socket file descriptor.
     ///
     /// The returned client takes ownership of `fd`.

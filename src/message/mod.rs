@@ -6,9 +6,12 @@ use crate::{socket, steady_millis, trace};
 pub(crate) use messages::Message;
 pub(crate) use messages::bind_protocol::BindProtocol;
 pub(crate) use messages::fatal_protocol_error::FatalProtocolError;
+use messages::generic_protocol_message;
 pub(crate) use messages::generic_protocol_message::GenericProtocolMessage;
 pub(crate) use messages::handshake_ack::HandshakeAck;
+use messages::handshake_begin;
 pub(crate) use messages::handshake_begin::HandshakeBegin;
+use messages::handshake_protocols;
 pub(crate) use messages::handshake_protocols::HandshakeProtocols;
 pub(crate) use messages::hello::Hello;
 pub(crate) use messages::new_object::NewObject;
@@ -18,7 +21,7 @@ use std::fmt;
 use std::os::fd::AsRawFd;
 
 #[derive(Debug)]
-pub enum MessageError {
+pub enum Error {
     UnexpectedEof,
     InvalidMessageType,
     InvalidFieldType,
@@ -35,9 +38,12 @@ pub enum MessageError {
     VersionNegotiationFailed,
     MalformedMessage,
     NoSpec,
+    HandshakeBegin(handshake_begin::Error),
+    HandshakeProtocols(handshake_protocols::Error),
+    GenericProtocol(generic_protocol_message::Error),
 }
 
-impl fmt::Display for MessageError {
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnexpectedEof => write!(f, "unexpected end of data"),
@@ -56,11 +62,14 @@ impl fmt::Display for MessageError {
             Self::VersionNegotiationFailed => write!(f, "version negotiation failed"),
             Self::MalformedMessage => write!(f, "malformed message"),
             Self::NoSpec => write!(f, "no spec found for object"),
+            Self::HandshakeBegin(e) => write!(f, "hanshake_begin: {e}"),
+            Self::HandshakeProtocols(e) => write!(f, "handshake_protocols: {e}"),
+            Self::GenericProtocol(e) => write!(f, "generic_protocol_error: {e}"),
         }
     }
 }
 
-impl std::error::Error for MessageError {}
+impl std::error::Error for Error {}
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
@@ -99,7 +108,7 @@ impl fmt::Display for MessageType {
 }
 
 impl TryFrom<u8> for MessageType {
-    type Error = MessageError;
+    type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -114,7 +123,7 @@ impl TryFrom<u8> for MessageType {
             13 => Ok(Self::RoundtripRequest),
             14 => Ok(Self::RoundtripDone),
             100 => Ok(Self::GenericProtocolMessage),
-            _ => Err(MessageError::InvalidMessageType),
+            _ => Err(Error::InvalidMessageType),
         }
     }
 }
@@ -128,7 +137,7 @@ pub fn handle_message<D>(
     data: &mut socket::SocketRawParsedMessage,
     role: &Role,
     dispatch: &mut D,
-) -> Result<(), MessageError> {
+) -> Result<(), Error> {
     match role {
         Role::Client(client) => {
             let mut needle = 0;
@@ -138,7 +147,7 @@ pub fn handle_message<D>(
             }
 
             if !data.fds.is_empty() {
-                return Err(MessageError::MalformedMessage);
+                return Err(Error::MalformedMessage);
             }
 
             trace! {
@@ -153,7 +162,7 @@ pub fn handle_message<D>(
             }
 
             if !data.fds.is_empty() {
-                return Err(MessageError::MalformedMessage);
+                return Err(Error::MalformedMessage);
             }
 
             trace! {
@@ -170,7 +179,7 @@ fn parse_single_message_client<D>(
     off: usize,
     client: &client_socket::ClientSocket,
     dispatch: &mut D,
-) -> Result<usize, MessageError> {
+) -> Result<usize, Error> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {
             MessageType::HandshakeBegin => {
@@ -192,7 +201,7 @@ fn parse_single_message_client<D>(
                         client.state.stream.as_raw_fd()
                     );
                     client.state.error.set(true);
-                    return Err(MessageError::VersionNegotiationFailed);
+                    return Err(Error::VersionNegotiationFailed);
                 }
 
                 trace! {
@@ -301,7 +310,7 @@ fn parse_single_message_client<D>(
                     "server at fd {} core protocol error: invalid message recvd ({message})",
                     client.state.stream.as_raw_fd()
                 );
-                return Err(MessageError::InvalidMessage);
+                return Err(Error::InvalidMessage);
             }
             MessageType::Invalid => {}
         }
@@ -312,7 +321,7 @@ fn parse_single_message_client<D>(
         client.state.stream.as_raw_fd()
     );
 
-    Err(MessageError::InvalidMessage)
+    Err(Error::InvalidMessage)
 }
 
 fn parse_single_message_server<D>(
@@ -320,7 +329,7 @@ fn parse_single_message_server<D>(
     off: usize,
     client: &server_client::ServerClientState,
     dispatch: &mut D,
-) -> Result<usize, MessageError> {
+) -> Result<usize, Error> {
     if let Ok(message) = MessageType::try_from(raw.data[off]) {
         match message {
             MessageType::Sup => {
@@ -346,7 +355,7 @@ fn parse_single_message_server<D>(
                     "client at fd {} core protocol error: invalid message recvd (HandshakeBegin)",
                     client.state.stream.as_raw_fd()
                 );
-                return Err(MessageError::InvalidMessage);
+                return Err(Error::InvalidMessage);
             }
             MessageType::HandshakeAck => {
                 let msg = HandshakeAck::from_bytes(&raw.data, off).inspect_err(|_| {
@@ -387,7 +396,7 @@ fn parse_single_message_server<D>(
                     "client at fd {} core protocol error: invalid message recvd (HandshakeProtocols)",
                     client.state.stream.as_raw_fd()
                 );
-                return Err(MessageError::InvalidMessage);
+                return Err(Error::InvalidMessage);
             }
             MessageType::BindProtocol => {
                 let msg = BindProtocol::from_bytes(&raw.data, off).inspect_err(|_| {
@@ -411,7 +420,7 @@ fn parse_single_message_server<D>(
                     "client at fd {} core protocol error: invalid message recvd (NewObject)",
                     client.state.stream.as_raw_fd()
                 );
-                return Err(MessageError::InvalidMessage);
+                return Err(Error::InvalidMessage);
             }
             MessageType::GenericProtocolMessage => {
                 let msg = GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, off)
@@ -436,7 +445,7 @@ fn parse_single_message_server<D>(
                     "client at fd {} core protocol error: invalid message recvd (FatalProtocolError)",
                     client.state.stream.as_raw_fd()
                 );
-                return Err(MessageError::InvalidMessage);
+                return Err(Error::InvalidMessage);
             }
             MessageType::RoundtripRequest => {
                 let msg = RoundtripRequest::from_bytes(&raw.data, off).inspect_err(|_| {
@@ -460,7 +469,7 @@ fn parse_single_message_server<D>(
                     "client at fd {} core protocol error: invalid message recvd (RoundtripDone)",
                     client.state.stream.as_raw_fd()
                 );
-                return Err(MessageError::InvalidMessage);
+                return Err(Error::InvalidMessage);
             }
             MessageType::Invalid => {}
         }
@@ -472,7 +481,7 @@ fn parse_single_message_server<D>(
     );
     client.state.error.set(true);
 
-    Err(MessageError::InvalidMessage)
+    Err(Error::InvalidMessage)
 }
 
 pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
@@ -495,6 +504,10 @@ pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
 }
 
 pub fn parse_var_int(data: &[u8], offset: usize) -> (usize, usize) {
+    if offset >= data.len() {
+        return (0, 0);
+    }
+
     parse_var_int_span(&data[offset..])
 }
 

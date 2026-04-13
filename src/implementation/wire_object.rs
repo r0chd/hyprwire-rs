@@ -37,14 +37,14 @@ pub trait WireObject: object::RawObject {
         data: &[u8],
         fds: &[i32],
         dispatch: &mut D,
-    ) -> Result<(), message::MessageError> {
+    ) -> Result<(), message::Error> {
         let methods = self.methods_in();
 
         if methods.len() <= id as usize {
             let msg = format!("invalid method {} for object {}", id, self.id());
             log::error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
-            return Err(message::MessageError::InvalidMethod);
+            return Err(message::Error::InvalidMethod);
         }
 
         if self.listener_count() <= id as usize {
@@ -73,7 +73,7 @@ pub trait WireObject: object::RawObject {
             );
             log::error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
-            return Err(message::MessageError::ProtocolVersionTooLow);
+            return Err(message::Error::ProtocolVersionTooLow);
         }
 
         let mut ffi_types: Vec<*mut ffi::ffi_type> = Vec::new();
@@ -91,7 +91,7 @@ pub trait WireObject: object::RawObject {
                     format!("method {id} param idx {i} should be {param:?} but was {wire_param:?}");
                 log::error!("core protocol error: {msg}");
                 self.error(self.id(), &msg);
-                return Err(message::MessageError::InvalidParameter);
+                return Err(message::Error::InvalidParameter);
             }
 
             ffi_types.push(param.to_ffi_type());
@@ -120,11 +120,18 @@ pub trait WireObject: object::RawObject {
                         );
                         log::error!("core protocol error: {msg}");
                         self.error(self.id(), &msg);
-                        return Err(message::MessageError::IncorrectParamIdx);
+                        return Err(message::Error::IncorrectParamIdx);
                     }
 
                     let (arr_len, len_len) = message::parse_var_int(data, data_idx + 2);
                     let mut arr_message_len: usize = 2 + len_len;
+
+                    if arr_len > 10000 {
+                        let msg =
+                            format!("method {id} param idx {i} max array size of 10000 exceeded",);
+                        log::debug!("core protocol error: {msg}",);
+                        self.error(self.id(), &msg);
+                    }
 
                     ffi_types.push(types::MessageMagic::TypeUint.to_ffi_type());
 
@@ -140,7 +147,7 @@ pub trait WireObject: object::RawObject {
                                     let msg = "failed demarshaling array message";
                                     log::error!("core protocol error: {msg}");
                                     self.error(self.id(), msg);
-                                    return Err(message::MessageError::DemarshalingFailed);
+                                    return Err(message::Error::DemarshalingFailed);
                                 }
 
                                 let (str_len, str_len_len) =
@@ -153,7 +160,7 @@ pub trait WireObject: object::RawObject {
                             let msg = "failed demarshaling array message";
                             log::error!("core protocol error: {msg}");
                             self.error(self.id(), msg);
-                            return Err(message::MessageError::DemarshalingFailed);
+                            return Err(message::Error::DemarshalingFailed);
                         }
                     }
 
@@ -163,7 +170,7 @@ pub trait WireObject: object::RawObject {
                     let msg = "object type is not implemented";
                     log::error!("core protocol error: {msg}");
                     self.error(self.id(), msg);
-                    return Err(message::MessageError::Unimplemented);
+                    return Err(message::Error::Unimplemented);
                 }
             }
 
@@ -336,7 +343,7 @@ pub trait WireObject: object::RawObject {
                                     let msg = "failed demarshaling array message";
                                     log::error!("core protocol error: {msg}");
                                     self.error(self.id(), msg);
-                                    return Err(message::MessageError::DemarshalingFailed);
+                                    return Err(message::Error::DemarshalingFailed);
                                 }
                                 data_buf[j * elem_size..(j + 1) * elem_size]
                                     .copy_from_slice(&fds[fd_no].to_le_bytes());
@@ -362,7 +369,7 @@ pub trait WireObject: object::RawObject {
                             let msg = "failed demarshaling array message";
                             log::error!("core protocol error: {msg}");
                             self.error(self.id(), msg);
-                            return Err(message::MessageError::DemarshalingFailed);
+                            return Err(message::Error::DemarshalingFailed);
                         }
                     }
 
@@ -372,14 +379,14 @@ pub trait WireObject: object::RawObject {
                     let msg = "object type is not implemented";
                     log::error!("core protocol error: {msg}");
                     self.error(self.id(), msg);
-                    return Err(message::MessageError::Unimplemented);
+                    return Err(message::Error::Unimplemented);
                 }
                 types::MessageMagic::TypeFd => {
                     if fd_no >= fds.len() {
                         let msg = "failed demarshaling fd";
                         log::error!("core protocol error: {msg}");
                         self.error(self.id(), msg);
-                        return Err(message::MessageError::DemarshalingFailed);
+                        return Err(message::Error::DemarshalingFailed);
                     }
                     let mut storage = vec![0u8; std::mem::size_of::<i32>()];
                     storage.copy_from_slice(&fds[fd_no].to_le_bytes());
@@ -408,7 +415,7 @@ pub trait WireObject: object::RawObject {
         Ok(())
     }
 
-    fn call(&self, id: u32, args: &[types::CallArg]) -> Result<u32, message::MessageError> {
+    fn call(&self, id: u32, args: &[types::CallArg]) -> Result<u32, message::Error> {
         let methods = self.methods_out();
 
         if methods.len() <= id as usize {
