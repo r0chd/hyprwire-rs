@@ -195,9 +195,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyprwire-protocols"
+version = "0.0.0"
+
+[[package]]
 name = "hyprwire-scanner"
 version = "0.2.6"
 dependencies = [
+ "insta",
  "prettyplease",
  "proc-macro2",
  "quick-xml",

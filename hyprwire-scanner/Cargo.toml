@@ -1,10 +1,10 @@
 [package]
 name = "hyprwire-scanner"
-version = "0.2.6"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Protocol scanner and code generator for hyprwire"
-license = "BSD-3-Clause"
-repository = "https://git.r0chd.pl/r0chd/hyprwire-rs"
+license.workspace = true
+repository.workspace = true
 readme = "../README.md"
 keywords = ["ipc", "wire-protocol", "code-generation"]
 categories = ["development-tools::build-utils"]
@@ -15,3 +15,6 @@ quote = "1"
 proc-macro2 = "1"
 prettyplease = "0.2"
 syn = { version = "2", features = ["full"] }
+
+[dev-dependencies]
+insta = "1"

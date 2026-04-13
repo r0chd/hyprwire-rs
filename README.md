@@ -160,8 +160,19 @@ fn main() -> std::io::Result<()> {
 
 ## Examples
 
-The repository includes:
+The repository is organized as a Cargo workspace with:
 
-- [`examples/basic/client.rs`](examples/basic/client.rs)
-- [`examples/basic/server.rs`](examples/basic/server.rs)
-- [`examples/fork/main.rs`](examples/fork/main.rs)
+- [`hyprwire/`](hyprwire)
+- [`hyprwire-scanner/`](hyprwire-scanner)
+- [`hyprwire-protocols/`](hyprwire-protocols)
+
+`hyprwire-protocols` is currently a placeholder crate, waiting for
+https://github.com/hyprwm/hyprwire-protocols/pull/1.
+
+You can check out examples in:
+
+- [`hyprwire/examples/basic/client.rs`](hyprwire/examples/basic/client.rs)
+- [`hyprwire/examples/basic/server.rs`](hyprwire/examples/basic/server.rs)
+- [`hyprwire/examples/calloop/client.rs`](hyprwire/examples/calloop/client.rs)
+- [`hyprwire/examples/calloop/server.rs`](hyprwire/examples/calloop/server.rs)
+- [`hyprwire/examples/fork/main.rs`](hyprwire/examples/fork/main.rs)

@@ -1,0 +1,10 @@
+[package]
+name = "hyprwire-protocols"
+version = "0.0.0"
+edition.workspace = true
+description = "Protocol definitions and generated bindings for hyprwire"
+license.workspace = true
+repository.workspace = true
+readme = "../README.md"
+keywords = ["ipc", "wire-protocol", "hyprwire", "protocols"]
+categories = ["network-programming", "encoding"]

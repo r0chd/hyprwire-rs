@@ -1,52 +1,11 @@
-[package]
-name = "hyprwire"
+[workspace]
+members = ["hyprwire", "hyprwire-protocols", "hyprwire-scanner"]
+default-members = ["hyprwire", "hyprwire-protocols", "hyprwire-scanner"]
+resolver = "3"
+
+[workspace.package]
 version = "0.2.6"
 edition = "2024"
-description = "A fast and consistent wire protocol for IPC"
 license = "BSD-3-Clause"
 repository = "https://git.r0chd.pl/r0chd/hyprwire-rs"
 readme = "README.md"
-keywords = ["ipc", "wire-protocol", "hyprwire", "serialization"]
-categories = ["network-programming", "encoding"]
-build = "examples/build.rs"
-
-[workspace]
-members = ["scanner"]
-
-[[example]]
-name = "basic-client"
-path = "examples/basic/client.rs"
-
-[[example]]
-name = "basic-server"
-path = "examples/basic/server.rs"
-
-[[example]]
-name = "fork"
-path = "examples/fork/main.rs"
-
-[[example]]
-name = "calloop-client"
-path = "examples/calloop/client.rs"
-
-[[example]]
-name = "calloop-server"
-path = "examples/calloop/server.rs"
-
-[dependencies]
-libffi = { version = "5.1.0", default-features = false }
-log = { version = "0.4.29", default-features = false }
-nix = { version = "0.31.1", features = [
-  "poll",
-  "socket",
-  "uio",
-], default-features = false }
-
-[build-dependencies]
-hyprwire-scanner = { version = "0.2.6", path = "scanner" }
-
-[dev-dependencies]
-calloop = "0.14.4"
-hyprwire-scanner = { version = "0.2.6", path = "scanner" }
-insta = "1"
-env_logger = { version = "0.11.9", default-features = false }

@@ -4,7 +4,11 @@ use std::fs;
 
 #[test]
 fn test_scanner_protocol_v1() {
-    let xml = fs::read_to_string("tests/protocol-v1.xml").unwrap();
+    let xml = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/protocol-v1.xml"
+    ))
+    .unwrap();
     let protocol = parse::parse_protocol(&xml).unwrap();
     let code = generate::generate(&protocol, Targets::ALL, &[]);
     assert_snapshot!(code);
@@ -12,7 +16,11 @@ fn test_scanner_protocol_v1() {
 
 #[test]
 fn test_scanner_protocol_v1_client_only() {
-    let xml = fs::read_to_string("tests/protocol-v1.xml").unwrap();
+    let xml = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/protocol-v1.xml"
+    ))
+    .unwrap();
     let protocol = parse::parse_protocol(&xml).unwrap();
     let code = generate::generate(&protocol, Targets::CLIENT, &[]);
 
@@ -24,7 +32,11 @@ fn test_scanner_protocol_v1_client_only() {
 
 #[test]
 fn test_scanner_protocol_v1_server_only() {
-    let xml = fs::read_to_string("tests/protocol-v1.xml").unwrap();
+    let xml = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/protocol-v1.xml"
+    ))
+    .unwrap();
     let protocol = parse::parse_protocol(&xml).unwrap();
     let code = generate::generate(&protocol, Targets::SERVER, &[]);
 
@@ -36,7 +48,11 @@ fn test_scanner_protocol_v1_server_only() {
 
 #[test]
 fn test_scanner_protocol_v1_derive_macro() {
-    let xml = fs::read_to_string("tests/protocol-v1.xml").unwrap();
+    let xml = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/protocol-v1.xml"
+    ))
+    .unwrap();
     let protocol = parse::parse_protocol(&xml).unwrap();
     let code = generate::generate(
         &protocol,
