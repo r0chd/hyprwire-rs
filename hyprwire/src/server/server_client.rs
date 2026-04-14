@@ -4,6 +4,7 @@ use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
 use crate::{message, steady_millis, trace};
 use nix::sys;
+use nix::sys::socket;
 use std::hash::{Hash, Hasher};
 use std::os::fd::AsRawFd;
 use std::{cell, ops, rc};
@@ -12,7 +13,7 @@ use std::{cell, ops, rc};
 #[derive(Clone, Debug)]
 pub struct ServerClient {
     pub(crate) id: u32,
-    pub(crate) pid: rc::Rc<cell::Cell<i32>>,
+    pub(crate) pid: rc::Rc<cell::OnceCell<socket::UnixCredentials>>,
 }
 
 impl PartialEq for ServerClient {
@@ -41,8 +42,10 @@ impl ServerClient {
     /// This value is populated after the server has polled the client at least
     /// once. Until then, or if credential lookup fails, this returns `0`.
     #[must_use]
-    pub fn pid(&self) -> i32 {
-        self.pid.get()
+    pub fn creds(&self) -> &socket::UnixCredentials {
+        // Generally if its uninitialized then
+        // something went horribly wrong
+        self.pid.get().unwrap()
     }
 }
 
@@ -52,7 +55,7 @@ impl ServerClient {
 /// metadata about the peer connection.
 pub(crate) struct ServerClientState {
     pub(crate) id: u32,
-    pub(crate) pid: rc::Rc<cell::Cell<i32>>,
+    pub(crate) creds: rc::Rc<cell::OnceCell<socket::UnixCredentials>>,
     pub(crate) first_poll_done: cell::Cell<bool>,
     pub(crate) version: cell::Cell<u32>,
     pub(crate) max_id: cell::Cell<u32>,
@@ -66,7 +69,7 @@ impl ServerClientState {
     pub(crate) fn new(id: u32, state: rc::Rc<SharedState>) -> rc::Rc<Self> {
         rc::Rc::new_cyclic(|weak_self| Self {
             id,
-            pid: rc::Rc::new(cell::Cell::new(0)),
+            creds: rc::Rc::new(cell::OnceCell::new()),
             first_poll_done: cell::Cell::new(false),
             version: cell::Cell::new(0),
             max_id: cell::Cell::new(1),
@@ -80,7 +83,7 @@ impl ServerClientState {
     pub fn handle(&self) -> ServerClient {
         ServerClient {
             id: self.id,
-            pid: rc::Rc::clone(&self.pid),
+            pid: rc::Rc::clone(&self.creds),
         }
     }
 
@@ -92,13 +95,15 @@ impl ServerClientState {
 
         match sys::socket::getsockopt(&self.state.stream, sys::socket::sockopt::PeerCredentials) {
             Ok(cred) => {
-                self.pid.set(cred.pid());
+                // SAFETY: we check if first_poll_done, if creds are
+                // set then it will never reach this point again
+                self.creds.set(cred).unwrap();
                 trace! {
                     eprintln!(
                         "[hw] trace: [{} @ {:.3}] peer pid: {}",
                         self.state.stream.as_raw_fd(),
                         steady_millis(),
-                        self.pid.get()
+                        cred.pid()
                     )
                 }
             }
@@ -125,7 +130,7 @@ impl ServerClientState {
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();
 
-        for imp in self.state.impls.iter() {
+        for imp in self.state.impls.borrow().iter() {
             if imp.protocol().spec_name() == protocol {
                 for spec in imp.protocol().objects() {
                     if object_name.is_empty() || spec.object_name() == object_name {
@@ -156,7 +161,7 @@ impl ServerClientState {
             .map(|spec| spec.object_name().to_string())
             .unwrap_or_default();
 
-        for imp in self.state.impls.iter() {
+        for imp in self.state.impls.borrow().iter() {
             if imp.protocol().spec_name() == protocol_name {
                 if let Some(obj_impl) = imp
                     .implementation()

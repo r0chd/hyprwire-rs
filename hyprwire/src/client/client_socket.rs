@@ -31,7 +31,10 @@ const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
     fn new(stream: net::UnixStream) -> rc::Rc<Self> {
-        let state = rc::Rc::new(SharedState::new(stream, rc::Rc::new(Vec::new())));
+        let state = rc::Rc::new(SharedState::new(
+            stream,
+            rc::Rc::new(cell::RefCell::new(Vec::new())),
+        ));
         let client_socket = rc::Rc::new_cyclic(|weak_self| Self {
             last_ackd_roundtrip_seq: cell::Cell::new(0),
             last_sent_roundtrip_seq: cell::Cell::new(0),

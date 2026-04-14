@@ -4,8 +4,7 @@ use nix::poll;
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
-use std::sync;
-use std::{fs, io, path, rc, thread};
+use std::{cell, fs, io, path, rc, sync, thread};
 
 use crate::implementation;
 
@@ -24,7 +23,7 @@ pub struct ServerSocket {
     exit_fd: net::UnixStream,
     exit_write_fd: net::UnixStream,
     is_empty_listener: bool,
-    impls: rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
+    impls: rc::Rc<cell::RefCell<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
     clients: Vec<rc::Rc<server_client::ServerClientState>>,
     pollfds: Vec<poll::PollFd<'static>>,
     poll_thread: Option<thread::JoinHandle<()>>,
@@ -83,7 +82,7 @@ impl ServerSocket {
                     exit_fd: exit_pipes.0,
                     exit_write_fd: exit_pipes.1,
                     is_empty_listener: false,
-                    impls: rc::Rc::new(Vec::new()),
+                    impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
                     clients: Vec::new(),
                     pollfds: Vec::new(),
                     poll_thread: None,
@@ -103,7 +102,7 @@ impl ServerSocket {
                 exit_fd: exit_pipes.0,
                 exit_write_fd: exit_pipes.1,
                 is_empty_listener: true,
-                impls: rc::Rc::new(Vec::new()),
+                impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
                 clients: Vec::new(),
                 pollfds: Vec::new(),
                 poll_thread: None,
@@ -120,16 +119,11 @@ impl ServerSocket {
     }
 
     /// Registers a protocol implementation on the server.
-    ///
-    /// # Panics
-    /// New implementation is added while client is connected to socket
-    pub fn add_implementation<T>(&mut self, implementation: T)
+    pub fn add_implementation<T>(&self, implementation: T)
     where
         T: implementation::server::ProtocolImplementations + 'static,
     {
-        rc::Rc::get_mut(&mut self.impls)
-            .expect("cannot add implementations after clients connect")
-            .push(Box::new(implementation));
+        self.impls.borrow_mut().push(Box::new(implementation));
     }
 
     pub(crate) fn dispatch_pending<D>(&mut self, dispatch: &mut D) -> bool {
@@ -410,7 +404,7 @@ impl ServerSocket {
 
         server_client::ServerClient {
             id: client_id,
-            pid: client.pid.clone(),
+            pid: client.creds.clone(),
         }
     }
 

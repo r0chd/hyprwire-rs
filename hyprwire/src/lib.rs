@@ -26,13 +26,14 @@ use std::{cell, io, rc, sync, time};
 pub(crate) struct SharedState {
     pub(crate) error: cell::Cell<bool>,
     pub(crate) stream: net::UnixStream,
-    pub(crate) impls: rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
+    pub(crate) impls:
+        rc::Rc<cell::RefCell<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
 impl SharedState {
     pub(crate) fn new(
         stream: net::UnixStream,
-        impls: rc::Rc<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
+        impls: rc::Rc<cell::RefCell<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
     ) -> Self {
         Self {
             error: cell::Cell::new(false),

@@ -374,6 +374,7 @@ fn parse_single_message_server<D>(
                 let protocol_names = client
                     .state
                     .impls
+                    .borrow()
                     .iter()
                     .map(|imp| {
                         format!(
