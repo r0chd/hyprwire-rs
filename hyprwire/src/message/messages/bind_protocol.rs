@@ -213,4 +213,21 @@ mod tests {
         let err = BindProtocol::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::MalformedMessage));
     }
+
+    #[test]
+    fn bind_protocol_roundtrip_parses_fields() {
+        let out = BindProtocol::new("my_proto", 42, 7);
+        let in_msg = BindProtocol::from_bytes(out.data(), 0).unwrap();
+        assert_eq!(in_msg.data(), out.data());
+        assert_eq!(in_msg.protocol(), "my_proto");
+        assert_eq!(in_msg.seq(), 42);
+        assert_eq!(in_msg.version(), 7);
+    }
+
+    #[test]
+    fn bind_protocol_rejects_zero_version() {
+        let out = BindProtocol::new("my_proto", 42, 0);
+        let err = BindProtocol::from_bytes(out.data(), 0).unwrap_err();
+        assert!(matches!(err, message::Error::InvalidVersion));
+    }
 }

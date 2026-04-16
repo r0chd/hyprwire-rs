@@ -99,7 +99,7 @@ impl ServerClientState {
                 // set then it will never reach this point again
                 self.creds.set(cred).unwrap();
                 trace! {
-                    eprintln!(
+                    crate::log_debug!(
                         "[hw] trace: [{} @ {:.3}] peer pid: {}",
                         self.state.stream.as_raw_fd(),
                         steady_millis(),
@@ -109,7 +109,7 @@ impl ServerClientState {
             }
             Err(_) => {
                 trace! {
-                    eprintln!("[hw] trace: dispatchFirstPoll: failed to get pid")
+                    crate::log_debug!("[hw] trace: dispatchFirstPoll: failed to get pid")
                 }
             }
         }
@@ -175,6 +175,10 @@ impl ServerClientState {
         }
     }
 
+    pub(crate) fn destroy_object(&self, id: u32) {
+        self.objects.borrow_mut().retain(|obj| obj.id.get() != id);
+    }
+
     pub(crate) fn on_generic<D>(
         &self,
         msg: &message::GenericProtocolMessage<ops::Range<usize>>,
@@ -190,7 +194,7 @@ impl ServerClientState {
         match obj {
             Some(obj) => {
                 if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
-                    log::error!(
+                    crate::log_error!(
                         "[{} @ {:.3}] object {} called method error: {e}",
                         self.state.stream.as_raw_fd(),
                         steady_millis(),
@@ -199,14 +203,16 @@ impl ServerClientState {
                 }
             }
             None => {
-                trace! {
-                    eprintln!(
-                        "[hw] trace: [{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-                        self.state.stream.as_raw_fd(),
-                        steady_millis(),
-                        msg.object(),
-                    )
-                }
+                let error = format!("generic message references unknown object {}", msg.object());
+                crate::log_error!(
+                    "[{} @ {:.3}] {}",
+                    self.state.stream.as_raw_fd(),
+                    steady_millis(),
+                    error,
+                );
+                let fatal = message::FatalProtocolError::new(msg.object(), u32::MAX, &error);
+                self.state.send_message(&fatal);
+                self.state.error.set(true);
             }
         }
     }
@@ -230,7 +236,7 @@ impl ServerClientState {
 impl Drop for ServerClientState {
     fn drop(&mut self) {
         trace! {
-            eprintln!("[hw] trace: [{}] destroying client", self.state.stream.as_raw_fd())
+            crate::log_debug!("[hw] trace: [{}] destroying client", self.state.stream.as_raw_fd())
         }
     }
 }

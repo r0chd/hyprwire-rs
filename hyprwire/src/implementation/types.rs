@@ -95,6 +95,27 @@ pub trait ProtocolObjectSpec: Send + Sync {
     fn s2c(&self) -> &[Method];
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_magic_known_values_try_from() {
+        let known: &[u8] = &[0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22, 0x40];
+        for &byte in known {
+            assert!(
+                MessageMagic::try_from(byte).is_ok(),
+                "expected Ok for byte={byte:#04x}"
+            );
+        }
+    }
+
+    #[test]
+    fn message_magic_unknown_value_fails() {
+        assert!(MessageMagic::try_from(0xFF_u8).is_err());
+    }
+}
+
 pub trait ProtocolSpec {
     fn spec_name(&self) -> &str;
 

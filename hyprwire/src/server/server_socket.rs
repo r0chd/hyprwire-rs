@@ -245,7 +245,7 @@ impl ServerSocket {
                 self.clients[client_idx].destroy_objects_for_disconnect(dispatch);
                 needs_poll_recheck = true;
                 trace! {
-                    eprintln!(
+                    crate::log_debug!(
                         "[hw] trace: [{} @ {:.3}] Dropping client (hangup)",
                         self.clients[client_idx].state.stream.as_raw_fd(),
                         steady_millis(),
@@ -258,7 +258,7 @@ impl ServerSocket {
                 self.clients[client_idx].destroy_objects_for_disconnect(dispatch);
                 needs_poll_recheck = true;
                 trace! {
-                    eprintln!(
+                    crate::log_debug!(
                         "[hw] trace: [{} @ {:.3}] Dropping client (protocol error)",
                         self.clients[client_idx].state.stream.as_raw_fd(),
                         steady_millis(),
@@ -299,7 +299,7 @@ impl ServerSocket {
         let (stream, _addr) = match server.accept() {
             Ok(conn) => conn,
             Err(e) => {
-                log::error!("failed to accept connection: {e}");
+                crate::log_error!("failed to accept connection: {e}");
                 return false;
             }
         };

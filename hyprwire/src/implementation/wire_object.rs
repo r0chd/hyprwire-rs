@@ -21,6 +21,14 @@ pub trait WireObject: object::RawObject {
 
     fn errd(&self);
 
+    /// Mark this object as destroyed so its `Drop` impl does not attempt to
+    /// re-invoke the destructor method.
+    fn mark_destroyed(&self) {}
+
+    /// Called after a destructor method is invoked (either by `called` or `call`).
+    /// Concrete types use this to remove themselves from their parent socket's object list.
+    fn on_destructor_called(&self) {}
+
     fn send_message(&self, msg: &dyn message::Message);
 
     fn protocol_name(&self) -> &str;
@@ -42,20 +50,26 @@ pub trait WireObject: object::RawObject {
 
         if methods.len() <= id as usize {
             let msg = format!("invalid method {} for object {}", id, self.id());
-            log::error!("core protocol error: {msg}");
+            crate::log_error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Err(message::Error::InvalidMethod);
         }
 
+        let method = &methods[id as usize];
+
         if self.listener_count() <= id as usize {
+            if method.destructor {
+                self.on_destructor_called();
+            }
             return Ok(());
         }
 
         if self.listener(id as usize).is_null() {
+            if method.destructor {
+                self.on_destructor_called();
+            }
             return Ok(());
         }
-
-        let method = &methods[id as usize];
         let mut params: Vec<u8> = Vec::new();
 
         if !method.returns_type.is_empty() {
@@ -71,7 +85,7 @@ pub trait WireObject: object::RawObject {
                 method.since,
                 self.version()
             );
-            log::error!("core protocol error: {msg}");
+            crate::log_error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Err(message::Error::ProtocolVersionTooLow);
         }
@@ -89,7 +103,7 @@ pub trait WireObject: object::RawObject {
             if param != wire_param {
                 let msg =
                     format!("method {id} param idx {i} should be {param:?} but was {wire_param:?}");
-                log::error!("core protocol error: {msg}");
+                crate::log_error!("core protocol error: {msg}");
                 self.error(self.id(), &msg);
                 return Err(message::Error::InvalidParameter);
             }
@@ -118,7 +132,7 @@ pub trait WireObject: object::RawObject {
                         let msg = format!(
                             "method {id} param idx {i} should be {arr_type:?} but was {wire_type:?}"
                         );
-                        log::error!("core protocol error: {msg}");
+                        crate::log_error!("core protocol error: {msg}");
                         self.error(self.id(), &msg);
                         return Err(message::Error::IncorrectParamIdx);
                     }
@@ -129,7 +143,7 @@ pub trait WireObject: object::RawObject {
                     if arr_len > 10000 {
                         let msg =
                             format!("method {id} param idx {i} max array size of 10000 exceeded",);
-                        log::debug!("core protocol error: {msg}",);
+                        crate::log_debug!("core protocol error: {msg}",);
                         self.error(self.id(), &msg);
                     }
 
@@ -145,7 +159,7 @@ pub trait WireObject: object::RawObject {
                             for _ in 0..arr_len {
                                 if data_idx + arr_message_len > data.len() {
                                     let msg = "failed demarshaling array message";
-                                    log::error!("core protocol error: {msg}");
+                                    crate::log_error!("core protocol error: {msg}");
                                     self.error(self.id(), msg);
                                     return Err(message::Error::DemarshalingFailed);
                                 }
@@ -158,7 +172,7 @@ pub trait WireObject: object::RawObject {
                         types::MessageMagic::TypeFd => {}
                         _ => {
                             let msg = "failed demarshaling array message";
-                            log::error!("core protocol error: {msg}");
+                            crate::log_error!("core protocol error: {msg}");
                             self.error(self.id(), msg);
                             return Err(message::Error::DemarshalingFailed);
                         }
@@ -168,7 +182,7 @@ pub trait WireObject: object::RawObject {
                 }
                 types::MessageMagic::TypeObjectId => {
                     let msg = "object type is not implemented";
-                    log::error!("core protocol error: {msg}");
+                    crate::log_error!("core protocol error: {msg}");
                     self.error(self.id(), msg);
                     return Err(message::Error::Unimplemented);
                 }
@@ -188,7 +202,7 @@ pub trait WireObject: object::RawObject {
             )
             .is_err()
             {
-                log::error!("core protocol error: ffi failed");
+                crate::log_error!("core protocol error: ffi failed");
                 self.errd();
                 return Ok(());
             }
@@ -341,7 +355,7 @@ pub trait WireObject: object::RawObject {
                             for j in 0..arr_len {
                                 if fd_no >= fds.len() {
                                     let msg = "failed demarshaling array message";
-                                    log::error!("core protocol error: {msg}");
+                                    crate::log_error!("core protocol error: {msg}");
                                     self.error(self.id(), msg);
                                     return Err(message::Error::DemarshalingFailed);
                                 }
@@ -367,7 +381,7 @@ pub trait WireObject: object::RawObject {
                         }
                         _ => {
                             let msg = "failed demarshaling array message";
-                            log::error!("core protocol error: {msg}");
+                            crate::log_error!("core protocol error: {msg}");
                             self.error(self.id(), msg);
                             return Err(message::Error::DemarshalingFailed);
                         }
@@ -377,14 +391,14 @@ pub trait WireObject: object::RawObject {
                 }
                 types::MessageMagic::TypeObjectId => {
                     let msg = "object type is not implemented";
-                    log::error!("core protocol error: {msg}");
+                    crate::log_error!("core protocol error: {msg}");
                     self.error(self.id(), msg);
                     return Err(message::Error::Unimplemented);
                 }
                 types::MessageMagic::TypeFd => {
                     if fd_no >= fds.len() {
                         let msg = "failed demarshaling fd";
-                        log::error!("core protocol error: {msg}");
+                        crate::log_error!("core protocol error: {msg}");
                         self.error(self.id(), msg);
                         return Err(message::Error::DemarshalingFailed);
                     }
@@ -412,6 +426,10 @@ pub trait WireObject: object::RawObject {
             );
         };
 
+        if method.destructor {
+            self.on_destructor_called();
+        }
+
         Ok(())
     }
 
@@ -420,7 +438,7 @@ pub trait WireObject: object::RawObject {
 
         if methods.len() <= id as usize {
             let msg = format!("invalid method {} for object {}", id, self.id());
-            log::error!("core protocol error: {msg}");
+            crate::log_error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Ok(0);
         }
@@ -434,7 +452,7 @@ pub trait WireObject: object::RawObject {
                 method.since,
                 self.version()
             );
-            log::error!("core protocol error: {msg}");
+            crate::log_error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Ok(0);
         }
@@ -445,13 +463,18 @@ pub trait WireObject: object::RawObject {
                 id,
                 self.id()
             );
-            log::error!("core protocol error: {msg}");
+            crate::log_error!("core protocol error: {msg}");
             self.error(self.id(), &msg);
             return Ok(0);
         }
 
         let method_params = method.params;
         let method_returns_type = method.returns_type;
+        let method_destructor = method.destructor;
+
+        if method_destructor {
+            self.mark_destroyed();
+        }
 
         // encode the message
         let mut data: Vec<u8> = Vec::new();
@@ -471,7 +494,7 @@ pub trait WireObject: object::RawObject {
         if !method_returns_type.is_empty() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    eprintln!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.state.stream.as_raw_fd(), steady_millis(), id, method_returns_type);
+                    crate::log_debug!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.state.stream.as_raw_fd(), steady_millis(), id, method_returns_type);
                 }
             }
 
@@ -590,7 +613,7 @@ pub trait WireObject: object::RawObject {
                             }
                         }
                         _ => {
-                            log::error!("core protocol error: failed marshaling array type");
+                            crate::log_error!("core protocol error: failed marshaling array type");
                             self.errd();
                             return Ok(0);
                         }
@@ -611,7 +634,7 @@ pub trait WireObject: object::RawObject {
         if self.id() == 0 && !self.server() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    eprintln!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.state.stream.as_raw_fd(), steady_millis(), method_returns_type);
+                    crate::log_debug!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.state.stream.as_raw_fd(), steady_millis(), method_returns_type);
                 }
             }
 

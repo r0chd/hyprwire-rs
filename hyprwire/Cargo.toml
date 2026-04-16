@@ -32,18 +32,21 @@ path = "examples/calloop/server.rs"
 
 [dependencies]
 libffi = { version = "5.1.0", default-features = false }
-log = { version = "0.4.29", default-features = false }
+log = { version = "0.4.29", default-features = false, optional = true }
 nix = { version = "0.31.1", features = [
   "poll",
   "socket",
   "uio",
 ], default-features = false }
 
+[features]
+log = ["dep:log"]
+
 [build-dependencies]
-hyprwire-scanner = { version = "0.2.6", path = "../hyprwire-scanner" }
+hyprwire-scanner = { version = "0.2.7", path = "../hyprwire-scanner" }
 
 [dev-dependencies]
 calloop = "0.14.4"
 env_logger = { version = "0.11.9", default-features = false }
-hyprwire-scanner = { version = "0.2.6", path = "../hyprwire-scanner" }
 insta = "1"
+log = { version = "0.4.29", default-features = false }

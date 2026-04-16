@@ -165,4 +165,14 @@ mod tests {
         let err = FatalProtocolError::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::InvalidMessageType));
     }
+
+    #[test]
+    fn fatal_error_roundtrip_parses_fields_with_zero_object_id() {
+        let out = FatalProtocolError::new(0, 99, "boom");
+        let in_msg = FatalProtocolError::from_bytes(out.data(), 0).unwrap();
+        assert_eq!(in_msg.data(), out.data());
+        assert_eq!(in_msg.object_id(), 0);
+        assert_eq!(in_msg.error_id(), 99);
+        assert_eq!(in_msg.error_msg(), "boom");
+    }
 }

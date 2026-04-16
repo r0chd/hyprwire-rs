@@ -124,4 +124,12 @@ mod tests {
         let err = HandshakeAck::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::MalformedMessage));
     }
+
+    #[test]
+    fn handshake_ack_roundtrip_parses_version() {
+        let out = HandshakeAck::new(7);
+        let in_msg = HandshakeAck::from_bytes(out.data(), 0).unwrap();
+        assert_eq!(in_msg.data(), out.data());
+        assert_eq!(in_msg.version(), 7);
+    }
 }

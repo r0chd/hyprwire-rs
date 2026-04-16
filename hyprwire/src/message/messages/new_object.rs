@@ -149,4 +149,13 @@ mod tests {
         let err = NewObject::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::MalformedMessage));
     }
+
+    #[test]
+    fn new_object_roundtrip_parses_fields() {
+        let out = NewObject::new(123, 0xBEEF);
+        let in_msg = NewObject::from_bytes(out.data(), 0).unwrap();
+        assert_eq!(in_msg.data(), out.data());
+        assert_eq!(in_msg.seq(), 123);
+        assert_eq!(in_msg.id(), 0xBEEF);
+    }
 }

@@ -30,8 +30,4 @@ pub trait RawObject {
     fn get_data(&self) -> *mut raw::c_void;
 
     fn error(&self, error_id: u32, error_msg: &str);
-
-    fn set_on_drop(&self, func: Box<dyn FnOnce()>) {
-        _ = func;
-    }
 }

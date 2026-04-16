@@ -40,7 +40,7 @@ impl SocketRawParsedMessage {
             for cmsg in msg.cmsgs().map_err(|_| nix::errno::Errno::ENOBUFS)? {
                 if let socket::ControlMessageOwned::ScmRights(received_fds) = cmsg {
                     trace! {
-                        eprintln!(
+                        crate::log_debug!(
                             "[hw] trace: SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",
                             received_fds.len()
                         )

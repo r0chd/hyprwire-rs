@@ -12,7 +12,6 @@ pub(crate) struct ServerObject {
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Cell<*mut raw::c_void>,
     data_destructor: Cell<Option<unsafe fn(*mut raw::c_void)>>,
-    on_drop: RefCell<Option<Box<dyn FnOnce()>>>,
     listeners: RefCell<Vec<*mut raw::c_void>>,
     destroyed: Cell<bool>,
     pub(crate) id: Cell<u32>,
@@ -23,7 +22,7 @@ pub(crate) struct ServerObject {
 
 impl Drop for ServerObject {
     fn drop(&mut self) {
-        trace! {eprintln!("[hw] trace: destroying server object {}", self.id.get())}
+        trace! {crate::log_debug!("[hw] trace: destroying server object {}", self.id.get())}
         self.destroy();
     }
 }
@@ -39,7 +38,6 @@ impl ServerObject {
             spec: None,
             data: Cell::new(std::ptr::null_mut()),
             data_destructor: Cell::new(None),
-            on_drop: RefCell::new(None),
             listeners: RefCell::new(Vec::new()),
             destroyed: Cell::new(false),
             id: Cell::new(0),
@@ -68,7 +66,7 @@ impl ServerObject {
         };
 
         if let Err(e) = wire_object::WireObject::called(self, method.idx, &[], &[], dispatch) {
-            log::error!(
+            crate::log_error!(
                 "server object {} (protocol {}) destructor dispatch error: {e}",
                 self.id.get(),
                 self.protocol_name
@@ -79,10 +77,6 @@ impl ServerObject {
     fn destroy(&self) {
         if self.destroyed.replace(true) {
             return;
-        }
-
-        if let Some(on_drop) = self.on_drop.borrow_mut().take() {
-            on_drop();
         }
 
         if let Some(destructor) = self.data_destructor.replace(None)
@@ -105,7 +99,7 @@ impl object::RawObject for ServerObject {
         match wire_object::WireObject::call(self, id, args) {
             Ok(v) => v,
             Err(e) => {
-                log::error!(
+                crate::log_error!(
                     "server object {} (protocol {}) call error: {e}",
                     self.id.get(),
                     self.protocol_name
@@ -159,15 +153,6 @@ impl object::RawObject for ServerObject {
         self.state.send_message(&msg);
         self.errd();
     }
-
-    fn set_on_drop(&self, func: Box<dyn FnOnce()>) {
-        if self.destroyed.get() {
-            func();
-            return;
-        }
-
-        *self.on_drop.borrow_mut() = Some(func);
-    }
 }
 
 impl wire_object::WireObject for ServerObject {
@@ -211,6 +196,20 @@ impl wire_object::WireObject for ServerObject {
 
     fn errd(&self) {
         self.state.error.set(true);
+    }
+
+    fn mark_destroyed(&self) {
+        self.destroyed.set(true);
+    }
+
+    fn on_destructor_called(&self) {
+        let id = self.id.get();
+        self.destroyed.set(true);
+        if id != 0
+            && let Some(client) = self.client.upgrade()
+        {
+            client.destroy_object(id);
+        }
     }
 
     fn send_message(&self, msg: &dyn message::Message) {

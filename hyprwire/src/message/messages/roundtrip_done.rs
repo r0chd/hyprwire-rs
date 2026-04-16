@@ -118,4 +118,26 @@ mod tests {
         let err = RoundtripDone::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::MalformedMessage));
     }
+
+    #[test]
+    fn roundtrip_done_roundtrip_parses_seq() {
+        let out = RoundtripDone::new(888);
+        let in_msg = RoundtripDone::from_bytes(out.data(), 0).unwrap();
+        assert_eq!(in_msg.data(), out.data());
+        assert_eq!(in_msg.seq(), 888);
+    }
+
+    #[test]
+    fn roundtrip_done_rejects_wrong_field_type() {
+        // varchar instead of uint
+        let bytes: &[u8] = &[
+            message::MessageType::RoundtripDone as u8,
+            types::MessageMagic::TypeVarchar as u8,
+            0x01,
+            b'x',
+            types::MessageMagic::End as u8,
+        ];
+        let err = RoundtripDone::from_bytes(bytes, 0).unwrap_err();
+        assert!(matches!(err, message::Error::InvalidFieldType));
+    }
 }

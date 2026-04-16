@@ -107,7 +107,7 @@ impl ClientSocket {
         version: u32,
     ) -> Result<rc::Rc<client_object::ClientObject>, io::Error> {
         if version > spec.spec_ver() {
-            log::error!(
+            crate::log_error!(
                 "version {} is larger than current spec ver of {}",
                 version,
                 spec.spec_ver()
@@ -247,6 +247,8 @@ impl ClientSocket {
             ));
         }
 
+        self.collect_orphaned_objects();
+
         if !self.handshake_done.get() {
             #[allow(clippy::cast_possible_truncation)]
             let elapsed_ms = self.handshake_begin.elapsed().as_millis() as u64;
@@ -322,6 +324,7 @@ impl ClientSocket {
                         "connection closed",
                     ));
                 }
+                self.collect_orphaned_objects();
                 return Ok(());
             }
 
@@ -357,7 +360,7 @@ impl ClientSocket {
         let mut data = {
             match socket::SocketRawParsedMessage::read_from_socket(&self.state.stream) {
                 Err(_) => {
-                    log::error!("fatal: received malformed message from server");
+                    crate::log_error!("fatal: received malformed message from server");
                     self.disconnect_on_error();
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -376,7 +379,7 @@ impl ClientSocket {
         }
 
         if message::handle_message(&mut data, &message::Role::Client(self), dispatch).is_err() {
-            log::error!("fatal: failed to handle message on wire");
+            crate::log_error!("fatal: failed to handle message on wire");
             self.disconnect_on_error();
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -398,13 +401,15 @@ impl ClientSocket {
                 Some(id) => {
                     msg.resolve_seq(id);
                     trace! {
-                        eprintln!("[hw] trace: [{} @ {:.3}] -> Handle deferred {}", self.state.stream.as_raw_fd(), steady_millis(), msg.parse_data())
+                        crate::log_debug!("[hw] trace: [{} @ {:.3}] -> Handle deferred {}", self.state.stream.as_raw_fd(), steady_millis(), msg.parse_data())
                     }
                 }
             }
 
             self.state.send_message(&msg);
         }
+
+        self.collect_orphaned_objects();
 
         if self.state.error.get() {
             return Err(io::Error::new(
@@ -423,6 +428,19 @@ impl ClientSocket {
         }
     }
 
+    pub fn destroy_object(&self, id: u32) {
+        self.objects.borrow_mut().retain(|obj| obj.id.get() != id);
+    }
+
+    pub fn collect_orphaned_objects(&self) {
+        self.objects.borrow_mut().retain(|obj| {
+            if obj.id.get() == 0 {
+                return true;
+            }
+            rc::Rc::strong_count(obj) > 1
+        });
+    }
+
     pub fn on_generic<D>(
         &self,
         msg: &message::GenericProtocolMessage<ops::Range<usize>>,
@@ -438,7 +456,7 @@ impl ClientSocket {
         match obj {
             Some(obj) => {
                 if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
-                    log::error!(
+                    crate::log_error!(
                         "[{} @ {:.3}] object {} called method error: {e}",
                         self.state.stream.as_raw_fd(),
                         steady_millis(),
@@ -447,14 +465,13 @@ impl ClientSocket {
                 }
             }
             None => {
-                trace! {
-                    eprintln!(
-                        "[hw] trace: [{} @ {:.3}] -> Generic message not handled. No object with id {}!",
-                        self.state.stream.as_raw_fd(),
-                        steady_millis(),
-                        msg.object(),
-                    )
-                }
+                crate::log_error!(
+                    "[{} @ {:.3}] generic message references unknown object {}",
+                    self.state.stream.as_raw_fd(),
+                    steady_millis(),
+                    msg.object(),
+                );
+                self.disconnect_on_error();
             }
         }
     }

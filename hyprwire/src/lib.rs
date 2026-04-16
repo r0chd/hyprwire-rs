@@ -8,6 +8,7 @@ pub(crate) const PROTOCOL_VERSION: u32 = 1;
 /// generated protocol events.
 pub mod client;
 pub(crate) mod helpers;
+pub use helpers::reset_trace_cache;
 /// Traits and low-level types used by generated client/server protocol
 /// bindings.
 pub mod implementation;
@@ -16,6 +17,16 @@ pub(crate) mod message;
 /// requests.
 pub mod server;
 pub(crate) mod socket;
+
+#[cfg(feature = "log")]
+#[allow(unused_imports)]
+use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
+
+#[cfg(not(feature = "log"))]
+#[allow(unused_imports)]
+use std::{
+    eprintln as log_debug, eprintln as log_error, eprintln as log_info, eprintln as log_warn,
+};
 
 use implementation::object as impl_object;
 use nix::{errno, poll, sys};
@@ -43,7 +54,7 @@ impl SharedState {
     }
 
     pub(crate) fn send_message(&self, message: &dyn message::Message) {
-        trace! { eprintln!("[hw] trace: [{} @ {:.3}] -> {}", self.stream.as_raw_fd(), steady_millis(), message.parse_data()) };
+        trace! { crate::log_debug!("[hw] trace: [{} @ {:.3}] -> {}", self.stream.as_raw_fd(), steady_millis(), message.parse_data()) };
 
         let buf = message.data();
         let iov = [io::IoSlice::new(buf)];
@@ -63,7 +74,7 @@ impl SharedState {
                         poll::PollFlags::POLLOUT | poll::PollFlags::POLLWRBAND,
                     )];
                     if let Err(e) = poll::poll(&mut pfd, poll::PollTimeout::NONE) {
-                        log::error!(
+                        crate::log_error!(
                             "[{} @ {:.3}] poll error during send_message: {e}",
                             self.stream.as_raw_fd(),
                             steady_millis(),

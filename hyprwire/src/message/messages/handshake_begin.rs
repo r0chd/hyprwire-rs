@@ -185,4 +185,42 @@ mod tests {
         let err = HandshakeBegin::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::MalformedMessage));
     }
+
+    #[test]
+    fn handshake_begin_roundtrip_parses_versions() {
+        let versions = [1u32, 2, 255];
+        let out = HandshakeBegin::new(&versions);
+        let in_msg = HandshakeBegin::from_bytes(out.data(), 0).unwrap();
+        assert_eq!(in_msg.data(), out.data());
+        assert_eq!(in_msg.versions(), &versions);
+    }
+
+    #[test]
+    fn handshake_begin_rejects_wrong_array_element_type() {
+        // element type is TypeVarchar instead of TypeUint
+        let bytes: &[u8] = &[
+            message::MessageType::HandshakeBegin as u8,
+            types::MessageMagic::TypeArray as u8,
+            types::MessageMagic::TypeVarchar as u8,
+            0x00,
+            types::MessageMagic::End as u8,
+        ];
+        let err = HandshakeBegin::from_bytes(bytes, 0).unwrap_err();
+        assert!(matches!(err, message::Error::InvalidFieldType));
+    }
+
+    #[test]
+    fn handshake_begin_rejects_too_many_versions() {
+        let mut data = vec![
+            message::MessageType::HandshakeBegin as u8,
+            types::MessageMagic::TypeArray as u8,
+            types::MessageMagic::TypeUint as u8,
+        ];
+        let mut buf = [0u8; 10];
+        let var_int = message::encode_var_int(256, &mut buf);
+        data.extend_from_slice(var_int);
+
+        let err = HandshakeBegin::from_bytes(&data, 0).unwrap_err();
+        assert!(matches!(err, message::Error::HandshakeBegin(_)));
+    }
 }

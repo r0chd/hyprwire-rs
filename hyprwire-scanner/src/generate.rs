@@ -931,10 +931,6 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                     self.object.error(error_id, error_msg.as_ref());
                 }
 
-                pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
-                    self.object.set_on_drop(Box::new(callback));
-                }
-
                 pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
                     self.object.server_client()
                 }

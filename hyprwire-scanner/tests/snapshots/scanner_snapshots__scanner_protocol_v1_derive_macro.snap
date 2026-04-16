@@ -1,8 +1,8 @@
 ---
-source: tests/scanner_snapshots.rs
+source: hyprwire-scanner/tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.2.6. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.2.7. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:
@@ -328,9 +328,6 @@ pub mod server {
         pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
             self.object.error(error_id, error_msg.as_ref());
         }
-        pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
-            self.object.set_on_drop(Box::new(callback));
-        }
         pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
             self.object.server_client()
         }
@@ -501,9 +498,6 @@ pub mod server {
         }
         pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
             self.object.error(error_id, error_msg.as_ref());
-        }
-        pub fn set_on_drop(&self, callback: impl FnOnce() + 'static) {
-            self.object.set_on_drop(Box::new(callback));
         }
         pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
             self.object.server_client()

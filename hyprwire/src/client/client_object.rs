@@ -1,4 +1,5 @@
 use crate::client::client_socket;
+use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
 use crate::{SharedState, client, message, trace};
 use std::cell::{Cell, RefCell};
@@ -12,24 +13,53 @@ pub struct ClientObject {
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: Cell<*mut raw::c_void>,
     data_destructor: Cell<Option<unsafe fn(*mut raw::c_void)>>,
-    on_drop: RefCell<Option<Box<dyn FnOnce()>>>,
     listeners: RefCell<Vec<*mut raw::c_void>>,
     pub(crate) id: Cell<u32>,
     pub(crate) version: Cell<u32>,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
+    destroyed: Cell<bool>,
 }
 
 impl Drop for ClientObject {
     fn drop(&mut self) {
-        trace! {eprintln!("[hw] trace: destroying object {}", self.id.get())}
-        if let Some(on_drop) = self.on_drop.borrow_mut().take() {
-            on_drop();
-        }
-        if let Some(destructor) = self.data_destructor.get()
-            && !self.data.get().is_null()
+        if !self.destroyed.get()
+            && self.id.get() != 0
+            && self.spec.is_some()
+            && self.client.upgrade().is_some()
         {
-            unsafe { destructor(self.data.get()) };
+            if let Some(destructor) = self.data_destructor.get()
+                && !self.data.get().is_null()
+            {
+                unsafe { destructor(self.data.get()) }
+            }
+
+            let methods = self.methods_out();
+            if let Some(destructor) = methods
+                .iter()
+                .find(|method| method.destructor && method.since <= self.version.get())
+            {
+                if !destructor.returns_type.is_empty() {
+                    crate::log_debug!(
+                        "can't auto-call destructor for object {}: method {} has returns type",
+                        self.id.get(),
+                        destructor.idx
+                    );
+                    return;
+                }
+
+                if !destructor.params.is_empty() {
+                    crate::log_debug!(
+                        "can't auto-call destructor for object {}: method {} has params",
+                        self.id.get(),
+                        destructor.idx
+                    );
+                    return;
+                }
+
+                trace! {crate::log_debug!("auto-calling protocol destructor {} for object {}", destructor.idx, self.id.get())}
+                _ = self.call(destructor.idx, &[]);
+            }
         }
     }
 }
@@ -40,12 +70,12 @@ impl ClientObject {
         state: rc::Rc<SharedState>,
     ) -> Self {
         Self {
+            destroyed: Cell::new(false),
             client: client_socket,
             state,
             spec: None,
             data: Cell::new(std::ptr::null_mut()),
             data_destructor: Cell::new(None),
-            on_drop: RefCell::new(None),
             listeners: RefCell::new(Vec::new()),
             id: Cell::new(0),
             version: Cell::new(0),
@@ -60,7 +90,7 @@ impl object::RawObject for ClientObject {
         match wire_object::WireObject::call(self, id, args) {
             Ok(v) => v,
             Err(e) => {
-                log::error!(
+                crate::log_error!(
                     "object {} (protocol {}) call error: {e}",
                     self.id.get(),
                     self.protocol_name
@@ -94,10 +124,6 @@ impl object::RawObject for ClientObject {
     fn error(&self, error_id: u32, error_msg: &str) {
         _ = error_id;
         _ = error_msg;
-    }
-
-    fn set_on_drop(&self, func: Box<dyn FnOnce()>) {
-        *self.on_drop.borrow_mut() = Some(func);
     }
 }
 
@@ -142,6 +168,20 @@ impl wire_object::WireObject for ClientObject {
 
     fn errd(&self) {
         self.state.error.set(true);
+    }
+
+    fn mark_destroyed(&self) {
+        self.destroyed.set(true);
+    }
+
+    fn on_destructor_called(&self) {
+        let id = self.id.get();
+        self.destroyed.set(true);
+        if id != 0
+            && let Some(client) = self.client.upgrade()
+        {
+            client.destroy_object(id);
+        }
     }
 
     fn send_message(&self, msg: &dyn message::Message) {
