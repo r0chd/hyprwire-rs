@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="bench_protocol_v1" version="1">
+  <copyright>
+    Benchmark-only protocol.
+  </copyright>
+
+  <object name="bench_v1" version="1">
+    <description summary="benchmark object">
+      Minimal protocol used by Criterion benches. Single root object, no extra objects.
+    </description>
+
+    <c2s name="send_message">
+      <description summary="client->server message">
+        Sends a text message to the server.
+      </description>
+      <arg name="message" type="varchar" summary="message"/>
+    </c2s>
+  </object>
+</protocol>
+

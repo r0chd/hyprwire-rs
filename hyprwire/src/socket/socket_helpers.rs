@@ -1,5 +1,7 @@
 use crate::trace;
+use nix::errno;
 use nix::sys::socket;
+use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
 
@@ -18,26 +20,22 @@ impl SocketRawParsedMessage {
 
         loop {
             let mut buffer = [0u8; BUFFER_SIZE];
-            let mut iov = [std::io::IoSliceMut::new(&mut buffer)];
+            let mut iov = [io::IoSliceMut::new(&mut buffer)];
             let mut cmsg_buf = nix::cmsg_space!([i32; MAX_FDS_PER_MSG]);
 
-            let msg = match socket::recvmsg::<()>(
+            let msg = socket::recvmsg::<()>(
                 stream.as_raw_fd(),
                 &mut iov,
                 Some(&mut cmsg_buf),
                 socket::MsgFlags::empty(),
-            ) {
-                Ok(msg) => msg,
-                Err(nix::errno::Errno::EAGAIN) => break,
-                Err(e) => return Err(e),
-            };
+            )?;
 
             let bytes_received = msg.bytes;
             if bytes_received == 0 {
                 break;
             }
 
-            for cmsg in msg.cmsgs().map_err(|_| nix::errno::Errno::ENOBUFS)? {
+            for cmsg in msg.cmsgs().map_err(|_| errno::Errno::ENOBUFS)? {
                 if let socket::ControlMessageOwned::ScmRights(received_fds) = cmsg {
                     trace! {
                         crate::log_debug!(

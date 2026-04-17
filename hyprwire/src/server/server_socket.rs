@@ -304,6 +304,10 @@ impl ServerSocket {
             }
         };
 
+        if stream.set_nonblocking(true).is_err() {
+            return false;
+        }
+
         let state = rc::Rc::new(SharedState::new(stream, rc::Rc::clone(&self.impls)));
         let client =
             server_client::ServerClientState::new(self.next_client_id, rc::Rc::clone(&state));
@@ -391,6 +395,7 @@ impl ServerSocket {
         T: Into<fd::OwnedFd>,
     {
         let stream = net::UnixStream::from(fd.into());
+        _ = stream.set_nonblocking(true);
         let state = rc::Rc::new(SharedState::new(stream, rc::Rc::clone(&self.impls)));
         let client_id = self.next_client_id;
         let client = server_client::ServerClientState::new(client_id, rc::Rc::clone(&state));
