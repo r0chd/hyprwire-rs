@@ -1,5 +1,4 @@
 use criterion::Criterion;
-use hyprwire::implementation::client::ProtocolImplementations;
 use hyprwire::{client, server};
 use nix::{libc, poll};
 use std::hint::black_box;
@@ -39,11 +38,11 @@ fn make_lorem_ipsum(min_bytes: usize) -> String {
 
 struct ServerApp;
 
-hyprwire::delegate_noop!(ServerApp: ignore bench_protocol_v1::s::BenchV1Object);
-hyprwire::delegate_noop!(ClientApp: ignore bench_protocol_v1::c::BenchV1Object);
+hyprwire::delegate_noop!(ServerApp: ignore bench_protocol_v1::s::bench_v1::BenchV1);
+hyprwire::delegate_noop!(ClientApp: ignore bench_protocol_v1::c::bench_v1::BenchV1);
 
 impl bench_protocol_v1::s::BenchProtocolV1Handler for ServerApp {
-    fn bind(&mut self, _object: bench_protocol_v1::s::BenchV1Object) {}
+    fn bind(&mut self, _object: bench_protocol_v1::s::bench_v1::BenchV1) {}
 }
 
 struct ClientApp;
@@ -63,17 +62,16 @@ fn client_process_main(
     for stream in server_streams {
         let mut socket = client::Client::from_fd(stream)?;
 
-        let implementation = bench_protocol_v1::c::BenchProtocolV1Impl::default();
-        socket.add_implementation(implementation.clone());
+        socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
         socket.wait_for_handshake(&mut app)?;
 
-        let _ = socket
-            .get_spec(implementation.protocol().spec_name())
+        let spec = socket
+            .get_spec::<bench_protocol_v1::c::BenchProtocolV1Impl>()
             .ok_or_else(|| io::Error::other("test protocol unsupported"))?;
 
         let manager = socket
-            .bind::<bench_protocol_v1::c::BenchV1Object, ClientApp>(
-                implementation.protocol(),
+            .bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
+                &spec,
                 BENCH_PROTOCOL_VERSION,
                 &mut app,
             )
@@ -171,8 +169,10 @@ fn main() -> io::Result<()> {
 
     let mut socket = server::Server::open::<&path::Path>(None)?;
     let mut app = ServerApp;
-    let implementation = bench_protocol_v1::s::BenchProtocolV1Impl::new(1, &mut app);
-    socket.add_implementation(implementation);
+    socket.add_implementation::<bench_protocol_v1::s::BenchProtocolV1Impl, _>(
+        BENCH_PROTOCOL_VERSION,
+        &mut app,
+    );
 
     for server_stream in server_streams {
         socket.add_client(server_stream);

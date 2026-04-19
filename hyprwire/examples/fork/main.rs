@@ -1,12 +1,6 @@
-use hyprwire::implementation::client::ProtocolImplementations;
-use hyprwire::implementation::types::ProtocolSpec;
-use hyprwire::{client, server};
-use nix::{libc, poll};
-use std::io::{Read, Write};
-use std::os::fd;
-use std::os::fd::{AsFd, AsRawFd};
+use nix::libc;
 use std::os::unix::net;
-use std::{fs, io, path, process};
+use std::process;
 
 const TEST_PROTOCOL_VERSION: u32 = 1;
 
@@ -17,54 +11,57 @@ mod server_socket {
         pub use spec::*;
     }
 
-    use super::*;
+    use super::TEST_PROTOCOL_VERSION;
+    use hyprwire::server;
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net;
+    use std::{fs, io, path};
+    use test_protocol_v1::{my_manager_v1, my_object_v1};
 
     #[derive(Default)]
     struct App {
         quit: bool,
-        manager: Option<test_protocol_v1::MyManagerV1Object>,
-        objects: Vec<test_protocol_v1::MyObjectV1Object>,
+        manager: Option<my_manager_v1::MyManagerV1>,
+        objects: Vec<my_object_v1::MyObjectV1>,
     }
 
-    impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
+    impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
         fn event(
             &mut self,
-            object: &test_protocol_v1::MyManagerV1Object,
-            event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
+            object: &my_manager_v1::MyManagerV1,
+            event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
         ) {
             match event {
-                test_protocol_v1::MyManagerV1Event::SendMessage { message } => {
+                my_manager_v1::Event::SendMessage { message } => {
                     println!("Recvd message: {}", message);
                 }
-                test_protocol_v1::MyManagerV1Event::SendMessageArrayFd { message } => {
+                my_manager_v1::Event::SendMessageArrayFd { message } => {
                     println!("Received {} fds", message.len());
 
                     for fd in message {
-                        let raw_fd = fd.as_raw_fd();
                         let mut file = fs::File::from(fd);
                         let mut buf = [0u8; 64];
                         let n = file.read(&mut buf).unwrap_or(0);
                         let data = String::from_utf8_lossy(&buf[..n]);
-                        println!("fd {} with data: {}", raw_fd, data);
+                        println!("fd {} with data: {}", file.as_raw_fd(), data);
                     }
                 }
-                test_protocol_v1::MyManagerV1Event::SendMessageFd { message } => {
-                    let raw_fd = message.as_raw_fd();
+                my_manager_v1::Event::SendMessageFd { message } => {
                     let mut file = fs::File::from(message);
                     let mut buf = [0u8; 64];
                     let n = file.read(&mut buf).unwrap_or(0);
                     let data = String::from_utf8_lossy(&buf[..n]);
-                    println!("Recvd fd {} with data: {}", raw_fd, data);
+                    println!("Recvd fd {} with data: {}", file.as_raw_fd(), data);
                 }
-                test_protocol_v1::MyManagerV1Event::SendMessageArray { message } => {
-                    let data: Vec<&str> = message.iter().map(|s| s.as_str()).collect();
-                    println!("Got array message: \"{}\"", data.join(", "));
+                my_manager_v1::Event::SendMessageArray { message } => {
+                    println!("Got array message: \"{}\"", message.join(", "));
                 }
-                test_protocol_v1::MyManagerV1Event::SendMessageArrayUint { message } => {
-                    let data: Vec<String> = message.iter().map(u32::to_string).collect();
-                    println!("Got uint array message: \"{}\"", data.join(", "));
+                my_manager_v1::Event::SendMessageArrayUint { message } => {
+                    let conct: Vec<String> = message.iter().map(|v| v.to_string()).collect();
+                    println!("Got uint array message: \"{}\"", conct.join(", "));
                 }
-                test_protocol_v1::MyManagerV1Event::MakeObject { seq } => {
+                my_manager_v1::Event::MakeObject { seq } => {
                     let object = object
                         .make_object::<Self>(seq)
                         .expect("failed to create object");
@@ -75,17 +72,17 @@ mod server_socket {
         }
     }
 
-    impl hyprwire::Dispatch<test_protocol_v1::MyObjectV1Object> for App {
+    impl hyprwire::Dispatch<my_object_v1::MyObjectV1> for App {
         fn event(
             &mut self,
-            object: &test_protocol_v1::MyObjectV1Object,
-            event: <test_protocol_v1::MyObjectV1Object as hyprwire::Object>::Event<'_>,
+            object: &my_object_v1::MyObjectV1,
+            event: <my_object_v1::MyObjectV1 as hyprwire::Object>::Event<'_>,
         ) {
             match event {
-                test_protocol_v1::MyObjectV1Event::SendMessage { message } => {
+                my_object_v1::Event::SendMessage { message } => {
                     println!("Object says hello: {}", message);
                 }
-                test_protocol_v1::MyObjectV1Event::SendEnum { message } => {
+                my_object_v1::Event::SendEnum { message } => {
                     println!("Object sent enum: {:?}", message);
                     println!("Erroring out the client!");
 
@@ -95,20 +92,20 @@ mod server_socket {
                         "Important error occurred!",
                     );
                 }
-                test_protocol_v1::MyObjectV1Event::MakeObject { seq } => {
+                my_object_v1::Event::MakeObject { seq } => {
                     let object = object
                         .make_object::<Self>(seq)
                         .expect("failed to create nested object");
                     object.send_send_message("Hello object");
                     self.objects.push(object);
                 }
-                test_protocol_v1::MyObjectV1Event::Destroy => {}
+                my_object_v1::Event::Destroy => {}
             }
         }
     }
 
     impl test_protocol_v1::TestProtocolV1Handler for App {
-        fn bind(&mut self, object: test_protocol_v1::MyManagerV1Object) {
+        fn bind(&mut self, object: my_manager_v1::MyManagerV1) {
             println!("Object bound XD");
             object.send_send_message("Hello manager");
             self.manager = Some(object);
@@ -116,27 +113,17 @@ mod server_socket {
     }
 
     pub fn main(client_fd: net::UnixStream) -> io::Result<()> {
-        let mut socket = server::Server::open::<&path::Path>(None)?;
+        let mut socket = server::Server::open::<path::PathBuf>(None)?;
         let mut app = App::default();
-        let implementation = test_protocol_v1::TestProtocolV1Impl::new(1, &mut app);
-        socket.add_implementation(implementation);
-        if !poll_readable(client_fd.as_fd(), 1000)? {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "failed to wait for client hello",
-            ));
-        }
+        socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(
+            TEST_PROTOCOL_VERSION,
+            &mut app,
+        );
 
         socket.add_client(client_fd);
 
         while !app.quit {
-            if !poll_readable(socket.extract_loop_fd()?, -1)? {
-                continue;
-            }
-
-            if !socket.dispatch_events(&mut app, false) {
-                break;
-            }
+            socket.dispatch_events(&mut app, true);
         }
 
         Ok(())
@@ -150,40 +137,45 @@ mod client_socket {
         pub use spec::*;
     }
 
-    use super::*;
+    use hyprwire::client;
+    use hyprwire::implementation::types::ProtocolSpec;
+    use std::io;
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net;
+    use test_protocol_v1::{my_manager_v1, my_object_v1};
 
     #[derive(Default)]
     struct App {
         quit: bool,
-        object: Option<test_protocol_v1::MyObjectV1Object>,
-        object2: Option<test_protocol_v1::MyObjectV1Object>,
+        object: Option<my_object_v1::MyObjectV1>,
+        object2: Option<my_object_v1::MyObjectV1>,
     }
 
-    impl hyprwire::Dispatch<test_protocol_v1::MyManagerV1Object> for App {
+    impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
         fn event(
             &mut self,
-            object: &test_protocol_v1::MyManagerV1Object,
-            event: <test_protocol_v1::MyManagerV1Object as hyprwire::Object>::Event<'_>,
+            _object: &my_manager_v1::MyManagerV1,
+            event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
         ) {
-            let _ = object;
             match event {
-                test_protocol_v1::MyManagerV1Event::SendMessage { message } => {
+                my_manager_v1::Event::SendMessage { message } => {
                     println!("Server says {}", message);
                 }
-                test_protocol_v1::MyManagerV1Event::RecvMessageArrayUint { message } => {
+                my_manager_v1::Event::RecvMessageArrayUint { message } => {
                     println!("Server sent uint array {:?}", message);
                 }
             }
         }
     }
 
-    impl hyprwire::Dispatch<test_protocol_v1::MyObjectV1Object> for App {
+    impl hyprwire::Dispatch<my_object_v1::MyObjectV1> for App {
         fn event(
             &mut self,
-            object: &test_protocol_v1::MyObjectV1Object,
-            event: <test_protocol_v1::MyObjectV1Object as hyprwire::Object>::Event<'_>,
+            object: &my_object_v1::MyObjectV1,
+            event: <my_object_v1::MyObjectV1 as hyprwire::Object>::Event<'_>,
         ) {
-            let test_protocol_v1::MyObjectV1Event::SendMessage { message } = event;
+            let my_object_v1::Event::SendMessage { message } = event;
             println!("Server says on object {}", message);
 
             if self.object2.as_ref() == Some(object) {
@@ -198,14 +190,13 @@ mod client_socket {
     pub fn main(server_fd: net::UnixStream) -> io::Result<()> {
         let mut socket = client::Client::from_fd(server_fd)?;
         let mut app = App::default();
-        let implementation = test_protocol_v1::TestProtocolV1Impl::default();
-        socket.add_implementation(implementation.clone());
+        socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
         socket.wait_for_handshake(&mut app)?;
 
         println!("OK!");
 
         let spec = socket
-            .get_spec(implementation.protocol().spec_name())
+            .get_spec::<test_protocol_v1::TestProtocolV1Impl>()
             .ok_or_else(|| io::Error::other("test protocol unsupported"))?;
 
         println!(
@@ -214,24 +205,28 @@ mod client_socket {
         );
 
         let manager = socket
-            .bind::<test_protocol_v1::MyManagerV1Object, App>(
-                implementation.protocol(),
-                TEST_PROTOCOL_VERSION,
-                &mut app,
-            )
+            .bind::<my_manager_v1::MyManagerV1, App>(&spec, spec.spec_ver(), &mut app)
             .map_err(io::Error::other)?;
 
         println!("Bound!");
 
         let mut pipes = net::UnixStream::pair().unwrap();
-        let buf = b"pipe!";
-        pipes.1.write_all(buf).unwrap();
+        pipes.1.write_all(b"pipe!").unwrap();
         drop(pipes.1);
 
         println!("Will send fd {}\n", pipes.0.as_raw_fd());
 
+        let mut pipes2 = net::UnixStream::pair().unwrap();
+        let mut pipes3 = net::UnixStream::pair().unwrap();
+
+        pipes2.1.write_all(b"o kurwa").unwrap();
+        pipes3.1.write_all(b"bober!!").unwrap();
+        drop(pipes2.1);
+        drop(pipes3.1);
+
         manager.send_send_message("Hello!");
         manager.send_send_message_fd(&pipes.0);
+        manager.send_send_message_array_fd(&[&pipes2.0, &pipes3.0]);
         manager.send_send_message_array(&["Hello", "via", "array!"]);
         manager.send_send_message_array::<&str>(&[]);
         manager.send_send_message_array_uint(&[69, 420, 2137]);
@@ -250,26 +245,15 @@ mod client_socket {
         object2.send_send_message("Hello from object2");
 
         while !app.quit {
-            socket.dispatch_events(&mut app, true)?;
+            if let Err(err) = socket.dispatch_events(&mut app, true) {
+                eprintln!("client dispatch error: {err}");
+                break;
+            }
         }
 
         let _ = socket.roundtrip(&mut app);
 
         Ok(())
-    }
-}
-
-fn poll_readable(fd: fd::BorrowedFd, timeout_ms: i32) -> io::Result<bool> {
-    let mut pfd = [poll::PollFd::new(fd, poll::PollFlags::POLLIN)];
-
-    loop {
-        let rc = poll::poll(&mut pfd, poll::PollTimeout::try_from(timeout_ms).unwrap())?;
-        if rc >= 0 {
-            return Ok(rc > 0
-                && pfd[0]
-                    .revents()
-                    .is_some_and(|revents| revents.contains(poll::PollFlags::POLLIN)));
-        }
     }
 }
 

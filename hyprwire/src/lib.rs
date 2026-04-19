@@ -105,7 +105,8 @@ impl SharedState {
 ///     hyprwire::include_protocol!("test_protocol_v1");
 /// }
 ///
-/// let implementation = test_protocol_v1::client::TestProtocolV1Impl::default();
+/// let mut client = hyprwire::client::Client::open("/tmp/test-hw.sock").unwrap();
+/// client.add_implementation::<test_protocol_v1::client::TestProtocolV1Impl>();
 /// ```
 #[macro_export]
 macro_rules! include_protocol {
@@ -127,8 +128,8 @@ pub trait Object: Sized {
 
 #[doc(hidden)]
 #[allow(missing_docs)]
-pub trait Dispatch<I: crate::Object> {
-    fn event(&mut self, object: &I, event: <I as crate::Object>::Event<'_>);
+pub trait Dispatch<O: crate::Object> {
+    fn event(&mut self, object: &O, event: <O as crate::Object>::Event<'_>);
 }
 
 /// A helper macro which delegates a set of [`Dispatch`] implementations for proxies to a static handler.
@@ -151,10 +152,12 @@ pub trait Dispatch<I: crate::Object> {
 /// }
 ///
 /// // Ignore all events for this interface:
-/// hyprwire::delegate_noop!(ExampleApp: ignore test_protocol_v1::client::MyManagerV1Object);
+/// use test_protocol_v1::client::my_manager_v1;
+/// hyprwire::delegate_noop!(ExampleApp: ignore my_manager_v1::MyManagerV1);
 ///
 /// // This interface should not emit events:
-/// hyprwire::delegate_noop!(ExampleApp: test_protocol_v1::client::MyObjectV1Object);
+/// use test_protocol_v1::client::my_object_v1;
+/// hyprwire::delegate_noop!(ExampleApp: my_object_v1::MyObjectV1);
 /// ```
 ///
 /// This last example will execute `unreachable!()` if the interface emits any events.
