@@ -43,7 +43,7 @@ nix = { version = "0.31.1", features = [
 log = ["dep:log"]
 
 [build-dependencies]
-hyprwire-scanner = { version = "0.2.7", path = "../hyprwire-scanner" }
+hyprwire-scanner = { version = "0.2.8", path = "../hyprwire-scanner" }
 
 [dev-dependencies]
 calloop = "0.14.4"

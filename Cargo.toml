@@ -4,7 +4,7 @@ default-members = ["hyprwire", "hyprwire-protocols", "hyprwire-scanner"]
 resolver = "3"
 
 [workspace.package]
-version = "0.2.7"
+version = "0.2.8"
 edition = "2024"
 license = "BSD-3-Clause"
 repository = "https://git.r0chd.pl/r0chd/hyprwire-rs"
