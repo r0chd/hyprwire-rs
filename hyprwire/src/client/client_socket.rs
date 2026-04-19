@@ -1,6 +1,7 @@
 use super::client_object;
 use crate::SharedState;
 use crate::client::server_spec;
+use crate::implementation::object::RawObject;
 use crate::implementation::types::ProtocolSpec;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
@@ -445,6 +446,12 @@ impl ClientSocket {
             if obj.id.get() == 0 {
                 return true;
             }
+
+            let has_active_listener = (0..obj.listener_count()).any(|i| !obj.listener(i).is_null());
+            if !obj.get_data().is_null() || has_active_listener {
+                return true;
+            }
+
             rc::Rc::strong_count(obj) > 1
         });
     }
@@ -498,5 +505,79 @@ impl ClientSocket {
             .iter()
             .find(|object| object.seq == seq)
             .map(rc::Rc::clone)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::implementation::object::RawObject;
+    use std::ptr;
+
+    fn new_test_socket() -> (rc::Rc<ClientSocket>, net::UnixStream) {
+        let (a, b) = net::UnixStream::pair().unwrap();
+        a.set_nonblocking(true).unwrap();
+        b.set_nonblocking(true).unwrap();
+        (ClientSocket::new(a), b)
+    }
+
+    #[test]
+    fn collect_orphaned_objects_ignores_null_listener_slots() {
+        let (socket, _peer) = new_test_socket();
+
+        let object =
+            client_object::ClientObject::new(socket.self_ref.clone(), rc::Rc::clone(&socket.state));
+        object.id.set(1);
+        let object = rc::Rc::new(object);
+
+        object.listen(10, ptr::null_mut());
+        socket.objects.borrow_mut().push(rc::Rc::clone(&object));
+        drop(object);
+
+        socket.collect_orphaned_objects();
+        assert_eq!(socket.objects.borrow().len(), 0);
+    }
+
+    #[test]
+    fn collect_orphaned_objects_retains_for_active_listeners_and_user_data() {
+        let (socket, _peer) = new_test_socket();
+
+        let object =
+            client_object::ClientObject::new(socket.self_ref.clone(), rc::Rc::clone(&socket.state));
+        object.id.set(1);
+        let object = rc::Rc::new(object);
+
+        let callback = ptr::dangling_mut::<std::os::raw::c_void>();
+        object.listen(2, callback);
+        socket.objects.borrow_mut().push(rc::Rc::clone(&object));
+        drop(object);
+
+        socket.collect_orphaned_objects();
+        assert_eq!(socket.objects.borrow().len(), 1);
+
+        let obj = rc::Rc::clone(&socket.objects.borrow()[0]);
+        obj.listen(2, ptr::null_mut());
+        drop(obj);
+        socket.collect_orphaned_objects();
+        assert_eq!(socket.objects.borrow().len(), 0);
+
+        let object =
+            client_object::ClientObject::new(socket.self_ref.clone(), rc::Rc::clone(&socket.state));
+        object.id.set(2);
+        let object = rc::Rc::new(object);
+
+        let data = ptr::dangling_mut::<std::os::raw::c_void>();
+        object.set_data(data, None);
+        socket.objects.borrow_mut().push(rc::Rc::clone(&object));
+        drop(object);
+
+        socket.collect_orphaned_objects();
+        assert_eq!(socket.objects.borrow().len(), 1);
+
+        let obj = rc::Rc::clone(&socket.objects.borrow()[0]);
+        obj.set_data(ptr::null_mut(), None);
+        drop(obj);
+        socket.collect_orphaned_objects();
+        assert_eq!(socket.objects.borrow().len(), 0);
     }
 }
