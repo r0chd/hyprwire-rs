@@ -35,6 +35,7 @@
             extensions = [
               "rust-analyzer"
               "rust-src"
+              "llvm-tools"
             ];
           };
         in
@@ -44,14 +45,27 @@
               buildInputs = builtins.attrValues {
                 inherit (pkgs)
                   cargo-insta
-                  cargo-audit
-                  cargo-deny
-                  cargo-udeps
                   nixd
                   ;
                 inherit rustToolchain;
               };
+              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath finalAttrs.buildInputs;
+              RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+            })
+          );
 
+          ci = pkgs.mkShell (
+            pkgs.lib.fix (finalAttrs: {
+              buildInputs = builtins.attrValues {
+                inherit (pkgs)
+                  curl
+                  cargo-audit
+                  cargo-deny
+                  cargo-udeps
+                  grcov
+                  ;
+                inherit rustToolchain;
+              };
               LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath finalAttrs.buildInputs;
               RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
             })

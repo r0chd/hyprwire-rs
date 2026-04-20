@@ -4,7 +4,7 @@ use crate::{client, server};
 use std::os::raw;
 use std::rc;
 
-pub trait RawObject {
+pub trait Object {
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32;
 
     fn listen(&self, id: u32, func: *mut raw::c_void);
@@ -21,7 +21,7 @@ pub trait RawObject {
         None
     }
 
-    fn create_object(&self, _object_name: &str, _seq: u32) -> Option<rc::Rc<dyn RawObject>> {
+    fn create_object(&self, _object_name: &str, _seq: u32) -> Option<rc::Rc<dyn Object>> {
         None
     }
 

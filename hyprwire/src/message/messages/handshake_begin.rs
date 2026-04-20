@@ -33,9 +33,7 @@ impl<'a> HandshakeBegin<'a> {
 
         let mut var_int_buffer = [0u8; 10];
         let var_int = message::encode_var_int(versions.len(), &mut var_int_buffer);
-        for int in var_int {
-            data.push(*int);
-        }
+        data.extend_from_slice(var_int);
 
         for version in versions {
             data.extend_from_slice(&version.to_le_bytes());

@@ -33,7 +33,7 @@ impl std::ops::BitOrAssign for Targets {
 }
 
 fn raw_object_type() -> TokenStream {
-    quote! { rc::Rc<dyn hyprwire::implementation::object::RawObject> }
+    quote! { rc::Rc<dyn hyprwire::implementation::object::Object> }
 }
 
 #[derive(Clone)]
@@ -553,7 +553,6 @@ fn write_dispatch_fn(
     event_path: &TokenStream,
     idx: usize,
     m: &Method,
-    has_on_destroy: bool,
 ) -> TokenStream {
     let fn_ident = format_ident!("{}_method{}", obj_name, idx);
     let variant_ident = format_ident!("{}", snake_to_pascal(&m.name));
@@ -571,12 +570,6 @@ fn write_dispatch_fn(
             fn_params.push(quote! { #len_ident: u32 });
         }
     }
-
-    let on_destroy_field = if has_on_destroy {
-        quote! { on_destroy: None, owned: false, }
-    } else {
-        quote! {}
-    };
 
     let mut conversions: Vec<TokenStream> = Vec::new();
     let mut event_fields: Vec<TokenStream> = Vec::new();
@@ -651,7 +644,6 @@ fn write_dispatch_fn(
             unsafe { rc::Rc::increment_strong_count(dispatch.object) };
             let proxy = #obj_path {
                 object: unsafe { rc::Rc::from_raw(dispatch.object) },
-                #on_destroy_field
             };
             #(#conversions)*
             #dispatch_call
@@ -659,7 +651,7 @@ fn write_dispatch_fn(
     }
 }
 
-fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStream {
+fn write_send_method(idx: usize, m: &Method) -> TokenStream {
     let method_ident = format_ident!("send_{}", m.name);
     let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
     let docs = method_doc_attrs(m, m.returns.is_some());
@@ -708,15 +700,12 @@ fn write_send_method(idx: usize, m: &Method, has_on_destroy: bool) -> TokenStrea
                 Some(<#returned_obj_path as hyprwire::Object>::from_object::<D>(obj?))
             }
         }
-    } else if m.destructor && has_on_destroy && !m.args.is_empty() {
+    } else if m.destructor {
         let call_body = build_call_body(idx, &m.args, false);
         quote! {
             #docs
-            pub fn #method_ident<#s_bound #f_bound>(mut self, #(#param_pairs,)*) {
+            pub fn #method_ident<#s_bound, #f_bound>(mut self, #(#param_pairs,)*) {
                 #call_body
-                if let Some(cb) = self.on_destroy.take() {
-                    cb();
-                }
             }
         }
     } else if m.args.is_empty() {
@@ -799,11 +788,7 @@ fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> Toke
     }
 }
 
-fn write_new_fn(
-    obj_name: &str,
-    methods: &[Method],
-    extra_fields: Option<TokenStream>,
-) -> TokenStream {
+fn write_new_fn(obj_name: &str, methods: &[Method]) -> TokenStream {
     let listen_calls: Vec<TokenStream> = methods
         .iter()
         .enumerate()
@@ -815,8 +800,6 @@ fn write_new_fn(
             }
         })
         .collect();
-
-    let extra = extra_fields.unwrap_or_default();
 
     let raw_obj = raw_object_type();
     quote! {
@@ -834,7 +817,7 @@ fn write_new_fn(
             object.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
             #(#listen_calls)*
 
-            Self { object, #extra }
+            Self { object }
         }
     }
 }
@@ -856,7 +839,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         let event_enum = write_event_enum(&event_ident, &obj.c2s);
         let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
         let event_path = quote! { #obj_mod_ident::Event };
-        let new_fn = write_new_fn(&obj.name, &obj.c2s, None);
+        let new_fn = write_new_fn(&obj.name, &obj.c2s);
         let create_helpers: Vec<TokenStream> = obj
             .c2s
             .iter()
@@ -866,7 +849,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
             .s2c
             .iter()
             .enumerate()
-            .map(|(idx, m)| write_send_method(idx, m, false))
+            .map(|(idx, m)| write_send_method(idx, m))
             .collect();
 
         items.push(quote! {
@@ -930,14 +913,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         });
 
         for (idx, m) in obj.c2s.iter().enumerate() {
-            items.push(write_dispatch_fn(
-                &obj.name,
-                &obj_path,
-                &event_path,
-                idx,
-                m,
-                false,
-            ));
+            items.push(write_dispatch_fn(&obj.name, &obj_path, &event_path, idx, m));
         }
     }
 
@@ -1051,28 +1027,13 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
         let obj_name_str = &obj.name;
         let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
         let event_path = quote! { #obj_mod_ident::Event };
-        let new_fn = write_new_fn(
-            &obj.name,
-            &obj.s2c,
-            Some(quote! { on_destroy: None, owned: true, }),
-        );
+        let new_fn = write_new_fn(&obj.name, &obj.s2c);
         let send_methods: Vec<TokenStream> = obj
             .c2s
             .iter()
             .enumerate()
             .filter(|(_, m)| !(m.destructor && m.args.is_empty()))
-            .map(|(idx, m)| write_send_method(idx, m, true))
-            .collect();
-
-        let auto_destructor_calls: Vec<TokenStream> = obj
-            .c2s
-            .iter()
-            .enumerate()
-            .filter(|(_, m)| m.destructor && m.args.is_empty())
-            .map(|(idx, _)| {
-                let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
-                quote! { self.object.call(#idx_lit, &[]); }
-            })
+            .map(|(idx, m)| write_send_method(idx, m))
             .collect();
 
         items.push(quote! {
@@ -1082,8 +1043,6 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
                 #docs
                 pub struct #obj_type_ident {
                     pub(super) object: #raw_obj,
-                    pub(super) on_destroy: Option<Box<dyn FnOnce()>>,
-                    pub(super) owned: bool,
                 }
 
                 impl std::fmt::Debug for #obj_type_ident {
@@ -1094,7 +1053,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 
                 impl Clone for #obj_type_ident {
                     fn clone(&self) -> Self {
-                        Self { object: rc::Rc::clone(&self.object), on_destroy: None, owned: false }
+                        Self { object: rc::Rc::clone(&self.object) }
                     }
                 }
 
@@ -1122,35 +1081,13 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
                 impl #obj_type_ident {
                     #new_fn
 
-                    pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
-                        self.on_destroy = Some(Box::new(callback));
-                    }
-
                     #(#send_methods)*
-                }
-
-                impl Drop for #obj_type_ident {
-                    fn drop(&mut self) {
-                        if self.owned {
-                            #(#auto_destructor_calls)*
-                        }
-                        if let Some(cb) = self.on_destroy.take() {
-                            cb();
-                        }
-                    }
                 }
             }
         });
 
         for (idx, m) in obj.s2c.iter().enumerate() {
-            items.push(write_dispatch_fn(
-                &obj.name,
-                &obj_path,
-                &event_path,
-                idx,
-                m,
-                true,
-            ));
+            items.push(write_dispatch_fn(&obj.name, &obj_path, &event_path, idx, m));
         }
     }
 

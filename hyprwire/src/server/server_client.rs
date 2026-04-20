@@ -167,7 +167,7 @@ impl ServerClientState {
                     .iter()
                     .find(|impl_obj| impl_obj.object_name == object_name)
                 {
-                    (obj_impl.on_bind)(obj as rc::Rc<dyn crate::implementation::object::RawObject>);
+                    (obj_impl.on_bind)(obj as rc::Rc<dyn crate::implementation::object::Object>);
                 }
                 return;
             }

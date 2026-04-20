@@ -2,7 +2,7 @@ use super::server_client;
 use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
 use crate::{SharedState, message, trace};
-use std::cell::{Cell, RefCell};
+use std::cell;
 use std::os::raw;
 use std::{rc, sync};
 
@@ -10,12 +10,12 @@ pub(crate) struct ServerObject {
     pub(crate) client: rc::Weak<server_client::ServerClientState>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
-    data: Cell<*mut raw::c_void>,
-    data_destructor: Cell<Option<unsafe fn(*mut raw::c_void)>>,
-    listeners: RefCell<Vec<*mut raw::c_void>>,
-    destroyed: Cell<bool>,
-    pub(crate) id: Cell<u32>,
-    pub(crate) version: Cell<u32>,
+    data: cell::Cell<*mut raw::c_void>,
+    data_destructor: cell::Cell<Option<unsafe fn(*mut raw::c_void)>>,
+    listeners: cell::RefCell<Vec<*mut raw::c_void>>,
+    destroyed: cell::Cell<bool>,
+    pub(crate) id: cell::Cell<u32>,
+    pub(crate) version: cell::Cell<u32>,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
 }
@@ -36,12 +36,12 @@ impl ServerObject {
             client,
             state,
             spec: None,
-            data: Cell::new(std::ptr::null_mut()),
-            data_destructor: Cell::new(None),
-            listeners: RefCell::new(Vec::new()),
-            destroyed: Cell::new(false),
-            id: Cell::new(0),
-            version: Cell::new(0),
+            data: cell::Cell::new(std::ptr::null_mut()),
+            data_destructor: cell::Cell::new(None),
+            listeners: cell::RefCell::new(Vec::new()),
+            destroyed: cell::Cell::new(false),
+            id: cell::Cell::new(0),
+            version: cell::Cell::new(0),
             seq: 0,
             protocol_name: String::new(),
         }
@@ -52,11 +52,6 @@ impl ServerObject {
             return;
         }
 
-        self.dispatch_no_arg_destructor(dispatch);
-        self.destroy();
-    }
-
-    fn dispatch_no_arg_destructor<D>(&self, dispatch: &mut D) {
         let Some(method) = self.spec.as_ref().and_then(|spec| {
             spec.c2s().iter().find(|method| {
                 method.destructor && method.params.is_empty() && method.returns_type.is_empty()
@@ -72,6 +67,8 @@ impl ServerObject {
                 self.protocol_name
             );
         }
+
+        self.destroy();
     }
 
     fn destroy(&self) {
@@ -90,7 +87,7 @@ impl ServerObject {
     }
 }
 
-impl object::RawObject for ServerObject {
+impl object::Object for ServerObject {
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32 {
         if self.destroyed.get() {
             return 0;
@@ -121,14 +118,14 @@ impl object::RawObject for ServerObject {
         listeners[id as usize] = callback;
     }
 
-    fn create_object(&self, object_name: &str, seq: u32) -> Option<rc::Rc<dyn object::RawObject>> {
+    fn create_object(&self, object_name: &str, seq: u32) -> Option<rc::Rc<dyn object::Object>> {
         if self.destroyed.get() {
             return None;
         }
 
         let client = self.client.upgrade()?;
         let obj = client.create_object(&self.protocol_name, object_name, self.version.get(), seq);
-        Some(obj as rc::Rc<dyn object::RawObject>)
+        Some(obj as rc::Rc<dyn object::Object>)
     }
 
     fn server_client(&self) -> Option<server_client::ServerClient> {
@@ -202,7 +199,7 @@ impl wire_object::WireObject for ServerObject {
         self.destroyed.set(true);
     }
 
-    fn on_destructor_called(&self) {
+    fn on_destructor(&self) {
         let id = self.id.get();
         self.destroyed.set(true);
         if id != 0
@@ -222,5 +219,9 @@ impl wire_object::WireObject for ServerObject {
 
     fn listener_count(&self) -> usize {
         self.listeners.borrow().len()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }

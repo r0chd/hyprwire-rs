@@ -1,5 +1,6 @@
 ---
 source: hyprwire-scanner/tests/scanner_snapshots.rs
+assertion_line: 14
 expression: code
 ---
 // Generated with hyprwire-scanner 0.2.9. Made with pure malice and hatred by r0chd.
@@ -20,7 +21,7 @@ pub mod server {
         ///
         /// This object is an example manager object for the protocol
         pub struct MyManagerV1 {
-            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::Object>,
         }
         impl std::fmt::Debug for MyManagerV1 {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -83,14 +84,14 @@ pub mod server {
             type Event<'a> = Event;
             const NAME: &str = "my_manager_v1";
             fn from_object<D: hyprwire::Dispatch<Self>>(
-                object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyManagerV1 {
             pub fn new<D: hyprwire::Dispatch<Self>>(
-                object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
                     drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
@@ -353,7 +354,7 @@ pub mod server {
         ///
         /// This object is an example object for the protocol
         pub struct MyObjectV1 {
-            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::Object>,
         }
         impl std::fmt::Debug for MyObjectV1 {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -404,14 +405,14 @@ pub mod server {
             type Event<'a> = Event;
             const NAME: &str = "my_object_v1";
             fn from_object<D: hyprwire::Dispatch<Self>>(
-                object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyObjectV1 {
             pub fn new<D: hyprwire::Dispatch<Self>>(
-                object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
                     drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
@@ -612,9 +613,7 @@ pub mod client {
         ///
         /// This object is an example manager object for the protocol
         pub struct MyManagerV1 {
-            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
-            pub(super) on_destroy: Option<Box<dyn FnOnce()>>,
-            pub(super) owned: bool,
+            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::Object>,
         }
         impl std::fmt::Debug for MyManagerV1 {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -627,8 +626,6 @@ pub mod client {
             fn clone(&self) -> Self {
                 Self {
                     object: rc::Rc::clone(&self.object),
-                    on_destroy: None,
-                    owned: false,
                 }
             }
         }
@@ -659,14 +656,14 @@ pub mod client {
             type Event<'a> = Event;
             const NAME: &str = "my_manager_v1";
             fn from_object<D: hyprwire::Dispatch<Self>>(
-                object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyManagerV1 {
             pub fn new<D: hyprwire::Dispatch<Self>>(
-                object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
                     drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
@@ -683,14 +680,7 @@ pub mod client {
                     );
                 object.listen(0u32, my_manager_v1_method0::<D> as *mut ffi::c_void);
                 object.listen(1u32, my_manager_v1_method1::<D> as *mut ffi::c_void);
-                Self {
-                    object,
-                    on_destroy: None,
-                    owned: true,
-                }
-            }
-            pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
-                self.on_destroy = Some(Box::new(callback));
+                Self { object }
             }
             /// Send a text message
             ///
@@ -827,14 +817,6 @@ pub mod client {
                 )
             }
         }
-        impl Drop for MyManagerV1 {
-            fn drop(&mut self) {
-                if self.owned {}
-                if let Some(cb) = self.on_destroy.take() {
-                    cb();
-                }
-            }
-        }
     }
     unsafe extern "C" fn my_manager_v1_method0<
         D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
@@ -847,8 +829,6 @@ pub mod client {
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = my_manager_v1::MyManagerV1 {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
-            on_destroy: None,
-            owned: false,
         };
         let message = unsafe { ffi::CStr::from_ptr(message) }
             .to_string_lossy()
@@ -872,8 +852,6 @@ pub mod client {
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = my_manager_v1::MyManagerV1 {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
-            on_destroy: None,
-            owned: false,
         };
         let message = unsafe {
             std::slice::from_raw_parts(message, message_len as usize)
@@ -893,9 +871,7 @@ pub mod client {
         ///
         /// This object is an example object for the protocol
         pub struct MyObjectV1 {
-            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
-            pub(super) on_destroy: Option<Box<dyn FnOnce()>>,
-            pub(super) owned: bool,
+            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::Object>,
         }
         impl std::fmt::Debug for MyObjectV1 {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -908,8 +884,6 @@ pub mod client {
             fn clone(&self) -> Self {
                 Self {
                     object: rc::Rc::clone(&self.object),
-                    on_destroy: None,
-                    owned: false,
                 }
             }
         }
@@ -936,14 +910,14 @@ pub mod client {
             type Event<'a> = Event;
             const NAME: &str = "my_object_v1";
             fn from_object<D: hyprwire::Dispatch<Self>>(
-                object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyObjectV1 {
             pub fn new<D: hyprwire::Dispatch<Self>>(
-                object: rc::Rc<dyn hyprwire::implementation::object::RawObject>,
+                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
                     drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
@@ -959,14 +933,7 @@ pub mod client {
                         Some(drop_dispatch_data),
                     );
                 object.listen(0u32, my_object_v1_method0::<D> as *mut ffi::c_void);
-                Self {
-                    object,
-                    on_destroy: None,
-                    owned: true,
-                }
-            }
-            pub fn set_on_destroy(&mut self, callback: impl FnOnce() + 'static) {
-                self.on_destroy = Some(Box::new(callback));
+                Self { object }
             }
             /// Send a text message
             ///
@@ -1018,16 +985,6 @@ pub mod client {
                 )
             }
         }
-        impl Drop for MyObjectV1 {
-            fn drop(&mut self) {
-                if self.owned {
-                    self.object.call(2u32, &[]);
-                }
-                if let Some(cb) = self.on_destroy.take() {
-                    cb();
-                }
-            }
-        }
     }
     unsafe extern "C" fn my_object_v1_method0<
         D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
@@ -1040,8 +997,6 @@ pub mod client {
         unsafe { rc::Rc::increment_strong_count(dispatch.object) };
         let proxy = my_object_v1::MyObjectV1 {
             object: unsafe { rc::Rc::from_raw(dispatch.object) },
-            on_destroy: None,
-            owned: false,
         };
         let message = unsafe { ffi::CStr::from_ptr(message) }
             .to_string_lossy()

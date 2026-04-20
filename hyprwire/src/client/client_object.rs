@@ -2,7 +2,7 @@ use crate::client::client_socket;
 use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, types, wire_object};
 use crate::{SharedState, client, message, trace};
-use std::cell::{Cell, RefCell};
+use std::cell;
 use std::os::raw;
 use std::rc;
 use std::sync;
@@ -11,14 +11,14 @@ pub struct ClientObject {
     client: rc::Weak<client_socket::ClientSocket>,
     pub(crate) state: rc::Rc<SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
-    data: Cell<*mut raw::c_void>,
-    data_destructor: Cell<Option<unsafe fn(*mut raw::c_void)>>,
-    listeners: RefCell<Vec<*mut raw::c_void>>,
-    pub(crate) id: Cell<u32>,
-    pub(crate) version: Cell<u32>,
+    data: cell::Cell<*mut raw::c_void>,
+    data_destructor: cell::Cell<Option<unsafe fn(*mut raw::c_void)>>,
+    listeners: cell::RefCell<Vec<*mut raw::c_void>>,
+    pub(crate) id: cell::Cell<u32>,
+    pub(crate) version: cell::Cell<u32>,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
-    destroyed: Cell<bool>,
+    destroyed: cell::Cell<bool>,
 }
 
 impl Drop for ClientObject {
@@ -70,22 +70,22 @@ impl ClientObject {
         state: rc::Rc<SharedState>,
     ) -> Self {
         Self {
-            destroyed: Cell::new(false),
+            destroyed: cell::Cell::new(false),
             client: client_socket,
             state,
             spec: None,
-            data: Cell::new(std::ptr::null_mut()),
-            data_destructor: Cell::new(None),
-            listeners: RefCell::new(Vec::new()),
-            id: Cell::new(0),
-            version: Cell::new(0),
+            data: cell::Cell::new(std::ptr::null_mut()),
+            data_destructor: cell::Cell::new(None),
+            listeners: cell::RefCell::new(Vec::new()),
+            id: cell::Cell::new(0),
+            version: cell::Cell::new(0),
             seq: 0,
             protocol_name: String::new(),
         }
     }
 }
 
-impl object::RawObject for ClientObject {
+impl object::Object for ClientObject {
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32 {
         match wire_object::WireObject::call(self, id, args) {
             Ok(v) => v,
@@ -174,7 +174,7 @@ impl wire_object::WireObject for ClientObject {
         self.destroyed.set(true);
     }
 
-    fn on_destructor_called(&self) {
+    fn on_destructor(&self) {
         let id = self.id.get();
         self.destroyed.set(true);
         if id != 0
@@ -194,5 +194,9 @@ impl wire_object::WireObject for ClientObject {
 
     fn listener_count(&self) -> usize {
         self.listeners.borrow().len()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }

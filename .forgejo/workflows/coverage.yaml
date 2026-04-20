@@ -1,0 +1,46 @@
+name: coverage
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: docker
+    container:
+      image: nixos/nix:2.22.1
+    steps:
+      - name: Install Node.js for Actions
+        run: |
+          nix-channel --update
+          nix-env -iA nixpkgs.nodejs
+
+      - name: Checkout code
+        uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Enable flakes
+        run: |
+          mkdir -p /etc/nix
+          echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+
+      - name: Run tests with coverage
+        env:
+          RUSTFLAGS: "-C instrument-coverage"
+          LLVM_PROFILE_FILE: "coverage-%p-%m.profraw"
+        run: nix develop .#ci --command cargo test --workspace
+
+      - name: Generate HTML coverage report
+        run: nix develop .#ci --command grcov . --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --ignore "/*" --ignore "*/examples/*" -o coverage/
+
+      - name: Deploy to Forgejo Pages
+        run: |
+          cd coverage/
+          git init
+          git config user.name "CI"
+          git config user.email "ci@noreply"
+          git add .
+          git commit -m "coverage report for ${{ github.sha }}"
+          SERVER="${{ github.server_url }}"
+          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@${SERVER#https://}/${{ github.repository }}.git" HEAD:gh-pages

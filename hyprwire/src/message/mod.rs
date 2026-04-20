@@ -17,8 +17,8 @@ pub(crate) use messages::hello::Hello;
 pub(crate) use messages::new_object::NewObject;
 pub(crate) use messages::roundtrip_done::RoundtripDone;
 pub(crate) use messages::roundtrip_request::RoundtripRequest;
-use std::fmt;
 use std::os::fd::AsRawFd;
+use std::{error, fmt};
 
 #[derive(Debug)]
 pub enum Error {
@@ -64,19 +64,19 @@ impl fmt::Display for Error {
             Self::MalformedMessage => write!(f, "malformed message"),
             Self::NoSpec => write!(f, "no spec found for object"),
             Self::ArrayTooLong => write!(f, "array length exceeded 10000"),
-            Self::HandshakeBegin(e) => write!(f, "hanshake_begin: {e}"),
+            Self::HandshakeBegin(e) => write!(f, "handshake_begin: {e}"),
             Self::HandshakeProtocols(e) => write!(f, "handshake_protocols: {e}"),
             Self::GenericProtocol(e) => write!(f, "generic_protocol_error: {e}"),
         }
     }
 }
 
-impl std::error::Error for Error {}
+impl error::Error for Error {}
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
 pub enum MessageType {
-    Invalid = 0,
+    // 0 is invalid in hyprwire
     Sup = 1,
     HandshakeBegin = 2,
     HandshakeAck = 3,
@@ -93,7 +93,6 @@ impl fmt::Display for MessageType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let str = match self {
             MessageType::Sup => "Sup",
-            MessageType::Invalid => "Invalid",
             MessageType::HandshakeBegin => "HandshakeBegin",
             MessageType::HandshakeAck => "HandshakeAck",
             MessageType::HandshakeProtocols => "HandshakeProtocols",
@@ -114,7 +113,6 @@ impl TryFrom<u8> for MessageType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::Invalid),
             1 => Ok(Self::Sup),
             2 => Ok(Self::HandshakeBegin),
             3 => Ok(Self::HandshakeAck),
@@ -135,69 +133,48 @@ pub enum Role<'a> {
     Server(&'a server_client::ServerClientState),
 }
 
-pub fn handle_message<D>(
-    data: &mut socket::SocketRawParsedMessage,
-    role: &Role,
-    dispatch: &mut D,
-) -> Result<(), Error> {
-    match role {
-        Role::Client(client) => {
-            let mut needle = 0;
-
-            while needle < data.data.len() {
-                needle += parse_single_message_client(data, needle, client, dispatch)?;
-            }
-
-            if !data.fds.is_empty() {
-                return Err(Error::MalformedMessage);
-            }
-
-            trace! {
-                crate::log_debug!("[hw] trace: [{} @ {}] -- handleMessage: Finished read", client.state.stream.as_raw_fd(), steady_millis())
-            }
-        }
-        Role::Server(client) => {
-            let mut needle = 0;
-
-            while needle < data.data.len() {
-                needle += parse_single_message_server(data, needle, client, dispatch)?;
-            }
-
-            if !data.fds.is_empty() {
-                return Err(Error::MalformedMessage);
-            }
-
-            trace! {
-                crate::log_debug!("[hw] trace: [{} @ {}] -- handleMessage: Finished read", client.state.stream.as_raw_fd(), steady_millis())
-            }
+impl<'a> Role<'a> {
+    fn state(&self) -> &crate::SharedState {
+        match self {
+            Self::Client(client) => &client.state,
+            Self::Server(client) => &client.state,
         }
     }
 
-    Ok(())
+    fn label(&self) -> &'static str {
+        match self {
+            Role::Client(_) => "server",
+            Role::Server(_) => "client",
+        }
+    }
 }
 
-fn parse_single_message_client<D>(
+pub fn handle_message<D>(
     raw: &mut socket::SocketRawParsedMessage,
-    off: usize,
-    client: &client_socket::ClientSocket,
+    role: &Role,
     dispatch: &mut D,
-) -> Result<usize, Error> {
-    if let Ok(message) = MessageType::try_from(raw.data[off]) {
-        match message {
-            MessageType::HandshakeBegin => {
-                let msg = HandshakeBegin::from_bytes(&raw.data, off).inspect_err(|_| {
+) -> Result<(), Error> {
+    let mut needle = 0;
+    while needle < raw.data.len() {
+        let Ok(message) = MessageType::try_from(raw.data[needle]) else {
+            crate::log_error!(
+                "server at fd {} core protocol error: invalid message recvd (invalid type code)",
+                role.state().stream.as_raw_fd()
+            );
+
+            return Err(Error::InvalidMessage);
+        };
+
+        needle += match (role, message) {
+            (Role::Client(client), MessageType::HandshakeBegin) => {
+                let msg = HandshakeBegin::from_bytes(&raw.data, needle).inspect_err(|_| {
                     crate::log_error!(
-                        "server at fd {:?} core protocol error...",
+                        "server at fd {} core protocol error...",
                         client.state.stream.as_raw_fd()
                     );
                 })?;
 
-                let mut version_supported = false;
-                if msg.versions().contains(&crate::PROTOCOL_VERSION) {
-                    version_supported = true;
-                }
-
-                if !version_supported {
+                if !msg.versions().contains(&crate::PROTOCOL_VERSION) {
                     crate::log_error!(
                         "server at fd {} core protocol error: version negotiation failed",
                         client.state.stream.as_raw_fd()
@@ -214,10 +191,10 @@ fn parse_single_message_client<D>(
                     .state
                     .send_message(&HandshakeAck::new(crate::PROTOCOL_VERSION));
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::HandshakeProtocols => {
-                let msg = HandshakeProtocols::from_bytes(&raw.data, off).inspect_err(|_| {
+            (Role::Client(client), MessageType::HandshakeProtocols) => {
+                let msg = HandshakeProtocols::from_bytes(&raw.data, needle).inspect_err(|_| {
                     crate::log_error!(
                         "server at fd {} core protocol error: malformed message recvd (HandshakeProtocols)",
                         client.state.stream.as_raw_fd()
@@ -231,10 +208,10 @@ fn parse_single_message_client<D>(
                 client.server_specs(msg.protocols());
                 client.handshake_done.set(true);
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::NewObject => {
-                let msg = NewObject::from_bytes(&raw.data, off).inspect_err(|_| {
+            (Role::Client(client), MessageType::NewObject) => {
+                let msg = NewObject::from_bytes(&raw.data, needle).inspect_err(|_| {
                     crate::log_error!(
                         "server at fd {} core protocol error: malformed message recvd (NewObject)",
                         client.state.stream.as_raw_fd()
@@ -247,10 +224,10 @@ fn parse_single_message_client<D>(
 
                 client.on_seq(msg.seq(), msg.id());
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::GenericProtocolMessage => {
-                let msg = GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, off)
+            (Role::Client(client), MessageType::GenericProtocolMessage) => {
+                let msg = GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, needle)
                     .inspect_err(|_| {
                         crate::log_error!(
                         "server at fd {} core protocol error: malformed message recvd (GenericProtocolMessage)",
@@ -265,10 +242,10 @@ fn parse_single_message_client<D>(
                 let msg_len = msg.data().len();
                 client.on_generic(&msg, dispatch);
 
-                return Ok(msg_len);
+                Ok(msg_len)
             }
-            MessageType::FatalProtocolError => {
-                let msg = FatalProtocolError::from_bytes(&raw.data, off)
+            (Role::Client(client), MessageType::FatalProtocolError) => {
+                let msg = FatalProtocolError::from_bytes(&raw.data, needle)
                     .inspect_err(|_| {
                         crate::log_error!(
                         "server at fd {} core protocol error: malformed message recvd (FatalProtocolError)",
@@ -284,10 +261,10 @@ fn parse_single_message_client<D>(
                 );
                 client.state.error.set(true);
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::RoundtripDone => {
-                let msg = RoundtripDone::from_bytes(&raw.data, off)
+            (Role::Client(client), MessageType::RoundtripDone) => {
+                let msg = RoundtripDone::from_bytes(&raw.data, needle)
                     .inspect_err(|_| {
                         crate::log_error!(
                         "server at fd {} core protocol error: malformed message recvd (RoundtripDone)",
@@ -301,41 +278,10 @@ fn parse_single_message_client<D>(
 
                 client.last_ackd_roundtrip_seq.set(msg.seq());
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::BindProtocol
-            | MessageType::HandshakeAck
-            | MessageType::RoundtripRequest
-            | MessageType::Sup => {
-                client.state.error.set(true);
-                crate::log_error!(
-                    "server at fd {} core protocol error: invalid message recvd ({message})",
-                    client.state.stream.as_raw_fd()
-                );
-                return Err(Error::InvalidMessage);
-            }
-            MessageType::Invalid => {}
-        }
-    }
-
-    crate::log_error!(
-        "server at fd {} core protocol error: invalid message recvd (invalid type code)",
-        client.state.stream.as_raw_fd()
-    );
-
-    Err(Error::InvalidMessage)
-}
-
-fn parse_single_message_server<D>(
-    raw: &mut socket::SocketRawParsedMessage,
-    off: usize,
-    client: &server_client::ServerClientState,
-    dispatch: &mut D,
-) -> Result<usize, Error> {
-    if let Ok(message) = MessageType::try_from(raw.data[off]) {
-        match message {
-            MessageType::Sup => {
-                let msg = Hello::from_bytes(&raw.data, off).inspect_err(|_| {
+            (Role::Server(client), MessageType::Sup) => {
+                let msg = Hello::from_bytes(&raw.data, needle).inspect_err(|_| {
                     crate::log_error!(
                         "client at fd {} core protocol error: malformed message recvd (Sup)",
                         client.state.stream.as_raw_fd()
@@ -349,18 +295,10 @@ fn parse_single_message_server<D>(
                 client.dispatch_first_poll();
                 client.state.send_message(&HandshakeBegin::new(&[1]));
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::HandshakeBegin => {
-                client.state.error.set(true);
-                crate::log_error!(
-                    "client at fd {} core protocol error: invalid message recvd (HandshakeBegin)",
-                    client.state.stream.as_raw_fd()
-                );
-                return Err(Error::InvalidMessage);
-            }
-            MessageType::HandshakeAck => {
-                let msg = HandshakeAck::from_bytes(&raw.data, off).inspect_err(|_| {
+            (Role::Server(client), MessageType::HandshakeAck) => {
+                let msg = HandshakeAck::from_bytes(&raw.data, needle).inspect_err(|_| {
                     crate::log_error!(
                         "client at fd {} core protocol error: malformed message recvd (HandshakeAck)",
                         client.state.stream.as_raw_fd()
@@ -391,18 +329,10 @@ fn parse_single_message_server<D>(
                     .state
                     .send_message(&HandshakeProtocols::new(&protocol_names));
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::HandshakeProtocols => {
-                client.state.error.set(true);
-                crate::log_error!(
-                    "client at fd {} core protocol error: invalid message recvd (HandshakeProtocols)",
-                    client.state.stream.as_raw_fd()
-                );
-                return Err(Error::InvalidMessage);
-            }
-            MessageType::BindProtocol => {
-                let msg = BindProtocol::from_bytes(&raw.data, off).inspect_err(|_| {
+            (Role::Server(client), MessageType::BindProtocol) => {
+                let msg = BindProtocol::from_bytes(&raw.data, needle).inspect_err(|_| {
                     crate::log_error!(
                         "client at fd {} core protocol error: malformed message recvd (BindProtocol)",
                         client.state.stream.as_raw_fd()
@@ -415,18 +345,10 @@ fn parse_single_message_server<D>(
 
                 client.create_object(msg.protocol(), "", msg.version(), msg.seq());
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::NewObject => {
-                client.state.error.set(true);
-                crate::log_error!(
-                    "client at fd {} core protocol error: invalid message recvd (NewObject)",
-                    client.state.stream.as_raw_fd()
-                );
-                return Err(Error::InvalidMessage);
-            }
-            MessageType::GenericProtocolMessage => {
-                let msg = GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, off)
+            (Role::Server(client), MessageType::GenericProtocolMessage) => {
+                let msg = GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, needle)
                     .inspect_err(|_| {
                         crate::log_error!(
                             "client at fd {} core protocol error: malformed message recvd (GenericProtocolMessage)",
@@ -440,18 +362,10 @@ fn parse_single_message_server<D>(
 
                 client.on_generic(&msg, dispatch);
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::FatalProtocolError => {
-                client.state.error.set(true);
-                crate::log_error!(
-                    "client at fd {} core protocol error: invalid message recvd (FatalProtocolError)",
-                    client.state.stream.as_raw_fd()
-                );
-                return Err(Error::InvalidMessage);
-            }
-            MessageType::RoundtripRequest => {
-                let msg = RoundtripRequest::from_bytes(&raw.data, off).inspect_err(|_| {
+            (Role::Server(client), MessageType::RoundtripRequest) => {
+                let msg = RoundtripRequest::from_bytes(&raw.data, needle).inspect_err(|_| {
                     crate::log_error!(
                         "client at fd {} core protocol error: malformed message recvd (RoundtripRequest)",
                         client.state.stream.as_raw_fd()
@@ -464,27 +378,46 @@ fn parse_single_message_server<D>(
 
                 client.scheduled_roundtrip_seq.set(msg.seq());
 
-                return Ok(msg.data().len());
+                Ok(msg.data().len())
             }
-            MessageType::RoundtripDone => {
-                client.state.error.set(true);
+            (
+                Role::Client(_),
+                MessageType::BindProtocol
+                | MessageType::HandshakeAck
+                | MessageType::RoundtripRequest
+                | MessageType::Sup,
+            )
+            | (
+                Role::Server(_),
+                MessageType::NewObject
+                | MessageType::HandshakeProtocols
+                | MessageType::HandshakeBegin
+                | MessageType::FatalProtocolError
+                | MessageType::RoundtripDone,
+            ) => {
+                let state = role.state();
+                state.error.set(true);
+
                 crate::log_error!(
-                    "client at fd {} core protocol error: invalid message recvd (RoundtripDone)",
-                    client.state.stream.as_raw_fd()
+                    "{} at fd {} core protocol error: invalid message recvd ({message})",
+                    role.label(),
+                    state.stream.as_raw_fd()
                 );
-                return Err(Error::InvalidMessage);
+
+                Err(Error::InvalidMessage)
             }
-            MessageType::Invalid => {}
-        }
+        }?;
     }
 
-    crate::log_error!(
-        "client at fd {} core protocol error: malformed message recvd (invalid type code)",
-        client.state.stream.as_raw_fd()
-    );
-    client.state.error.set(true);
+    if !raw.fds.is_empty() {
+        return Err(Error::MalformedMessage);
+    }
 
-    Err(Error::InvalidMessage)
+    trace! {
+        crate::log_debug!("[hw] trace: [{} @ {}] -- handleMessage: Finished read", role.state().stream.as_raw_fd(), steady_millis())
+    }
+
+    Ok(())
 }
 
 pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
@@ -492,9 +425,7 @@ pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
     let mut i = 0;
 
     loop {
-        let Ok(chunk) = u8::try_from(n & 0x7F) else {
-            continue;
-        };
+        let chunk = (n & 0x7f) as u8;
         n >>= 7;
         buffer[i] = if n == 0 { chunk } else { chunk | 0x80 };
         i += 1;
@@ -588,7 +519,7 @@ mod tests {
 
     #[test]
     fn message_type_known_values_try_from() {
-        let known: &[u8] = &[0, 1, 2, 3, 4, 10, 11, 12, 13, 14, 100];
+        let known: &[u8] = &[1, 2, 3, 4, 10, 11, 12, 13, 14, 100];
         for &byte in known {
             assert!(
                 MessageType::try_from(byte).is_ok(),
