@@ -95,6 +95,14 @@ pub trait ProtocolObjectSpec: Send + Sync {
     fn s2c(&self) -> &[Method];
 }
 
+pub trait ProtocolSpec {
+    fn spec_name(&self) -> &str;
+
+    fn spec_ver(&self) -> u32;
+
+    fn objects(&self) -> &[Arc<dyn ProtocolObjectSpec>];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,12 +122,4 @@ mod tests {
     fn message_magic_unknown_value_fails() {
         assert!(MessageMagic::try_from(0xFF_u8).is_err());
     }
-}
-
-pub trait ProtocolSpec {
-    fn spec_name(&self) -> &str;
-
-    fn spec_ver(&self) -> u32;
-
-    fn objects(&self) -> &[Arc<dyn ProtocolObjectSpec>];
 }

@@ -468,26 +468,23 @@ impl ClientSocket {
             .find(|obj| obj.id.get() == msg.object())
             .map(rc::Rc::clone);
 
-        match obj {
-            Some(obj) => {
-                if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
-                    crate::log_error!(
-                        "[{} @ {:.3}] object {} called method error: {e}",
-                        self.state.stream.as_raw_fd(),
-                        steady_millis(),
-                        msg.object(),
-                    );
-                }
-            }
-            None => {
+        if let Some(obj) = obj {
+            if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
                 crate::log_error!(
-                    "[{} @ {:.3}] generic message references unknown object {}",
+                    "[{} @ {:.3}] object {} called method error: {e}",
                     self.state.stream.as_raw_fd(),
                     steady_millis(),
                     msg.object(),
                 );
-                self.disconnect_on_error();
             }
+        } else {
+            crate::log_error!(
+                "[{} @ {:.3}] generic message references unknown object {}",
+                self.state.stream.as_raw_fd(),
+                steady_millis(),
+                msg.object(),
+            );
+            self.disconnect_on_error();
         }
     }
 

@@ -11,7 +11,7 @@ expression: code
 
 */
 
-#[allow(dead_code, unused_imports)]
+#[allow(clippy::all, dead_code, unused_imports)]
 pub mod server {
     use std::{ffi, os::fd::*, rc, sync};
     pub mod my_manager_v1 {
@@ -603,7 +603,7 @@ pub mod server {
         }
     }
 }
-#[allow(dead_code, unused_imports)]
+#[allow(clippy::all, dead_code, unused_imports)]
 pub mod client {
     use std::{ffi, os::fd::*, rc, sync};
     pub mod my_manager_v1 {
@@ -1079,7 +1079,7 @@ pub mod client {
         }
     }
 }
-#[allow(dead_code)]
+#[allow(clippy::all, dead_code)]
 mod spec {
     #[derive(serde::Deserialize)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

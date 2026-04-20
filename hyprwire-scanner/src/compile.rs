@@ -30,6 +30,7 @@ impl Builder {
     }
 
     /// Add additional attribute to matched enums.
+    #[must_use]
     pub fn type_attribute<P: AsRef<str>, A: AsRef<str>>(mut self, path: P, attribute: A) -> Self {
         self.type_attributes
             .push((path.as_ref().to_string(), attribute.as_ref().to_string()));

@@ -3,8 +3,8 @@ use crate::SharedState;
 use crate::implementation::wire_object::WireObject;
 use crate::message::Message;
 use crate::{message, steady_millis, trace};
-use nix::sys;
 use nix::sys::socket;
+use nix::sys::socket::sockopt;
 use std::hash::{Hash, Hasher};
 use std::os::fd::AsRawFd;
 use std::{cell, ops, rc};
@@ -13,7 +13,7 @@ use std::{cell, ops, rc};
 #[derive(Clone, Debug)]
 pub struct ServerClient {
     pub(crate) id: u32,
-    pub(crate) pid: rc::Rc<cell::OnceCell<socket::UnixCredentials>>,
+    pub(crate) creds: rc::Rc<cell::OnceCell<socket::UnixCredentials>>,
 }
 
 impl PartialEq for ServerClient {
@@ -38,14 +38,14 @@ impl ServerClient {
     }
 
     /// Returns the peer process id reported by the Unix socket credentials.
-    ///
-    /// This value is populated after the server has polled the client at least
-    /// once. Until then, or if credential lookup fails, this returns `0`.
     #[must_use]
     pub fn creds(&self) -> &socket::UnixCredentials {
-        // Generally if its uninitialized then
-        // something went horribly wrong
-        self.pid.get().unwrap()
+        // SAFETY: creds are set on first dispatch
+        // objects can only be created by client and
+        // servers can bind them only from callbacks
+        // which are ran after dispatching
+        #[allow(clippy::missing_panics_doc)]
+        self.creds.get().unwrap()
     }
 }
 
@@ -83,7 +83,7 @@ impl ServerClientState {
     pub fn handle(&self) -> ServerClient {
         ServerClient {
             id: self.id,
-            pid: rc::Rc::clone(&self.creds),
+            creds: rc::Rc::clone(&self.creds),
         }
     }
 
@@ -93,10 +93,9 @@ impl ServerClientState {
         }
         self.first_poll_done.set(true);
 
-        match sys::socket::getsockopt(&self.state.stream, sys::socket::sockopt::PeerCredentials) {
+        match socket::getsockopt(&self.state.stream, sockopt::PeerCredentials) {
             Ok(cred) => {
-                // SAFETY: we check if first_poll_done, if creds are
-                // set then it will never reach this point again
+                // SAFETY: dispatch_first_poll can only run once
                 self.creds.set(cred).unwrap();
                 trace! {
                     crate::log_debug!(
@@ -191,29 +190,26 @@ impl ServerClientState {
             .find(|obj| obj.id.get() == msg.object())
             .map(rc::Rc::clone);
 
-        match obj {
-            Some(obj) => {
-                if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
-                    crate::log_error!(
-                        "[{} @ {:.3}] object {} called method error: {e}",
-                        self.state.stream.as_raw_fd(),
-                        steady_millis(),
-                        msg.object(),
-                    );
-                }
-            }
-            None => {
-                let error = format!("generic message references unknown object {}", msg.object());
+        if let Some(obj) = obj {
+            if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
                 crate::log_error!(
-                    "[{} @ {:.3}] {}",
+                    "[{} @ {:.3}] object {} called method error: {e}",
                     self.state.stream.as_raw_fd(),
                     steady_millis(),
-                    error,
+                    msg.object(),
                 );
-                let fatal = message::FatalProtocolError::new(msg.object(), u32::MAX, &error);
-                self.state.send_message(&fatal);
-                self.state.error.set(true);
             }
+        } else {
+            let error = format!("generic message references unknown object {}", msg.object());
+            crate::log_error!(
+                "[{} @ {:.3}] {}",
+                self.state.stream.as_raw_fd(),
+                steady_millis(),
+                error,
+            );
+            let fatal = message::FatalProtocolError::new(msg.object(), u32::MAX, &error);
+            self.state.send_message(&fatal);
+            self.state.error.set(true);
         }
     }
 

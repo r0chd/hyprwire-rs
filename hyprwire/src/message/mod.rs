@@ -38,6 +38,7 @@ pub enum Error {
     VersionNegotiationFailed,
     MalformedMessage,
     NoSpec,
+    ArrayTooLong,
     HandshakeBegin(handshake_begin::Error),
     HandshakeProtocols(handshake_protocols::Error),
     GenericProtocol(generic_protocol_message::Error),
@@ -62,6 +63,7 @@ impl fmt::Display for Error {
             Self::VersionNegotiationFailed => write!(f, "version negotiation failed"),
             Self::MalformedMessage => write!(f, "malformed message"),
             Self::NoSpec => write!(f, "no spec found for object"),
+            Self::ArrayTooLong => write!(f, "array length exceeded 10000"),
             Self::HandshakeBegin(e) => write!(f, "hanshake_begin: {e}"),
             Self::HandshakeProtocols(e) => write!(f, "handshake_protocols: {e}"),
             Self::GenericProtocol(e) => write!(f, "generic_protocol_error: {e}"),
@@ -485,6 +487,55 @@ fn parse_single_message_server<D>(
     Err(Error::InvalidMessage)
 }
 
+pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
+    let mut n = num;
+    let mut i = 0;
+
+    loop {
+        let Ok(chunk) = u8::try_from(n & 0x7F) else {
+            continue;
+        };
+        n >>= 7;
+        buffer[i] = if n == 0 { chunk } else { chunk | 0x80 };
+        i += 1;
+        if n == 0 {
+            break;
+        }
+    }
+
+    &buffer[..i]
+}
+
+pub fn parse_var_int(data: &[u8], offset: usize) -> (usize, usize) {
+    if offset >= data.len() {
+        return (0, 0);
+    }
+
+    parse_var_int_span(&data[offset..])
+}
+
+fn parse_var_int_span(data: &[u8]) -> (usize, usize) {
+    let mut rolling: usize = 0;
+    let mut i: usize = 0;
+    let len = data.len();
+
+    while i < len {
+        let byte = data[i];
+
+        // Take lower 7 bits and shift into place
+        rolling += ((byte & 0x7F) as usize) << (i * 7);
+
+        i += 1;
+
+        // If high bit is not set, we're done
+        if (byte & 0x80) == 0 {
+            break;
+        }
+    }
+
+    (rolling, i)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,53 +601,4 @@ mod tests {
     fn message_type_unknown_value_fails() {
         assert!(MessageType::try_from(0xFF_u8).is_err());
     }
-}
-
-pub fn encode_var_int(num: usize, buffer: &mut [u8]) -> &[u8] {
-    let mut n = num;
-    let mut i = 0;
-
-    loop {
-        let Ok(chunk) = u8::try_from(n & 0x7F) else {
-            continue;
-        };
-        n >>= 7;
-        buffer[i] = if n == 0 { chunk } else { chunk | 0x80 };
-        i += 1;
-        if n == 0 {
-            break;
-        }
-    }
-
-    &buffer[..i]
-}
-
-pub fn parse_var_int(data: &[u8], offset: usize) -> (usize, usize) {
-    if offset >= data.len() {
-        return (0, 0);
-    }
-
-    parse_var_int_span(&data[offset..])
-}
-
-fn parse_var_int_span(data: &[u8]) -> (usize, usize) {
-    let mut rolling: usize = 0;
-    let mut i: usize = 0;
-    let len = data.len();
-
-    while i < len {
-        let byte = data[i];
-
-        // Take lower 7 bits and shift into place
-        rolling += ((byte & 0x7F) as usize) << (i * 7);
-
-        i += 1;
-
-        // If high bit is not set, we're done
-        if (byte & 0x80) == 0 {
-            break;
-        }
-    }
-
-    (rolling, i)
 }

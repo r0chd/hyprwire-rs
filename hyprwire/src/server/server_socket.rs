@@ -410,7 +410,7 @@ impl ServerSocket {
 
         server_client::ServerClient {
             id: client_id,
-            pid: client.creds.clone(),
+            creds: client.creds.clone(),
         }
     }
 

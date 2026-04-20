@@ -29,6 +29,9 @@ impl Client {
     /// Creates a client from an already-connected Unix socket file descriptor.
     ///
     /// The returned client takes ownership of `fd`.
+    ///
+    /// # Errors
+    /// Failed to move the socket into or out of nonblocking mode
     pub fn from_fd<F>(fd: F) -> io::Result<Self>
     where
         F: Into<fd::OwnedFd>,

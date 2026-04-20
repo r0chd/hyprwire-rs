@@ -145,6 +145,7 @@ pub trait WireObject: object::RawObject {
                             format!("method {id} param idx {i} max array size of 10000 exceeded",);
                         crate::log_debug!("core protocol error: {msg}",);
                         self.error(self.id(), &msg);
+                        return Err(message::Error::ArrayTooLong);
                     }
 
                     ffi_types.push(types::MessageMagic::TypeUint.to_ffi_type());

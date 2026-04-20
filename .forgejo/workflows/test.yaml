@@ -15,25 +15,26 @@ jobs:
         run: |
           nix-channel --update
           nix-env -iA nixpkgs.nodejs
-          
+
       - name: Checkout code
         uses: https://code.forgejo.org/actions/checkout@v4
-        
+
       - name: Enable flakes
         run: |
           mkdir -p /etc/nix
           echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-            
-      - name: Run tests and linting in Nix shell
-        run: |
-          nix profile install nixpkgs#cargo-llvm-cov
-          nix develop --command bash -c "
-            # Run tests
-            cargo test
-            
-            # Check formatting
-            cargo fmt -- --check
-            
-            # Run clippy
-            # cargo clippy --all-targets -- -D warnings
-          "
+
+      - name: Run tests
+        run: nix develop --command cargo test
+
+      - name: Check formatting
+        run: nix develop --command cargo fmt -- --check
+
+      - name: Clippy
+        run: nix develop --command cargo clippy --all-targets -- -D warnings
+
+      - name: Security audit
+        run: nix develop --command cargo audit
+
+      - name: Dependency check
+        run: nix develop --command cargo deny check

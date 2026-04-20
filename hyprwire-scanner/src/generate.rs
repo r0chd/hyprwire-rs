@@ -480,7 +480,7 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
         .collect();
 
     quote! {
-        #[allow(dead_code)]
+        #[allow(clippy::all, dead_code)]
         mod spec {
             #(#enum_items)*
 
@@ -1025,7 +1025,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     });
 
     quote! {
-        #[allow(dead_code, unused_imports)]
+        #[allow(clippy::all, dead_code, unused_imports)]
         pub mod server {
             use std::{ffi, os::fd::*, rc, sync};
 
@@ -1188,7 +1188,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
     });
 
     quote! {
-        #[allow(dead_code, unused_imports)]
+        #[allow(clippy::all, dead_code, unused_imports)]
         pub mod client {
             use std::{ffi, os::fd::*, rc, sync};
 
