@@ -46,11 +46,8 @@ impl bench_protocol_v1::s::BenchProtocolV1Handler for ServerApp {
 
 struct ClientApp;
 
-fn client_process_main(
-    server_stream: net::UnixStream,
-    mut shutdown_write: net::UnixStream,
-) -> io::Result<()> {
-    let mut socket = client::Client::from_fd(server_stream)?;
+fn client_lifecycle(socket_path: &path::Path) -> io::Result<()> {
+    let mut socket = client::Client::open(socket_path)?;
     let mut app = ClientApp;
 
     socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
@@ -68,63 +65,44 @@ fn client_process_main(
         )
         .map_err(io::Error::other)?;
 
+    manager.send_send_message(black_box("Hello!"));
+    socket.roundtrip(&mut app)?;
+
+    Ok(())
+}
+
+fn client_process_main(
+    socket_path: &path::Path,
+    mut shutdown_write: net::UnixStream,
+) -> io::Result<()> {
     let long_message = make_lorem_ipsum(LONG_MESSAGE_TARGET_BYTES);
     assert!(long_message.len() >= LONG_MESSAGE_TARGET_BYTES);
 
     let mut c = Criterion::default().configure_from_args();
 
-    c.bench_function("client_send_message+roundtrip", |b| {
+    c.bench_function("client_connect_disconnect", |b| {
         b.iter(|| {
-            manager.send_send_message(black_box("Hello!"));
-            socket.roundtrip(&mut app).unwrap();
-        })
-    });
-
-    c.bench_function("client_send_message", |b| {
-        b.iter(|| {
-            manager.send_send_message(black_box("Hello!"));
-        })
-    });
-    socket.roundtrip(&mut app).unwrap();
-
-    c.bench_function("client_send_message_long+roundtrip", |b| {
-        b.iter(|| {
-            manager.send_send_message(black_box(long_message.as_str()));
-            socket.roundtrip(&mut app).unwrap();
-        })
-    });
-
-    c.bench_function("client_send_message_long", |b| {
-        b.iter(|| {
-            manager.send_send_message(black_box(long_message.as_str()));
-        })
-    });
-    socket.roundtrip(&mut app).unwrap();
-
-    c.bench_function("client_bind_object", |b| {
-        b.iter(|| {
-            let _ = black_box(
-                socket
-                    .bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-                        &spec,
-                        BENCH_PROTOCOL_VERSION,
-                        &mut app,
-                    )
-                    .unwrap(),
-            );
+            client_lifecycle(socket_path).unwrap();
         })
     });
 
     c.final_summary();
 
-    // Tell the server process to stop its event loop.
     let _ = shutdown_write.write_all(b"x");
 
     Ok(())
 }
 
 fn main() -> io::Result<()> {
-    let (server_stream, client_stream) = net::UnixStream::pair()?;
+    let socket_path = path::PathBuf::from(format!(
+        "/tmp/hyprwire-bench-{}-{}",
+        process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
     let (shutdown_read, shutdown_write) = net::UnixStream::pair()?;
 
     let pid = unsafe { libc::fork() };
@@ -133,29 +111,29 @@ fn main() -> io::Result<()> {
     }
 
     if pid == 0 {
-        drop(server_stream);
         drop(shutdown_read);
 
-        if let Err(err) = client_process_main(client_stream, shutdown_write) {
+        // Wait briefly for the server to bind the socket.
+        while !socket_path.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
+        if let Err(err) = client_process_main(&socket_path, shutdown_write) {
             eprintln!("client error: {err}");
             process::exit(1);
         }
         process::exit(0);
     }
 
-    drop(client_stream);
     drop(shutdown_write);
 
     // Server
-
-    let mut socket = server::Server::open::<&path::Path>(None)?;
+    let mut socket = server::Server::open(Some(&socket_path))?;
     let mut app = ServerApp;
     socket.add_implementation::<bench_protocol_v1::s::BenchProtocolV1Impl, _>(
         BENCH_PROTOCOL_VERSION,
         &mut app,
     );
-
-    socket.add_client(server_stream);
 
     loop {
         let (loop_ready, shutdown_ready) = {
@@ -183,6 +161,8 @@ fn main() -> io::Result<()> {
             let _ = socket.dispatch_events(&mut app, false);
         }
     }
+
+    let _ = std::fs::remove_file(&socket_path);
 
     unsafe {
         let mut status = 0;

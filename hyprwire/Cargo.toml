@@ -59,3 +59,7 @@ harness = false
 [[bench]]
 name = "multiple_clients"
 harness = false
+
+[[bench]]
+name = "client_connect_disconnect"
+harness = false

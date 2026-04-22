@@ -228,46 +228,58 @@ fn call_arg_expr(name_ident: &proc_macro2::Ident, arg_type: &ArgType) -> TokenSt
 }
 
 fn raw_ident(name: &str) -> proc_macro2::Ident {
-    // r# prefix for reserved keywords
+    // r# prefix for reserved keywords (strict + reserved-for-future-use)
     let reserved = matches!(
         name,
-        "type"
-            | "ref"
-            | "move"
-            | "fn"
-            | "let"
-            | "use"
-            | "mod"
-            | "pub"
-            | "impl"
-            | "trait"
-            | "struct"
-            | "enum"
-            | "match"
-            | "if"
-            | "else"
-            | "for"
-            | "while"
-            | "loop"
-            | "return"
-            | "break"
-            | "continue"
-            | "where"
-            | "async"
+        "as" | "async"
             | "await"
-            | "dyn"
+            | "break"
+            | "become"
             | "box"
-            | "self"
-            | "super"
-            | "crate"
-            | "in"
-            | "as"
             | "const"
-            | "static"
-            | "unsafe"
+            | "continue"
+            | "crate"
+            | "do"
+            | "dyn"
+            | "else"
+            | "enum"
             | "extern"
-            | "true"
             | "false"
+            | "final"
+            | "fn"
+            | "for"
+            | "gen"
+            | "if"
+            | "impl"
+            | "in"
+            | "let"
+            | "loop"
+            | "macro"
+            | "match"
+            | "mod"
+            | "move"
+            | "mut"
+            | "override"
+            | "priv"
+            | "pub"
+            | "ref"
+            | "return"
+            | "self"
+            | "static"
+            | "struct"
+            | "super"
+            | "trait"
+            | "true"
+            | "try"
+            | "type"
+            | "typeof"
+            | "unsafe"
+            | "unsized"
+            | "use"
+            | "virtual"
+            | "where"
+            | "while"
+            | "yield"
     );
     if reserved {
         format_ident!("r#{}", name)
@@ -680,7 +692,7 @@ fn write_send_method(idx: usize, m: &Method) -> TokenStream {
 
     if m.returns.is_some() {
         let call_body = build_call_body(idx, &m.args, true);
-        let returned_mod_ident = format_ident!("{}", m.returns.as_deref().expect("checked above"));
+        let returned_mod_ident = raw_ident(m.returns.as_deref().expect("checked above"));
         let returned_obj_ident = format_ident!(
             "{}",
             snake_to_pascal(m.returns.as_deref().expect("checked above"))
@@ -704,7 +716,7 @@ fn write_send_method(idx: usize, m: &Method) -> TokenStream {
         let call_body = build_call_body(idx, &m.args, false);
         quote! {
             #docs
-            pub fn #method_ident<#s_bound, #f_bound>(mut self, #(#param_pairs,)*) {
+            pub fn #method_ident<#s_bound #f_bound>(mut self, #(#param_pairs,)*) {
                 #call_body
             }
         }
@@ -731,8 +743,8 @@ fn write_send_method(idx: usize, m: &Method) -> TokenStream {
 
 fn write_server_create_helper(m: &Method) -> Option<TokenStream> {
     let returned = m.returns.as_deref()?;
-    let helper_ident = format_ident!("{}", raw_ident(&m.name));
-    let returned_mod_ident = format_ident!("{}", returned);
+    let helper_ident = raw_ident(&m.name);
+    let returned_mod_ident = raw_ident(returned);
     let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
     let returned_obj_path = quote! { super::#returned_mod_ident::#returned_obj_ident };
     let docs = method_doc_attrs(m, true);
@@ -826,7 +838,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     let mut items: Vec<TokenStream> = Vec::new();
 
     for obj in &protocol.objects {
-        let obj_mod_ident = format_ident!("{}", obj.name);
+        let obj_mod_ident = raw_ident(&obj.name);
         let obj_type_ident = format_ident!("{}", snake_to_pascal(&obj.name));
         let raw_obj = raw_object_type();
         let docs = object_doc_attrs(obj.description.as_ref());
@@ -922,7 +934,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     let impl_ident = format_ident!("{}Impl", proto_pascal);
     let proto_spec_ident = format_ident!("{}ProtocolSpec", proto_pascal);
 
-    let first_obj_mod_ident = format_ident!("{}", protocol.objects[0].name);
+    let first_obj_mod_ident = raw_ident(&protocol.objects[0].name);
     let first_obj_type_ident = format_ident!("{}", snake_to_pascal(&protocol.objects[0].name));
     let first_obj_path = quote! { #first_obj_mod_ident::#first_obj_type_ident };
 
@@ -933,7 +945,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         .map(|(idx, obj)| {
             let obj_name_str = &obj.name;
             let on_bind = if idx == 0 {
-                let bind_obj_mod_ident = format_ident!("{}", obj.name);
+                let bind_obj_mod_ident = raw_ident(&obj.name);
                 let bind_obj_type_ident = format_ident!("{}", snake_to_pascal(&obj.name));
                 let bind_obj_path = quote! { #bind_obj_mod_ident::#bind_obj_type_ident };
                 quote! {
@@ -1014,7 +1026,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
     let mut items: Vec<TokenStream> = Vec::new();
 
     for obj in &protocol.objects {
-        let obj_mod_ident = format_ident!("{}", obj.name);
+        let obj_mod_ident = raw_ident(&obj.name);
         let obj_type_ident = format_ident!("{}", snake_to_pascal(&obj.name));
         let raw_obj = raw_object_type();
         let docs = object_doc_attrs(obj.description.as_ref());

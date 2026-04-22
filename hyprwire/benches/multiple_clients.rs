@@ -58,6 +58,7 @@ fn client_process_main(
 
     let mut clients = Vec::with_capacity(server_streams.len());
     let mut managers = Vec::with_capacity(server_streams.len());
+    let mut specs = Vec::with_capacity(server_streams.len());
 
     for stream in server_streams {
         let mut socket = client::Client::from_fd(stream)?;
@@ -78,6 +79,7 @@ fn client_process_main(
             .map_err(io::Error::other)?;
 
         managers.push(manager);
+        specs.push(spec);
         clients.push(socket);
     }
 
@@ -121,6 +123,22 @@ fn client_process_main(
             for (socket, manager) in clients.iter().zip(&managers) {
                 manager.send_send_message(black_box(long_message.as_str()));
                 socket.roundtrip(&mut app).unwrap();
+            }
+        })
+    });
+
+    c.bench_function("multi_100_clients_bind_object", |b| {
+        b.iter(|| {
+            for (socket, spec) in clients.iter().zip(&specs) {
+                let _ = black_box(
+                    socket
+                        .bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
+                            spec,
+                            BENCH_PROTOCOL_VERSION,
+                            &mut app,
+                        )
+                        .unwrap(),
+                );
             }
         })
     });
