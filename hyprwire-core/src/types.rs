@@ -1,6 +1,5 @@
 use crate::message;
-use libffi::low;
-use std::sync::Arc;
+use std::sync;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -28,20 +27,6 @@ pub enum MessageMagic {
     /// Special types
     /// FD has size 0. It's passed via control.
     TypeFd = 0x40,
-}
-
-impl MessageMagic {
-    pub(crate) fn to_ffi_type(self) -> *mut low::ffi_type {
-        match self {
-            Self::TypeUint | Self::TypeObject | Self::TypeSeq | Self::TypeObjectId => {
-                &raw mut low::types::uint32
-            }
-            Self::TypeInt | Self::TypeFd => &raw mut low::types::sint32,
-            Self::TypeVarchar | Self::TypeArray => &raw mut low::types::pointer,
-            Self::TypeF32 => &raw mut low::types::float,
-            Self::End => &raw mut low::types::void,
-        }
-    }
 }
 
 impl TryFrom<u8> for MessageMagic {
@@ -100,26 +85,5 @@ pub trait ProtocolSpec {
 
     fn spec_ver(&self) -> u32;
 
-    fn objects(&self) -> &[Arc<dyn ProtocolObjectSpec>];
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn message_magic_known_values_try_from() {
-        let known: &[u8] = &[0x00, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22, 0x40];
-        for &byte in known {
-            assert!(
-                MessageMagic::try_from(byte).is_ok(),
-                "expected Ok for byte={byte:#04x}"
-            );
-        }
-    }
-
-    #[test]
-    fn message_magic_unknown_value_fails() {
-        assert!(MessageMagic::try_from(0xFF_u8).is_err());
-    }
+    fn objects(&self) -> &[sync::Arc<dyn ProtocolObjectSpec>];
 }

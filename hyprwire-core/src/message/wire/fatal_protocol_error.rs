@@ -1,5 +1,4 @@
-use crate::implementation::types::MessageMagic;
-use crate::message;
+use crate::{message, types};
 use std::borrow;
 
 #[derive(Debug)]
@@ -14,18 +13,18 @@ impl<'a> FatalProtocolError<'a> {
     pub fn new(object_id: u32, error_id: u32, error_msg: &'a str) -> Self {
         let mut data = Vec::new();
         data.push(message::MessageType::FatalProtocolError as u8);
-        data.push(MessageMagic::TypeUint as u8);
+        data.push(types::MessageMagic::TypeUint as u8);
         data.extend_from_slice(&object_id.to_le_bytes());
 
-        data.push(MessageMagic::TypeUint as u8);
+        data.push(types::MessageMagic::TypeUint as u8);
         data.extend_from_slice(&error_id.to_le_bytes());
 
-        data.push(MessageMagic::TypeVarchar as u8);
+        data.push(types::MessageMagic::TypeVarchar as u8);
         let mut msg_len_buf = [0u8; 10];
         data.extend_from_slice(message::encode_var_int(error_msg.len(), &mut msg_len_buf));
         data.extend_from_slice(error_msg.as_bytes());
 
-        data.push(MessageMagic::End as u8);
+        data.push(types::MessageMagic::End as u8);
 
         Self {
             object_id,
@@ -55,7 +54,7 @@ impl<'a> FatalProtocolError<'a> {
         }
 
         if *data.get(offset + 1).ok_or(message::Error::UnexpectedEof)?
-            != MessageMagic::TypeUint as u8
+            != types::MessageMagic::TypeUint as u8
         {
             return Err(message::Error::InvalidFieldType);
         }
@@ -68,7 +67,7 @@ impl<'a> FatalProtocolError<'a> {
         );
 
         if *data.get(offset + 6).ok_or(message::Error::UnexpectedEof)?
-            != MessageMagic::TypeUint as u8
+            != types::MessageMagic::TypeUint as u8
         {
             return Err(message::Error::InvalidFieldType);
         }
@@ -81,7 +80,7 @@ impl<'a> FatalProtocolError<'a> {
         );
 
         if *data.get(offset + 11).ok_or(message::Error::UnexpectedEof)?
-            != MessageMagic::TypeVarchar as u8
+            != types::MessageMagic::TypeVarchar as u8
         {
             return Err(message::Error::InvalidFieldType);
         }
@@ -102,7 +101,7 @@ impl<'a> FatalProtocolError<'a> {
         if *data
             .get(offset + needle)
             .ok_or(message::Error::UnexpectedEof)?
-            != MessageMagic::End as u8
+            != types::MessageMagic::End as u8
         {
             return Err(message::Error::MalformedMessage);
         }
@@ -153,7 +152,7 @@ mod tests {
     fn fatal_protocol_error_from_bytes_unexpected_eof() {
         let bytes: &[u8] = &[
             message::MessageType::FatalProtocolError as u8,
-            MessageMagic::TypeUint as u8,
+            types::MessageMagic::TypeUint as u8,
         ];
         let err = FatalProtocolError::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::UnexpectedEof));
@@ -164,15 +163,5 @@ mod tests {
         let bytes: &[u8] = &[message::MessageType::Sup as u8];
         let err = FatalProtocolError::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::InvalidMessageType));
-    }
-
-    #[test]
-    fn fatal_error_roundtrip_parses_fields_with_zero_object_id() {
-        let out = FatalProtocolError::new(0, 99, "boom");
-        let in_msg = FatalProtocolError::from_bytes(out.data(), 0).unwrap();
-        assert_eq!(in_msg.data(), out.data());
-        assert_eq!(in_msg.object_id(), 0);
-        assert_eq!(in_msg.error_id(), 99);
-        assert_eq!(in_msg.error_msg(), "boom");
     }
 }

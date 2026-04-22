@@ -4,6 +4,7 @@ mod server_spec;
 
 use crate::implementation;
 use crate::implementation::client::ProtocolImplementations;
+use hyprwire_core::types;
 use std::os::fd;
 use std::{io, path, rc};
 
@@ -111,7 +112,7 @@ impl Client {
     /// successfully.
     pub fn bind<O: crate::Object, D: crate::Dispatch<O>>(
         &self,
-        spec: &dyn implementation::types::ProtocolSpec,
+        spec: &dyn types::ProtocolSpec,
         version: u32,
         state: &mut D,
     ) -> Result<O, io::Error> {

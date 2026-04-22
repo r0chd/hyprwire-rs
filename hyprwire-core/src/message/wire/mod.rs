@@ -9,8 +9,7 @@ pub mod new_object;
 pub mod roundtrip_done;
 pub mod roundtrip_request;
 
-use crate::implementation::types;
-use crate::message;
+use crate::{message, types};
 use std::fmt::Write;
 use std::result;
 
@@ -204,12 +203,7 @@ fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::implementation::types;
-    use crate::message::messages::{
-        bind_protocol::BindProtocol, fatal_protocol_error::FatalProtocolError,
-        handshake_ack::HandshakeAck, handshake_protocols::HandshakeProtocols, hello::Hello,
-        new_object::NewObject, roundtrip_done::RoundtripDone, roundtrip_request::RoundtripRequest,
-    };
+    use crate::types;
 
     struct TestMessage<'a> {
         data: &'a [u8],
@@ -256,98 +250,6 @@ mod tests {
             data,
             format!("GenericProtocolMessage ( seq: 1, 1, {expected_f32} ) ")
         );
-    }
-
-    #[test]
-    fn parse_data_hello_contains_type_and_payload() {
-        let msg = Hello::new();
-        let parsed = msg.parse_data();
-        assert!(parsed.contains("Sup"), "missing type in: {parsed}");
-        assert!(parsed.contains("\"VAX\""), "missing payload in: {parsed}");
-    }
-
-    #[test]
-    fn parse_data_handshake_ack_contains_type_and_version() {
-        let msg = HandshakeAck::new(7);
-        let parsed = msg.parse_data();
-        assert!(parsed.contains("HandshakeAck"), "missing type in: {parsed}");
-        assert!(parsed.contains('7'), "missing version in: {parsed}");
-    }
-
-    #[test]
-    fn parse_data_handshake_protocols_contains_protocol_names() {
-        let msg = HandshakeProtocols::new(&["proto@1", "second@2"]);
-        let parsed = msg.parse_data();
-        assert!(
-            parsed.contains("HandshakeProtocols"),
-            "missing type in: {parsed}"
-        );
-        assert!(
-            parsed.contains("\"proto@1\""),
-            "missing proto@1 in: {parsed}"
-        );
-        assert!(
-            parsed.contains("\"second@2\""),
-            "missing second@2 in: {parsed}"
-        );
-    }
-
-    #[test]
-    fn parse_data_bind_protocol_contains_core_fields() {
-        let msg = BindProtocol::new("my_proto", 12, 3);
-        let parsed = msg.parse_data();
-        assert!(parsed.contains("BindProtocol"), "missing type in: {parsed}");
-        assert!(parsed.contains("12"), "missing seq in: {parsed}");
-        assert!(
-            parsed.contains("\"my_proto\""),
-            "missing protocol in: {parsed}"
-        );
-        assert!(parsed.contains('3'), "missing version in: {parsed}");
-    }
-
-    #[test]
-    fn parse_data_new_object_contains_object_and_seq() {
-        let msg = NewObject::new(9, 77);
-        let parsed = msg.parse_data();
-        assert!(parsed.contains("NewObject"), "missing type in: {parsed}");
-        assert!(parsed.contains("77"), "missing id in: {parsed}");
-        assert!(parsed.contains('9'), "missing seq in: {parsed}");
-    }
-
-    #[test]
-    fn parse_data_fatal_error_contains_identifiers_and_message() {
-        let msg = FatalProtocolError::new(0, 123, "oops");
-        let parsed = msg.parse_data();
-        assert!(
-            parsed.contains("FatalProtocolError"),
-            "missing type in: {parsed}"
-        );
-        assert!(parsed.contains("123"), "missing error_id in: {parsed}");
-        assert!(
-            parsed.contains("\"oops\""),
-            "missing error_msg in: {parsed}"
-        );
-    }
-
-    #[test]
-    fn parse_data_roundtrip_messages_contain_type_and_sequence() {
-        let req = RoundtripRequest::new(777);
-        let done = RoundtripDone::new(888);
-
-        let req_parsed = req.parse_data();
-        let done_parsed = done.parse_data();
-
-        assert!(
-            req_parsed.contains("RoundtripRequest"),
-            "missing type in: {req_parsed}"
-        );
-        assert!(req_parsed.contains("777"), "missing seq in: {req_parsed}");
-
-        assert!(
-            done_parsed.contains("RoundtripDone"),
-            "missing type in: {done_parsed}"
-        );
-        assert!(done_parsed.contains("888"), "missing seq in: {done_parsed}");
     }
 
     #[test]

@@ -392,12 +392,17 @@ dependencies = [
  "calloop",
  "criterion",
  "env_logger",
+ "hyprwire-core",
  "hyprwire-scanner",
  "insta",
  "libffi",
  "log",
  "nix",
 ]
+
+[[package]]
+name = "hyprwire-core"
+version = "0.2.9"
 
 [[package]]
 name = "hyprwire-protocols"
@@ -407,6 +412,7 @@ version = "0.0.0"
 name = "hyprwire-scanner"
 version = "0.2.9"
 dependencies = [
+ "hyprwire-core",
  "insta",
  "prettyplease",
  "proc-macro2",

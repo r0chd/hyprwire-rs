@@ -1,6 +1,5 @@
 ---
 source: hyprwire-scanner/tests/scanner_snapshots.rs
-assertion_line: 62
 expression: code
 ---
 // Generated with hyprwire-scanner 0.2.9. Made with pure malice and hatred by r0chd.
@@ -148,7 +147,7 @@ pub mod server {
                     .call(
                         0u32,
                         &[
-                            hyprwire::implementation::types::CallArg::Varchar(
+                            hyprwire::core::types::CallArg::Varchar(
                                 message.as_ref().as_bytes(),
                             ),
                         ],
@@ -162,10 +161,7 @@ pub mod server {
             /// `message`: message
             pub fn send_recv_message_array_uint(&self, message: &[u32]) {
                 self.object
-                    .call(
-                        1u32,
-                        &[hyprwire::implementation::types::CallArg::UintArray(message)],
-                    );
+                    .call(1u32, &[hyprwire::core::types::CallArg::UintArray(message)]);
             }
         }
     }
@@ -466,7 +462,7 @@ pub mod server {
                     .call(
                         0u32,
                         &[
-                            hyprwire::implementation::types::CallArg::Varchar(
+                            hyprwire::core::types::CallArg::Varchar(
                                 message.as_ref().as_bytes(),
                             ),
                         ],
@@ -585,7 +581,7 @@ pub mod server {
     }
     impl hyprwire::implementation::server::ProtocolImplementations
     for TestProtocolV1Impl {
-        fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
+        fn protocol(&self) -> &dyn hyprwire::core::types::ProtocolSpec {
             &self.protocol
         }
         fn implementation(
@@ -693,7 +689,7 @@ pub mod client {
                     .call(
                         0u32,
                         &[
-                            hyprwire::implementation::types::CallArg::Varchar(
+                            hyprwire::core::types::CallArg::Varchar(
                                 message.as_ref().as_bytes(),
                             ),
                         ],
@@ -710,7 +706,7 @@ pub mod client {
                     .call(
                         1u32,
                         &[
-                            hyprwire::implementation::types::CallArg::Fd(
+                            hyprwire::core::types::CallArg::Fd(
                                 message.as_fd().as_raw_fd(),
                             ),
                         ],
@@ -730,11 +726,7 @@ pub mod client {
                 self.object
                     .call(
                         2u32,
-                        &[
-                            hyprwire::implementation::types::CallArg::FdArray(
-                                &message_raw_fds,
-                            ),
-                        ],
+                        &[hyprwire::core::types::CallArg::FdArray(&message_raw_fds)],
                     );
             }
             /// Send a text array message
@@ -748,7 +740,7 @@ pub mod client {
                     .call(
                         3u32,
                         &[
-                            hyprwire::implementation::types::CallArg::VarcharArray(
+                            hyprwire::core::types::CallArg::VarcharArray(
                                 &message
                                     .iter()
                                     .map(|s| s.as_ref().as_bytes())
@@ -769,13 +761,13 @@ pub mod client {
                     .call(
                         4u32,
                         &[
-                            hyprwire::implementation::types::CallArg::VarcharArray(
+                            hyprwire::core::types::CallArg::VarcharArray(
                                 &cmd
                                     .iter()
                                     .map(|s| s.as_ref().as_bytes())
                                     .collect::<Vec<_>>(),
                             ),
-                            hyprwire::implementation::types::CallArg::VarcharArray(
+                            hyprwire::core::types::CallArg::VarcharArray(
                                 &env
                                     .iter()
                                     .map(|s| s.as_ref().as_bytes())
@@ -792,10 +784,7 @@ pub mod client {
             /// `message`: message
             pub fn send_send_message_array_uint(&self, message: &[u32]) {
                 self.object
-                    .call(
-                        5u32,
-                        &[hyprwire::implementation::types::CallArg::UintArray(message)],
-                    );
+                    .call(5u32, &[hyprwire::core::types::CallArg::UintArray(message)]);
             }
             /// Make a test object
             ///
@@ -946,7 +935,7 @@ pub mod client {
                     .call(
                         0u32,
                         &[
-                            hyprwire::implementation::types::CallArg::Varchar(
+                            hyprwire::core::types::CallArg::Varchar(
                                 message.as_ref().as_bytes(),
                             ),
                         ],
@@ -960,10 +949,7 @@ pub mod client {
             /// `message`: message
             pub fn send_send_enum(&self, message: super::super::spec::MyEnum) {
                 self.object
-                    .call(
-                        1u32,
-                        &[hyprwire::implementation::types::CallArg::Uint(message as u32)],
-                    );
+                    .call(1u32, &[hyprwire::core::types::CallArg::Uint(message as u32)]);
             }
             /// Make a test object
             ///
@@ -1018,13 +1004,13 @@ pub mod client {
         fn new() -> Self {
             Self::default()
         }
-        fn protocol_spec() -> Box<dyn hyprwire::implementation::types::ProtocolSpec> {
+        fn protocol_spec() -> Box<dyn hyprwire::core::types::ProtocolSpec> {
             Box::new(super::spec::TestProtocolV1ProtocolSpec::default())
         }
         fn spec_name() -> &'static str {
             "test_protocol_v1"
         }
-        fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
+        fn protocol(&self) -> &dyn hyprwire::core::types::ProtocolSpec {
             &self.protocol
         }
         fn implementation(
@@ -1051,72 +1037,70 @@ mod spec {
         ErrorImportant = 1u32,
     }
     pub struct MyManagerV1Spec {
-        c2s_methods: &'static [hyprwire::implementation::types::Method],
-        s2c_methods: &'static [hyprwire::implementation::types::Method],
+        c2s_methods: &'static [hyprwire::core::types::Method],
+        s2c_methods: &'static [hyprwire::core::types::Method],
     }
     static MY_MANAGER_V1: std::sync::LazyLock<
-        std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>,
+        std::sync::Arc<dyn hyprwire::core::types::ProtocolObjectSpec>,
     > = std::sync::LazyLock::new(|| std::sync::Arc::new(MyManagerV1Spec {
         c2s_methods: &[
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 0u32,
-                params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
-                ],
+                params: &[hyprwire::core::types::MessageMagic::TypeVarchar as u8],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 1u32,
-                params: &[hyprwire::implementation::types::MessageMagic::TypeFd as u8],
+                params: &[hyprwire::core::types::MessageMagic::TypeFd as u8],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 2u32,
                 params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
-                    hyprwire::implementation::types::MessageMagic::TypeFd as u8,
+                    hyprwire::core::types::MessageMagic::TypeArray as u8,
+                    hyprwire::core::types::MessageMagic::TypeFd as u8,
                 ],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 3u32,
                 params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
-                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
+                    hyprwire::core::types::MessageMagic::TypeArray as u8,
+                    hyprwire::core::types::MessageMagic::TypeVarchar as u8,
                 ],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 4u32,
                 params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
-                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
-                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
-                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
+                    hyprwire::core::types::MessageMagic::TypeArray as u8,
+                    hyprwire::core::types::MessageMagic::TypeVarchar as u8,
+                    hyprwire::core::types::MessageMagic::TypeArray as u8,
+                    hyprwire::core::types::MessageMagic::TypeVarchar as u8,
                 ],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 5u32,
                 params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
-                    hyprwire::implementation::types::MessageMagic::TypeUint as u8,
+                    hyprwire::core::types::MessageMagic::TypeArray as u8,
+                    hyprwire::core::types::MessageMagic::TypeUint as u8,
                 ],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 6u32,
                 params: &[],
                 returns_type: "my_object_v1",
@@ -1125,20 +1109,18 @@ mod spec {
             },
         ],
         s2c_methods: &[
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 0u32,
-                params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
-                ],
+                params: &[hyprwire::core::types::MessageMagic::TypeVarchar as u8],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 1u32,
                 params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeArray as u8,
-                    hyprwire::implementation::types::MessageMagic::TypeUint as u8,
+                    hyprwire::core::types::MessageMagic::TypeArray as u8,
+                    hyprwire::core::types::MessageMagic::TypeUint as u8,
                 ],
                 returns_type: "",
                 since: 0,
@@ -1146,49 +1128,47 @@ mod spec {
             },
         ],
     }));
-    impl hyprwire::implementation::types::ProtocolObjectSpec for MyManagerV1Spec {
+    impl hyprwire::core::types::ProtocolObjectSpec for MyManagerV1Spec {
         fn object_name(&self) -> &str {
             "my_manager_v1"
         }
-        fn c2s(&self) -> &[hyprwire::implementation::types::Method] {
+        fn c2s(&self) -> &[hyprwire::core::types::Method] {
             self.c2s_methods
         }
-        fn s2c(&self) -> &[hyprwire::implementation::types::Method] {
+        fn s2c(&self) -> &[hyprwire::core::types::Method] {
             self.s2c_methods
         }
     }
     pub struct MyObjectV1Spec {
-        c2s_methods: &'static [hyprwire::implementation::types::Method],
-        s2c_methods: &'static [hyprwire::implementation::types::Method],
+        c2s_methods: &'static [hyprwire::core::types::Method],
+        s2c_methods: &'static [hyprwire::core::types::Method],
     }
     static MY_OBJECT_V1: std::sync::LazyLock<
-        std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>,
+        std::sync::Arc<dyn hyprwire::core::types::ProtocolObjectSpec>,
     > = std::sync::LazyLock::new(|| std::sync::Arc::new(MyObjectV1Spec {
         c2s_methods: &[
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 0u32,
-                params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
-                ],
+                params: &[hyprwire::core::types::MessageMagic::TypeVarchar as u8],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 1u32,
-                params: &[hyprwire::implementation::types::MessageMagic::TypeUint as u8],
+                params: &[hyprwire::core::types::MessageMagic::TypeUint as u8],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 2u32,
                 params: &[],
                 returns_type: "",
                 since: 0,
                 destructor: true,
             },
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 3u32,
                 params: &[],
                 returns_type: "my_object_v1",
@@ -1197,33 +1177,29 @@ mod spec {
             },
         ],
         s2c_methods: &[
-            hyprwire::implementation::types::Method {
+            hyprwire::core::types::Method {
                 idx: 0u32,
-                params: &[
-                    hyprwire::implementation::types::MessageMagic::TypeVarchar as u8,
-                ],
+                params: &[hyprwire::core::types::MessageMagic::TypeVarchar as u8],
                 returns_type: "",
                 since: 0,
                 destructor: false,
             },
         ],
     }));
-    impl hyprwire::implementation::types::ProtocolObjectSpec for MyObjectV1Spec {
+    impl hyprwire::core::types::ProtocolObjectSpec for MyObjectV1Spec {
         fn object_name(&self) -> &str {
             "my_object_v1"
         }
-        fn c2s(&self) -> &[hyprwire::implementation::types::Method] {
+        fn c2s(&self) -> &[hyprwire::core::types::Method] {
             self.c2s_methods
         }
-        fn s2c(&self) -> &[hyprwire::implementation::types::Method] {
+        fn s2c(&self) -> &[hyprwire::core::types::Method] {
             self.s2c_methods
         }
     }
     #[derive(Clone)]
     pub struct TestProtocolV1ProtocolSpec {
-        objects: [std::sync::Arc<
-            dyn hyprwire::implementation::types::ProtocolObjectSpec,
-        >; 2usize],
+        objects: [std::sync::Arc<dyn hyprwire::core::types::ProtocolObjectSpec>; 2usize],
     }
     impl Default for TestProtocolV1ProtocolSpec {
         fn default() -> Self {
@@ -1235,7 +1211,7 @@ mod spec {
             }
         }
     }
-    impl hyprwire::implementation::types::ProtocolSpec for TestProtocolV1ProtocolSpec {
+    impl hyprwire::core::types::ProtocolSpec for TestProtocolV1ProtocolSpec {
         fn spec_name(&self) -> &str {
             "test_protocol_v1"
         }
@@ -1244,7 +1220,7 @@ mod spec {
         }
         fn objects(
             &self,
-        ) -> &[std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>] {
+        ) -> &[std::sync::Arc<dyn hyprwire::core::types::ProtocolObjectSpec>] {
             &self.objects
         }
     }

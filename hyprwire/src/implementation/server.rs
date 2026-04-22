@@ -1,4 +1,5 @@
-use super::{object, types};
+use super::object;
+use hyprwire_core::types;
 use std::rc;
 
 type OnBind<'a> = Box<dyn Fn(rc::Rc<dyn object::Object>) + 'a>;

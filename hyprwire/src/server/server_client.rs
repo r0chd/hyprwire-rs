@@ -1,8 +1,9 @@
 use super::server_object;
 use crate::SharedState;
 use crate::implementation::wire_object::WireObject;
-use crate::message::Message;
-use crate::{message, steady_millis, trace};
+use crate::{steady_millis, trace};
+use hyprwire_core::message::Message;
+use hyprwire_core::message::wire::{fatal_protocol_error, generic_protocol_message, new_object};
 use nix::sys::socket;
 use nix::sys::socket::sockopt;
 use std::hash::{Hash, Hasher};
@@ -144,7 +145,7 @@ impl ServerClientState {
         let obj = rc::Rc::new(server_obj);
         self.objects.borrow_mut().push(rc::Rc::clone(&obj));
 
-        let new_obj_msg = message::NewObject::new(seq, obj.id.get());
+        let new_obj_msg = new_object::NewObject::new(seq, obj.id.get());
         self.state.send_message(&new_obj_msg);
 
         self.on_bind(rc::Rc::clone(&obj));
@@ -180,7 +181,7 @@ impl ServerClientState {
 
     pub(crate) fn on_generic<D>(
         &self,
-        msg: &message::GenericProtocolMessage<ops::Range<usize>>,
+        msg: &generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>,
         dispatch: &mut D,
     ) {
         let obj = self
@@ -207,7 +208,8 @@ impl ServerClientState {
                 steady_millis(),
                 error,
             );
-            let fatal = message::FatalProtocolError::new(msg.object(), u32::MAX, &error);
+            let fatal =
+                fatal_protocol_error::FatalProtocolError::new(msg.object(), u32::MAX, &error);
             self.state.send_message(&fatal);
             self.state.error.set(true);
         }

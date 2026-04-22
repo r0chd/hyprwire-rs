@@ -1,14 +1,17 @@
 use super::server_client;
 use crate::implementation::wire_object::WireObject;
-use crate::implementation::{object, types, wire_object};
-use crate::{SharedState, message, trace};
+use crate::implementation::{object, wire_object};
+use crate::trace;
+use hyprwire_core::message;
+use hyprwire_core::message::wire::fatal_protocol_error;
+use hyprwire_core::types;
 use std::cell;
 use std::os::raw;
 use std::{rc, sync};
 
 pub(crate) struct ServerObject {
     pub(crate) client: rc::Weak<server_client::ServerClientState>,
-    pub(crate) state: rc::Rc<SharedState>,
+    pub(crate) state: rc::Rc<crate::SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: cell::Cell<*mut raw::c_void>,
     data_destructor: cell::Cell<Option<unsafe fn(*mut raw::c_void)>>,
@@ -30,7 +33,7 @@ impl Drop for ServerObject {
 impl ServerObject {
     pub fn new(
         client: rc::Weak<server_client::ServerClientState>,
-        state: rc::Rc<SharedState>,
+        state: rc::Rc<crate::SharedState>,
     ) -> Self {
         Self {
             client,
@@ -146,7 +149,7 @@ impl object::Object for ServerObject {
             return;
         }
 
-        let msg = message::FatalProtocolError::new(self.id.get(), error_id, error_msg);
+        let msg = fatal_protocol_error::FatalProtocolError::new(self.id.get(), error_id, error_msg);
         self.state.send_message(&msg);
         self.errd();
     }

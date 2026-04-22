@@ -138,7 +138,7 @@ mod client_socket {
     }
 
     use hyprwire::client;
-    use hyprwire::implementation::types::ProtocolSpec;
+    use hyprwire_core::types::ProtocolSpec;
     use std::io;
     use std::io::Write;
     use std::os::fd::AsRawFd;

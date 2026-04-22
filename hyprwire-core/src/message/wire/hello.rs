@@ -1,35 +1,40 @@
-use crate::implementation::types::MessageMagic;
-use crate::message;
+use crate::{message, types};
 
 #[derive(Debug)]
 pub struct Hello {
     data: [u8; 7],
 }
 
-impl Hello {
-    pub fn new() -> Self {
+impl Default for Hello {
+    fn default() -> Self {
         let data: [u8; 7] = [
             message::MessageType::Sup as u8,
-            MessageMagic::TypeVarchar as u8,
+            types::MessageMagic::TypeVarchar as u8,
             0x03,
             b'V',
             b'A',
             b'X',
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
 
         Self { data }
+    }
+}
+
+impl Hello {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn from_bytes(data: &[u8], offset: usize) -> super::Result<Self> {
         let expected: &[u8] = &[
             message::MessageType::Sup as u8,
-            MessageMagic::TypeVarchar as u8,
+            types::MessageMagic::TypeVarchar as u8,
             0x03,
             b'V',
             b'A',
             b'X',
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
 
         let msg_data = data
@@ -72,12 +77,12 @@ mod tests {
     fn hello_from_bytes() {
         let bytes: &[u8] = &[
             message::MessageType::Sup as u8,
-            MessageMagic::TypeVarchar as u8,
+            types::MessageMagic::TypeVarchar as u8,
             0x03,
             b'V',
             b'A',
             b'X',
-            MessageMagic::End as u8,
+            types::MessageMagic::End as u8,
         ];
         let msg = Hello::from_bytes(bytes, 0).unwrap();
         let data = msg.parse_data();

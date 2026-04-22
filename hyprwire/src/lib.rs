@@ -4,6 +4,10 @@
 
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 
+/// Core protocol types, message encoding, and trait definitions re-exported
+/// from `hyprwire-core`.
+pub use hyprwire_core as core;
+
 /// Client-side APIs for connecting to a Hyprwire server and dispatching
 /// generated protocol events.
 pub mod client;
@@ -53,7 +57,7 @@ impl SharedState {
         }
     }
 
-    pub(crate) fn send_message(&self, message: &dyn message::Message) {
+    pub(crate) fn send_message(&self, message: &dyn hyprwire_core::message::Message) {
         trace! { crate::log_debug!("[hw] trace: [{} @ {:.3}] -> {}", self.stream.as_raw_fd(), steady_millis(), message.parse_data()) };
 
         let buf = message.data();

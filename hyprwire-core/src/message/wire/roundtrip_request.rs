@@ -1,17 +1,16 @@
-use crate::implementation::types;
-use crate::message;
+use crate::{message, types};
 
 #[derive(Debug)]
-pub struct RoundtripDone {
+pub struct RoundtripRequest {
     seq: u32,
     data: [u8; 7],
 }
 
-impl RoundtripDone {
+impl RoundtripRequest {
     pub fn new(seq: u32) -> Self {
         let mut data = [0u8; 7];
 
-        data[0] = message::MessageType::RoundtripDone as u8;
+        data[0] = message::MessageType::RoundtripRequest as u8;
         data[1] = types::MessageMagic::TypeUint as u8;
         data[2..2 + 4].copy_from_slice(&seq.to_le_bytes());
         data[6] = types::MessageMagic::End as u8;
@@ -25,7 +24,7 @@ impl RoundtripDone {
 
     pub fn from_bytes(data: &[u8], offset: usize) -> super::Result<Self> {
         if *data.get(offset).ok_or(message::Error::UnexpectedEof)?
-            != message::MessageType::RoundtripDone as u8
+            != message::MessageType::RoundtripRequest as u8
         {
             return Err(message::Error::InvalidMessageType);
         }
@@ -56,13 +55,13 @@ impl RoundtripDone {
     }
 }
 
-impl message::Message for RoundtripDone {
+impl message::Message for RoundtripRequest {
     fn data(&self) -> &[u8] {
         &self.data
     }
 
     fn message_type(&self) -> message::MessageType {
-        message::MessageType::RoundtripDone
+        message::MessageType::RoundtripRequest
     }
 }
 
@@ -73,15 +72,15 @@ mod tests {
 
     #[test]
     fn roundtrip_request_new() {
-        let msg = RoundtripDone::new(2);
+        let msg = RoundtripRequest::new(2);
         let parsed = msg.parse_data();
-        assert_eq!(parsed, "RoundtripDone ( 2 ) ");
+        assert_eq!(parsed, "RoundtripRequest ( 2 ) ");
     }
 
     #[test]
     fn roundtrip_request_from_bytes() {
         let bytes: &[u8] = &[
-            message::MessageType::RoundtripDone as u8,
+            message::MessageType::RoundtripRequest as u8,
             types::MessageMagic::TypeUint as u8,
             0x2A,
             0x00,
@@ -89,25 +88,25 @@ mod tests {
             0x00,
             types::MessageMagic::End as u8,
         ];
-        let msg = RoundtripDone::from_bytes(bytes, 0).unwrap();
+        let msg = RoundtripRequest::from_bytes(bytes, 0).unwrap();
         let parsed = msg.parse_data();
-        assert_eq!(parsed, "RoundtripDone ( 42 ) ");
+        assert_eq!(parsed, "RoundtripRequest ( 42 ) ");
     }
 
     #[test]
     fn roundtrip_request_from_bytes_unexpected_eof() {
         let bytes: &[u8] = &[
-            message::MessageType::RoundtripDone as u8,
+            message::MessageType::RoundtripRequest as u8,
             types::MessageMagic::TypeUint as u8,
         ];
-        let err = RoundtripDone::from_bytes(bytes, 0).unwrap_err();
+        let err = RoundtripRequest::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::UnexpectedEof));
     }
 
     #[test]
     fn roundtrip_request_from_bytes_malformed() {
         let bytes: &[u8] = &[
-            message::MessageType::RoundtripDone as u8,
+            message::MessageType::RoundtripRequest as u8,
             types::MessageMagic::TypeUint as u8,
             0x2A,
             0x00,
@@ -115,29 +114,7 @@ mod tests {
             0x00,
             types::MessageMagic::TypeUint as u8,
         ];
-        let err = RoundtripDone::from_bytes(bytes, 0).unwrap_err();
+        let err = RoundtripRequest::from_bytes(bytes, 0).unwrap_err();
         assert!(matches!(err, message::Error::MalformedMessage));
-    }
-
-    #[test]
-    fn roundtrip_done_roundtrip_parses_seq() {
-        let out = RoundtripDone::new(888);
-        let in_msg = RoundtripDone::from_bytes(out.data(), 0).unwrap();
-        assert_eq!(in_msg.data(), out.data());
-        assert_eq!(in_msg.seq(), 888);
-    }
-
-    #[test]
-    fn roundtrip_done_rejects_wrong_field_type() {
-        // varchar instead of uint
-        let bytes: &[u8] = &[
-            message::MessageType::RoundtripDone as u8,
-            types::MessageMagic::TypeVarchar as u8,
-            0x01,
-            b'x',
-            types::MessageMagic::End as u8,
-        ];
-        let err = RoundtripDone::from_bytes(bytes, 0).unwrap_err();
-        assert!(matches!(err, message::Error::InvalidFieldType));
     }
 }

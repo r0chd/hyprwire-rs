@@ -1,15 +1,14 @@
 use crate::client::client_socket;
 use crate::implementation::wire_object::WireObject;
-use crate::implementation::{object, types, wire_object};
-use crate::{SharedState, client, message, trace};
-use std::cell;
+use crate::implementation::{object, wire_object};
+use crate::{client, trace};
+use hyprwire_core::{message, types};
 use std::os::raw;
-use std::rc;
-use std::sync;
+use std::{cell, rc, sync};
 
 pub struct ClientObject {
     client: rc::Weak<client_socket::ClientSocket>,
-    pub(crate) state: rc::Rc<SharedState>,
+    pub(crate) state: rc::Rc<crate::SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     data: cell::Cell<*mut raw::c_void>,
     data_destructor: cell::Cell<Option<unsafe fn(*mut raw::c_void)>>,
@@ -67,7 +66,7 @@ impl Drop for ClientObject {
 impl ClientObject {
     pub fn new(
         client_socket: rc::Weak<client_socket::ClientSocket>,
-        state: rc::Rc<SharedState>,
+        state: rc::Rc<crate::SharedState>,
     ) -> Self {
         Self {
             destroyed: cell::Cell::new(false),

@@ -97,37 +97,37 @@ fn is_array_type(arg_type: &ArgType) -> bool {
 fn magic_for_arg(arg_type: &ArgType) -> Vec<TokenStream> {
     match arg_type {
         ArgType::Varchar => {
-            vec![quote! { hyprwire::implementation::types::MessageMagic::TypeVarchar as u8 }]
+            vec![quote! { hyprwire::core::types::MessageMagic::TypeVarchar as u8 }]
         }
-        ArgType::Fd => vec![quote! { hyprwire::implementation::types::MessageMagic::TypeFd as u8 }],
+        ArgType::Fd => vec![quote! { hyprwire::core::types::MessageMagic::TypeFd as u8 }],
         ArgType::Uint | ArgType::Enum => {
-            vec![quote! { hyprwire::implementation::types::MessageMagic::TypeUint as u8 }]
+            vec![quote! { hyprwire::core::types::MessageMagic::TypeUint as u8 }]
         }
         ArgType::Int => {
-            vec![quote! { hyprwire::implementation::types::MessageMagic::TypeInt as u8 }]
+            vec![quote! { hyprwire::core::types::MessageMagic::TypeInt as u8 }]
         }
         ArgType::F32 => {
-            vec![quote! { hyprwire::implementation::types::MessageMagic::TypeF32 as u8 }]
+            vec![quote! { hyprwire::core::types::MessageMagic::TypeF32 as u8 }]
         }
         ArgType::ArrayVarchar => vec![
-            quote! { hyprwire::implementation::types::MessageMagic::TypeArray as u8 },
-            quote! { hyprwire::implementation::types::MessageMagic::TypeVarchar as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeArray as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeVarchar as u8 },
         ],
         ArgType::ArrayFd => vec![
-            quote! { hyprwire::implementation::types::MessageMagic::TypeArray as u8 },
-            quote! { hyprwire::implementation::types::MessageMagic::TypeFd as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeArray as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeFd as u8 },
         ],
         ArgType::ArrayUint => vec![
-            quote! { hyprwire::implementation::types::MessageMagic::TypeArray as u8 },
-            quote! { hyprwire::implementation::types::MessageMagic::TypeUint as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeArray as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeUint as u8 },
         ],
         ArgType::ArrayInt => vec![
-            quote! { hyprwire::implementation::types::MessageMagic::TypeArray as u8 },
-            quote! { hyprwire::implementation::types::MessageMagic::TypeInt as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeArray as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeInt as u8 },
         ],
         ArgType::ArrayF32 => vec![
-            quote! { hyprwire::implementation::types::MessageMagic::TypeArray as u8 },
-            quote! { hyprwire::implementation::types::MessageMagic::TypeF32 as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeArray as u8 },
+            quote! { hyprwire::core::types::MessageMagic::TypeF32 as u8 },
         ],
     }
 }
@@ -190,20 +190,20 @@ fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
 fn call_arg_expr(name_ident: &proc_macro2::Ident, arg_type: &ArgType) -> TokenStream {
     match arg_type {
         ArgType::Varchar => {
-            quote! { hyprwire::implementation::types::CallArg::Varchar(#name_ident.as_ref().as_bytes()) }
+            quote! { hyprwire::core::types::CallArg::Varchar(#name_ident.as_ref().as_bytes()) }
         }
         ArgType::Fd => {
-            quote! { hyprwire::implementation::types::CallArg::Fd(#name_ident.as_fd().as_raw_fd()) }
+            quote! { hyprwire::core::types::CallArg::Fd(#name_ident.as_fd().as_raw_fd()) }
         }
-        ArgType::Uint => quote! { hyprwire::implementation::types::CallArg::Uint(#name_ident) },
-        ArgType::Int => quote! { hyprwire::implementation::types::CallArg::Int(#name_ident) },
-        ArgType::F32 => quote! { hyprwire::implementation::types::CallArg::F32(#name_ident) },
+        ArgType::Uint => quote! { hyprwire::core::types::CallArg::Uint(#name_ident) },
+        ArgType::Int => quote! { hyprwire::core::types::CallArg::Int(#name_ident) },
+        ArgType::F32 => quote! { hyprwire::core::types::CallArg::F32(#name_ident) },
         ArgType::Enum => {
-            quote! { hyprwire::implementation::types::CallArg::Uint(#name_ident as u32) }
+            quote! { hyprwire::core::types::CallArg::Uint(#name_ident as u32) }
         }
         ArgType::ArrayVarchar => {
             quote! {
-                hyprwire::implementation::types::CallArg::VarcharArray(
+                hyprwire::core::types::CallArg::VarcharArray(
                     &#name_ident
                         .iter()
                         .map(|s| s.as_ref().as_bytes())
@@ -213,16 +213,16 @@ fn call_arg_expr(name_ident: &proc_macro2::Ident, arg_type: &ArgType) -> TokenSt
         }
         ArgType::ArrayFd => {
             let raw_name = format_ident!("{}_raw_fds", name_ident);
-            quote! { hyprwire::implementation::types::CallArg::FdArray(&#raw_name) }
+            quote! { hyprwire::core::types::CallArg::FdArray(&#raw_name) }
         }
         ArgType::ArrayUint => {
-            quote! { hyprwire::implementation::types::CallArg::UintArray(#name_ident) }
+            quote! { hyprwire::core::types::CallArg::UintArray(#name_ident) }
         }
         ArgType::ArrayInt => {
-            quote! { hyprwire::implementation::types::CallArg::IntArray(#name_ident) }
+            quote! { hyprwire::core::types::CallArg::IntArray(#name_ident) }
         }
         ArgType::ArrayF32 => {
-            quote! { hyprwire::implementation::types::CallArg::F32Array(#name_ident) }
+            quote! { hyprwire::core::types::CallArg::F32Array(#name_ident) }
         }
     }
 }
@@ -403,7 +403,7 @@ fn write_method_spec(idx: usize, m: &Method) -> TokenStream {
     let ret = m.returns.as_deref().unwrap_or("");
     let destructor = m.destructor;
     quote! {
-        hyprwire::implementation::types::Method {
+        hyprwire::core::types::Method {
             idx: #idx_lit,
             #params_ts
             returns_type: #ret,
@@ -459,20 +459,20 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
 
         quote! {
             pub struct #spec_ident {
-                c2s_methods: &'static [hyprwire::implementation::types::Method],
-                s2c_methods: &'static [hyprwire::implementation::types::Method],
+                c2s_methods: &'static [hyprwire::core::types::Method],
+                s2c_methods: &'static [hyprwire::core::types::Method],
             }
 
-            static #static_ident: std::sync::LazyLock<std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>> =
+            static #static_ident: std::sync::LazyLock<std::sync::Arc<dyn hyprwire::core::types::ProtocolObjectSpec>> =
                 std::sync::LazyLock::new(|| std::sync::Arc::new(#spec_ident {
                     c2s_methods: &[#(#c2s_specs)*],
                     s2c_methods: &[#(#s2c_specs)*],
                 }));
 
-            impl hyprwire::implementation::types::ProtocolObjectSpec for #spec_ident {
+            impl hyprwire::core::types::ProtocolObjectSpec for #spec_ident {
                 fn object_name(&self) -> &str { #obj_name_str }
-                fn c2s(&self) -> &[hyprwire::implementation::types::Method] { self.c2s_methods }
-                fn s2c(&self) -> &[hyprwire::implementation::types::Method] { self.s2c_methods }
+                fn c2s(&self) -> &[hyprwire::core::types::Method] { self.c2s_methods }
+                fn s2c(&self) -> &[hyprwire::core::types::Method] { self.s2c_methods }
             }
         }
     }).collect();
@@ -500,7 +500,7 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
 
             #[derive(Clone)]
             pub struct #proto_spec_ident {
-                objects: [std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>; #num_objects],
+                objects: [std::sync::Arc<dyn hyprwire::core::types::ProtocolObjectSpec>; #num_objects],
             }
 
             impl Default for #proto_spec_ident {
@@ -511,10 +511,10 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
                 }
             }
 
-            impl hyprwire::implementation::types::ProtocolSpec for #proto_spec_ident {
+            impl hyprwire::core::types::ProtocolSpec for #proto_spec_ident {
                 fn spec_name(&self) -> &str { #proto_name_str }
                 fn spec_ver(&self) -> u32 { #proto_ver }
-                fn objects(&self) -> &[std::sync::Arc<dyn hyprwire::implementation::types::ProtocolObjectSpec>] {
+                fn objects(&self) -> &[std::sync::Arc<dyn hyprwire::core::types::ProtocolObjectSpec>] {
                     &self.objects
                 }
             }
@@ -994,7 +994,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         }
 
         impl hyprwire::implementation::server::ProtocolImplementations for #impl_ident {
-            fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
+            fn protocol(&self) -> &dyn hyprwire::core::types::ProtocolSpec {
                 &self.protocol
             }
             fn implementation(&self) -> &[hyprwire::implementation::server::ObjectImplementation<'_>] {
@@ -1119,7 +1119,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
                 Self::default()
             }
 
-            fn protocol_spec() -> Box<dyn hyprwire::implementation::types::ProtocolSpec> {
+            fn protocol_spec() -> Box<dyn hyprwire::core::types::ProtocolSpec> {
                 Box::new(super::spec::#proto_spec_ident::default())
             }
 
@@ -1127,7 +1127,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
                 #protocol_name
             }
 
-            fn protocol(&self) -> &dyn hyprwire::implementation::types::ProtocolSpec {
+            fn protocol(&self) -> &dyn hyprwire::core::types::ProtocolSpec {
                 &self.protocol
             }
             fn implementation(&self) -> &[hyprwire::implementation::client::ObjectImplementation<'_>] {

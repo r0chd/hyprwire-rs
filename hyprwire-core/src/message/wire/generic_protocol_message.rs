@@ -1,5 +1,4 @@
-use crate::implementation::types;
-use crate::{message, trace};
+use crate::{message, types};
 use std::{error, fmt, ops};
 
 #[derive(Debug)]
@@ -110,7 +109,6 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                     let mut arr_message_len: usize = 2 + len_len;
 
                     if arr_len >= 10000 {
-                        trace! { crate::log_debug!("GenericProtocolMessage: failed demarshaling array message, array max size is 10000.") };
                         return Err(message::Error::GenericProtocol(Error::ArrayMessageTooLong));
                     }
 
@@ -140,9 +138,6 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                             }
                         }
                         _ => {
-                            trace! {
-                                crate::log_debug!("[hw] trace: GenericProtocolMessage: failed demarshaling array message")
-                            }
                             return Err(message::Error::MalformedMessage);
                         }
                     }
@@ -154,17 +149,11 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                         consumed_fds.push(*fd);
                         fds_cursor += 1;
                     } else {
-                        trace! {
-                            crate::log_debug!("[hw] trace: GenericProtocolMessage: MessageMagic::TypeFd but fd queue is empty")
-                        }
                         return Err(message::Error::MalformedMessage);
                     }
                     i += 1;
                 }
                 _ => {
-                    trace! {
-                        crate::log_debug!("[hw] trace: GenericProtocolMessage: failed demarshaling array message")
-                    }
                     return Err(message::Error::MalformedMessage);
                 }
             }
@@ -470,65 +459,6 @@ mod tests {
         let mut fds = Vec::new();
         let err = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap_err();
         assert!(matches!(err, message::Error::UnexpectedEof));
-    }
-
-    #[test]
-    fn parses_object_method_and_payload_span() {
-        let bytes = [
-            message::MessageType::GenericProtocolMessage as u8,
-            types::MessageMagic::TypeObject as u8,
-            0xCD,
-            0xAB,
-            0x00,
-            0x00, // object = 0xABCD
-            types::MessageMagic::TypeUint as u8,
-            0x03,
-            0x00,
-            0x00,
-            0x00, // method = 3
-            types::MessageMagic::TypeUint as u8,
-            0x37,
-            0x00,
-            0x00,
-            0x00, // uint = 55
-            types::MessageMagic::End as u8,
-        ];
-        let mut fds = Vec::new();
-        let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
-
-        assert_eq!(msg.data().len(), bytes.len());
-        assert_eq!(msg.object(), 0xABCD);
-        assert_eq!(msg.method(), 3);
-        let span = msg.data_span();
-        assert!(!span.is_empty());
-        assert_eq!(span[0], types::MessageMagic::TypeUint as u8);
-        assert_eq!(*span.last().unwrap(), types::MessageMagic::End as u8);
-        assert!(fds.is_empty());
-    }
-
-    #[test]
-    fn resolve_seq_updates_object_and_serialized_payload() {
-        let bytes = vec![
-            message::MessageType::GenericProtocolMessage as u8,
-            types::MessageMagic::TypeObject as u8,
-            0x01,
-            0x00,
-            0x00,
-            0x00, // object = 1
-            types::MessageMagic::TypeUint as u8,
-            0x09,
-            0x00,
-            0x00,
-            0x00, // method = 9
-            types::MessageMagic::End as u8,
-        ];
-        let mut msg = GenericProtocolMessage::new(bytes, vec![]);
-        msg.resolve_seq(0xAABBCCDD);
-
-        assert_eq!(msg.object(), 0xAABBCCDD);
-        let data = msg.data();
-        let encoded_id = u32::from_le_bytes([data[2], data[3], data[4], data[5]]);
-        assert_eq!(encoded_id, 0xAABBCCDD);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use super::server_client;
 use crate::{SharedState, message, socket, steady_millis, trace};
+use hyprwire_core::message::wire::{fatal_protocol_error, roundtrip_done};
 use nix::poll;
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
@@ -176,7 +177,7 @@ impl ServerSocket {
             if let Ok(d) = socket::SocketRawParsedMessage::read_from_socket(&state.stream) {
                 d
             } else {
-                state.send_message(&message::FatalProtocolError::new(
+                state.send_message(&fatal_protocol_error::FatalProtocolError::new(
                     0,
                     u32::MAX,
                     "fatal: invalid message on wire",
@@ -194,7 +195,7 @@ impl ServerSocket {
         }
 
         if message::handle_message(&mut data, &message::Role::Server(client), dispatch).is_err() {
-            state.send_message(&message::FatalProtocolError::new(
+            state.send_message(&fatal_protocol_error::FatalProtocolError::new(
                 0,
                 u32::MAX,
                 "fatal: failed to handle message on wire",
@@ -206,7 +207,7 @@ impl ServerSocket {
 
         let scheduled_seq = client.scheduled_roundtrip_seq.get();
         if scheduled_seq > 0 {
-            state.send_message(&message::RoundtripDone::new(scheduled_seq));
+            state.send_message(&roundtrip_done::RoundtripDone::new(scheduled_seq));
             client.scheduled_roundtrip_seq.set(0);
         }
     }

@@ -1,4 +1,5 @@
-use crate::implementation::{client, types};
+use crate::implementation::client;
+use hyprwire_core::types;
 use std::marker;
 
 #[derive(Clone)]

@@ -1,4 +1,4 @@
-use super::types;
+use hyprwire_core::types;
 
 #[allow(dead_code)]
 pub struct ObjectImplementation<'a> {

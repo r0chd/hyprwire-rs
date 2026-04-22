@@ -1,11 +1,37 @@
-use super::types;
 use crate::implementation::object;
 use crate::server::server_object;
-use crate::{message, steady_millis, trace};
+use crate::{steady_millis, trace};
+use hyprwire_core::message;
+use hyprwire_core::message::wire::generic_protocol_message;
+use hyprwire_core::types;
 use libffi::low as ffi;
+use libffi::low;
 use std::os::fd::AsRawFd;
 use std::os::raw;
 use std::{any, ptr};
+
+struct FfiType(pub *mut low::ffi_type);
+
+impl From<types::MessageMagic> for FfiType {
+    fn from(value: types::MessageMagic) -> Self {
+        let t = match value {
+            types::MessageMagic::TypeUint
+            | types::MessageMagic::TypeObject
+            | types::MessageMagic::TypeSeq
+            | types::MessageMagic::TypeObjectId => &raw mut low::types::uint32,
+            types::MessageMagic::TypeInt | types::MessageMagic::TypeFd => {
+                &raw mut low::types::sint32
+            }
+            types::MessageMagic::TypeVarchar | types::MessageMagic::TypeArray => {
+                &raw mut low::types::pointer
+            }
+            types::MessageMagic::TypeF32 => &raw mut low::types::float,
+            types::MessageMagic::End => &raw mut low::types::void,
+        };
+
+        FfiType(t)
+    }
+}
 
 pub trait WireObject: object::Object {
     fn set_version(&self, version: u32);
@@ -103,7 +129,7 @@ pub trait WireObject: object::Object {
                 return Err(message::Error::InvalidParameter);
             }
 
-            ffi_types.push(param.to_ffi_type());
+            ffi_types.push(<types::MessageMagic as Into<FfiType>>::into(param).0);
 
             match param {
                 types::MessageMagic::End => i += 1, // BUG if this happens or malformed message
@@ -143,7 +169,10 @@ pub trait WireObject: object::Object {
                         return Err(message::Error::ArrayTooLong);
                     }
 
-                    ffi_types.push(types::MessageMagic::TypeUint.to_ffi_type());
+                    ffi_types.push(
+                        <types::MessageMagic as Into<FfiType>>::into(types::MessageMagic::TypeUint)
+                            .0,
+                    );
 
                     match arr_type {
                         types::MessageMagic::TypeUint
@@ -622,7 +651,7 @@ pub trait WireObject: object::Object {
 
         data.push(types::MessageMagic::End as u8);
 
-        let mut msg = message::GenericProtocolMessage::new(data, fds);
+        let mut msg = generic_protocol_message::GenericProtocolMessage::new(data, fds);
 
         if self.id() == 0 && !self.server() {
             trace! {

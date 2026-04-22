@@ -1,6 +1,6 @@
-use crate::implementation::types;
 use crate::server::server_client;
 use crate::{client, server};
+use hyprwire_core::types;
 use std::os::raw;
 use std::rc;
 

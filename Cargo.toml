@@ -1,5 +1,10 @@
 [workspace]
-members = ["hyprwire", "hyprwire-protocols", "hyprwire-scanner"]
+members = [
+  "hyprwire",
+  "hyprwire-core",
+  "hyprwire-protocols",
+  "hyprwire-scanner",
+]
 default-members = ["hyprwire", "hyprwire-protocols", "hyprwire-scanner"]
 resolver = "3"
 

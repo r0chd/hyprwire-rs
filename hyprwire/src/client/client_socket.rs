@@ -1,10 +1,13 @@
 use super::client_object;
-use crate::SharedState;
 use crate::client::server_spec;
-use crate::implementation::types::ProtocolSpec;
 use crate::implementation::wire_object::WireObject;
-use crate::message::Message;
-use crate::{implementation, message, socket, steady_millis, trace};
+use crate::{implementation, socket, steady_millis, trace};
+use hyprwire_core::message;
+use hyprwire_core::message::Message;
+use hyprwire_core::message::wire::{
+    bind_protocol, generic_protocol_message, hello, roundtrip_request,
+};
+use hyprwire_core::types::ProtocolSpec;
 use nix::{errno, poll, sys};
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
@@ -16,13 +19,13 @@ pub struct ClientSocket {
     server_specs: cell::RefCell<Vec<server_spec::AdvertisedSpec>>,
     objects: cell::RefCell<Vec<rc::Rc<client_object::ClientObject>>>,
     handshake_begin: time::Instant,
-    pub(crate) state: rc::Rc<SharedState>,
+    pub(crate) state: rc::Rc<crate::SharedState>,
     pub(crate) handshake_done: cell::Cell<bool>,
     pub(crate) last_ackd_roundtrip_seq: cell::Cell<u32>,
     last_sent_roundtrip_seq: cell::Cell<u32>,
     pub(crate) seq: cell::Cell<u32>,
     pub(crate) pending_outgoing:
-        cell::RefCell<Vec<message::GenericProtocolMessage<ops::Range<usize>>>>,
+        cell::RefCell<Vec<generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>>>,
     self_ref: rc::Weak<Self>,
 }
 
@@ -30,7 +33,7 @@ const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
     fn new(stream: net::UnixStream) -> rc::Rc<Self> {
-        let state = rc::Rc::new(SharedState::new(
+        let state = rc::Rc::new(crate::SharedState::new(
             stream,
             rc::Rc::new(cell::RefCell::new(Vec::new())),
         ));
@@ -47,7 +50,7 @@ impl ClientSocket {
             pending_outgoing: cell::RefCell::new(Vec::new()),
             self_ref: weak_self.clone(),
         });
-        state.send_message(&message::Hello::new());
+        state.send_message(&hello::Hello::new());
 
         client_socket
     }
@@ -143,7 +146,7 @@ impl ClientSocket {
         let object = rc::Rc::new(object);
         self.objects.borrow_mut().push(rc::Rc::clone(&object));
 
-        let bind_message = message::BindProtocol::new(spec.spec_name(), seq, version);
+        let bind_message = bind_protocol::BindProtocol::new(spec.spec_name(), seq, version);
         self.state.send_message(&bind_message);
 
         Ok(object)
@@ -238,7 +241,7 @@ impl ClientSocket {
         let next_seq = self.last_sent_roundtrip_seq.get() + 1;
         self.last_sent_roundtrip_seq.set(next_seq);
         self.state
-            .send_message(&message::RoundtripRequest::new(next_seq));
+            .send_message(&roundtrip_request::RoundtripRequest::new(next_seq));
 
         while self.last_ackd_roundtrip_seq.get() < next_seq {
             self.dispatch_events(dispatch, true)?;
@@ -386,7 +389,9 @@ impl ClientSocket {
             ));
         }
 
-        if message::handle_message(&mut data, &message::Role::Client(self), dispatch).is_err() {
+        if crate::message::handle_message(&mut data, &crate::message::Role::Client(self), dispatch)
+            .is_err()
+        {
             crate::log_error!("fatal: failed to handle message on wire");
             self.disconnect_on_error();
             return Err(io::Error::new(
@@ -460,7 +465,7 @@ impl ClientSocket {
 
     pub fn on_generic<D>(
         &self,
-        msg: &message::GenericProtocolMessage<ops::Range<usize>>,
+        msg: &generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>,
         dispatch: &mut D,
     ) {
         let obj = self

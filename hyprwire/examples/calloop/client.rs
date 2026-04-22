@@ -6,7 +6,7 @@ mod test_protocol_v1 {
 
 use calloop::generic;
 use hyprwire::client;
-use hyprwire::implementation::types::ProtocolSpec;
+use hyprwire_core::types::ProtocolSpec;
 use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
