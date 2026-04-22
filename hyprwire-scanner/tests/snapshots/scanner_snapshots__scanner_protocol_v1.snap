@@ -13,7 +13,7 @@ expression: code
 
 #[allow(clippy::all, dead_code, unused_imports)]
 pub mod server {
-    use std::{ffi, os::fd::*, rc, sync};
+    use std::{os::fd::*, rc, sync};
     pub mod my_manager_v1 {
         use super::*;
         /// manager object
@@ -79,39 +79,246 @@ pub mod server {
             /// Makes a test object
             MakeObject { seq: u32 },
         }
+        struct MyManagerV1ObjectData<D> {
+            object: *const dyn hyprwire::implementation::object::Object,
+            _phantom: std::marker::PhantomData<D>,
+        }
+        unsafe impl<D> Send for MyManagerV1ObjectData<D> {}
+        unsafe impl<D> Sync for MyManagerV1ObjectData<D> {}
+        impl<
+            D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
+        > hyprwire::implementation::object::ObjectData for MyManagerV1ObjectData<D> {
+            fn dispatch(
+                &self,
+                __method: u32,
+                __data: &[u8],
+                __fds: &[i32],
+                __state: *mut (),
+            ) {
+                if __state.is_null() {
+                    return;
+                }
+                unsafe { rc::Rc::increment_strong_count(self.object) };
+                let __proxy = my_manager_v1::MyManagerV1 {
+                    object: unsafe { rc::Rc::from_raw(self.object) },
+                };
+                let __dispatch = unsafe { &mut *(__state as *mut D) };
+                match __method {
+                    0u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 1;
+                        let (__len, __vl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __vl;
+                        let message = String::from_utf8_lossy(
+                                &__data[__needle..__needle + __len],
+                            )
+                            .into_owned();
+                        __needle += __len;
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::SendMessage {
+                                    message,
+                                },
+                            );
+                    }
+                    1u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 1;
+                        let message = unsafe {
+                            OwnedFd::from_raw_fd(__fds[__fd_cursor])
+                        };
+                        __fd_cursor += 1;
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::SendMessageFd {
+                                    message,
+                                },
+                            );
+                    }
+                    2u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 2;
+                        let (__count, __cl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __cl;
+                        let mut message = Vec::with_capacity(__count);
+                        for _ in 0..__count {
+                            message
+                                .push(unsafe { OwnedFd::from_raw_fd(__fds[__fd_cursor]) });
+                            __fd_cursor += 1;
+                        }
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::SendMessageArrayFd {
+                                    message,
+                                },
+                            );
+                    }
+                    3u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 2;
+                        let (__count, __cl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __cl;
+                        let mut message = Vec::with_capacity(__count);
+                        for _ in 0..__count {
+                            let (__slen, __svl) = hyprwire::core::message::parse_var_int(
+                                __data,
+                                __needle,
+                            );
+                            __needle += __svl;
+                            message
+                                .push(
+                                    String::from_utf8_lossy(
+                                            &__data[__needle..__needle + __slen],
+                                        )
+                                        .into_owned(),
+                                );
+                            __needle += __slen;
+                        }
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::SendMessageArray {
+                                    message,
+                                },
+                            );
+                    }
+                    4u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 2;
+                        let (__count, __cl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __cl;
+                        let mut cmd = Vec::with_capacity(__count);
+                        for _ in 0..__count {
+                            let (__slen, __svl) = hyprwire::core::message::parse_var_int(
+                                __data,
+                                __needle,
+                            );
+                            __needle += __svl;
+                            cmd.push(
+                                String::from_utf8_lossy(
+                                        &__data[__needle..__needle + __slen],
+                                    )
+                                    .into_owned(),
+                            );
+                            __needle += __slen;
+                        }
+                        __needle += 2;
+                        let (__count, __cl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __cl;
+                        let mut env = Vec::with_capacity(__count);
+                        for _ in 0..__count {
+                            let (__slen, __svl) = hyprwire::core::message::parse_var_int(
+                                __data,
+                                __needle,
+                            );
+                            __needle += __svl;
+                            env.push(
+                                String::from_utf8_lossy(
+                                        &__data[__needle..__needle + __slen],
+                                    )
+                                    .into_owned(),
+                            );
+                            __needle += __slen;
+                        }
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::SendStart {
+                                    cmd,
+                                    env,
+                                },
+                            );
+                    }
+                    5u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 2;
+                        let (__count, __cl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __cl;
+                        let mut message = Vec::with_capacity(__count);
+                        for _ in 0..__count {
+                            message
+                                .push(
+                                    u32::from_le_bytes(
+                                        __data[__needle..__needle + 4].try_into().unwrap(),
+                                    ),
+                                );
+                            __needle += 4;
+                        }
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::SendMessageArrayUint {
+                                    message,
+                                },
+                            );
+                    }
+                    6u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 1;
+                        let seq = u32::from_le_bytes(
+                            __data[__needle..__needle + 4].try_into().unwrap(),
+                        );
+                        __needle += 4;
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::MakeObject {
+                                    seq,
+                                },
+                            );
+                    }
+                    _ => {}
+                }
+            }
+        }
         impl hyprwire::Object for MyManagerV1 {
             type Event<'a> = Event;
             const NAME: &str = "my_manager_v1";
-            fn from_object<D: hyprwire::Dispatch<Self>>(
+            fn from_object<D: hyprwire::Dispatch<Self> + 'static>(
                 object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyManagerV1 {
-            pub fn new<D: hyprwire::Dispatch<Self>>(
+            pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
                 object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
-                unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
-                    drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
-                }
-                let dispatch_data = Box::into_raw(
-                    Box::new(hyprwire::DispatchData {
-                        object: rc::Rc::as_ptr(&object),
-                    }),
-                );
-                object
-                    .set_data(
-                        dispatch_data as *mut ffi::c_void,
-                        Some(drop_dispatch_data),
-                    );
-                object.listen(0u32, my_manager_v1_method0::<D> as *mut ffi::c_void);
-                object.listen(1u32, my_manager_v1_method1::<D> as *mut ffi::c_void);
-                object.listen(2u32, my_manager_v1_method2::<D> as *mut ffi::c_void);
-                object.listen(3u32, my_manager_v1_method3::<D> as *mut ffi::c_void);
-                object.listen(4u32, my_manager_v1_method4::<D> as *mut ffi::c_void);
-                object.listen(5u32, my_manager_v1_method5::<D> as *mut ffi::c_void);
-                object.listen(6u32, my_manager_v1_method6::<D> as *mut ffi::c_void);
+                let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyManagerV1ObjectData::<
+                    D,
+                > {
+                    object: rc::Rc::as_ptr(&object),
+                    _phantom: std::marker::PhantomData,
+                });
+                object.set_object_data(object_data);
                 Self { object }
             }
             pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
@@ -125,10 +332,9 @@ pub mod server {
             /// Makes a test object
             ///
             /// Returns a new `my_object_v1` object.
-            pub fn make_object<D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1>>(
-                &self,
-                seq: u32,
-            ) -> Option<super::my_object_v1::MyObjectV1> {
+            pub fn make_object<
+                D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
+            >(&self, seq: u32) -> Option<super::my_object_v1::MyObjectV1> {
                 let obj = self.object.create_object("my_object_v1", seq)?;
                 Some(
                     <super::my_object_v1::MyObjectV1 as hyprwire::Object>::from_object::<
@@ -164,185 +370,6 @@ pub mod server {
                     .call(1u32, &[hyprwire::core::types::CallArg::UintArray(message)]);
             }
         }
-    }
-    unsafe extern "C" fn my_manager_v1_method0<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(data: *mut ffi::c_void, message: *const ffi::c_char) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message = unsafe { ffi::CStr::from_ptr(message) }
-            .to_string_lossy()
-            .into_owned();
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::SendMessage {
-                    message,
-                },
-            );
-    }
-    unsafe extern "C" fn my_manager_v1_method1<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(data: *mut ffi::c_void, message: i32) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message = unsafe { OwnedFd::from_raw_fd(message) };
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::SendMessageFd {
-                    message,
-                },
-            );
-    }
-    unsafe extern "C" fn my_manager_v1_method2<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(data: *mut ffi::c_void, message: *const i32, message_len: u32) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message: Vec<OwnedFd> = unsafe {
-            std::slice::from_raw_parts(message, message_len as usize)
-        }
-            .iter()
-            .map(|&fd| unsafe { OwnedFd::from_raw_fd(fd) })
-            .collect();
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::SendMessageArrayFd {
-                    message,
-                },
-            );
-    }
-    unsafe extern "C" fn my_manager_v1_method3<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(data: *mut ffi::c_void, message: *const *const ffi::c_char, message_len: u32) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message: Vec<String> = unsafe {
-            std::slice::from_raw_parts(message, message_len as usize)
-        }
-            .iter()
-            .map(|&p| unsafe { ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
-            .collect();
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::SendMessageArray {
-                    message,
-                },
-            );
-    }
-    unsafe extern "C" fn my_manager_v1_method4<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(
-        data: *mut ffi::c_void,
-        cmd: *const *const ffi::c_char,
-        cmd_len: u32,
-        env: *const *const ffi::c_char,
-        env_len: u32,
-    ) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let cmd: Vec<String> = unsafe {
-            std::slice::from_raw_parts(cmd, cmd_len as usize)
-        }
-            .iter()
-            .map(|&p| unsafe { ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
-            .collect();
-        let env: Vec<String> = unsafe {
-            std::slice::from_raw_parts(env, env_len as usize)
-        }
-            .iter()
-            .map(|&p| unsafe { ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
-            .collect();
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::SendStart {
-                    cmd,
-                    env,
-                },
-            );
-    }
-    unsafe extern "C" fn my_manager_v1_method5<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(data: *mut ffi::c_void, message: *const u32, message_len: u32) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message = unsafe {
-            std::slice::from_raw_parts(message, message_len as usize)
-        }
-            .to_vec();
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::SendMessageArrayUint {
-                    message,
-                },
-            );
-    }
-    unsafe extern "C" fn my_manager_v1_method6<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(data: *mut ffi::c_void, seq: u32) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::MakeObject {
-                    seq,
-                },
-            );
     }
     pub mod my_object_v1 {
         use super::*;
@@ -397,36 +424,121 @@ pub mod server {
             /// Makes a test object from a test object
             MakeObject { seq: u32 },
         }
+        struct MyObjectV1ObjectData<D> {
+            object: *const dyn hyprwire::implementation::object::Object,
+            _phantom: std::marker::PhantomData<D>,
+        }
+        unsafe impl<D> Send for MyObjectV1ObjectData<D> {}
+        unsafe impl<D> Sync for MyObjectV1ObjectData<D> {}
+        impl<
+            D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
+        > hyprwire::implementation::object::ObjectData for MyObjectV1ObjectData<D> {
+            fn dispatch(
+                &self,
+                __method: u32,
+                __data: &[u8],
+                __fds: &[i32],
+                __state: *mut (),
+            ) {
+                if __state.is_null() {
+                    return;
+                }
+                unsafe { rc::Rc::increment_strong_count(self.object) };
+                let __proxy = my_object_v1::MyObjectV1 {
+                    object: unsafe { rc::Rc::from_raw(self.object) },
+                };
+                let __dispatch = unsafe { &mut *(__state as *mut D) };
+                match __method {
+                    0u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 1;
+                        let (__len, __vl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __vl;
+                        let message = String::from_utf8_lossy(
+                                &__data[__needle..__needle + __len],
+                            )
+                            .into_owned();
+                        __needle += __len;
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_object_v1::Event::SendMessage {
+                                    message,
+                                },
+                            );
+                    }
+                    1u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 1;
+                        let message: super::super::spec::MyEnum = unsafe {
+                            std::mem::transmute::<
+                                u32,
+                                super::super::spec::MyEnum,
+                            >(
+                                u32::from_le_bytes(
+                                    __data[__needle..__needle + 4].try_into().unwrap(),
+                                ),
+                            )
+                        };
+                        __needle += 4;
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_object_v1::Event::SendEnum {
+                                    message,
+                                },
+                            );
+                    }
+                    2u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __dispatch.event(&__proxy, my_object_v1::Event::Destroy);
+                    }
+                    3u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 1;
+                        let seq = u32::from_le_bytes(
+                            __data[__needle..__needle + 4].try_into().unwrap(),
+                        );
+                        __needle += 4;
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_object_v1::Event::MakeObject {
+                                    seq,
+                                },
+                            );
+                    }
+                    _ => {}
+                }
+            }
+        }
         impl hyprwire::Object for MyObjectV1 {
             type Event<'a> = Event;
             const NAME: &str = "my_object_v1";
-            fn from_object<D: hyprwire::Dispatch<Self>>(
+            fn from_object<D: hyprwire::Dispatch<Self> + 'static>(
                 object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyObjectV1 {
-            pub fn new<D: hyprwire::Dispatch<Self>>(
+            pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
                 object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
-                unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
-                    drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
-                }
-                let dispatch_data = Box::into_raw(
-                    Box::new(hyprwire::DispatchData {
-                        object: rc::Rc::as_ptr(&object),
-                    }),
-                );
-                object
-                    .set_data(
-                        dispatch_data as *mut ffi::c_void,
-                        Some(drop_dispatch_data),
-                    );
-                object.listen(0u32, my_object_v1_method0::<D> as *mut ffi::c_void);
-                object.listen(1u32, my_object_v1_method1::<D> as *mut ffi::c_void);
-                object.listen(2u32, my_object_v1_method2::<D> as *mut ffi::c_void);
-                object.listen(3u32, my_object_v1_method3::<D> as *mut ffi::c_void);
+                let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyObjectV1ObjectData::<
+                    D,
+                > {
+                    object: rc::Rc::as_ptr(&object),
+                    _phantom: std::marker::PhantomData,
+                });
+                object.set_object_data(object_data);
                 Self { object }
             }
             pub fn error(&self, error_id: u32, error_msg: impl AsRef<str>) {
@@ -440,10 +552,9 @@ pub mod server {
             /// Makes a test object from a test object
             ///
             /// Returns a new `my_object_v1` object.
-            pub fn make_object<D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1>>(
-                &self,
-                seq: u32,
-            ) -> Option<super::my_object_v1::MyObjectV1> {
+            pub fn make_object<
+                D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
+            >(&self, seq: u32) -> Option<super::my_object_v1::MyObjectV1> {
                 let obj = self.object.create_object("my_object_v1", seq)?;
                 Some(
                     <super::my_object_v1::MyObjectV1 as hyprwire::Object>::from_object::<
@@ -469,83 +580,6 @@ pub mod server {
                     );
             }
         }
-    }
-    unsafe extern "C" fn my_object_v1_method0<
-        D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
-    >(data: *mut ffi::c_void, message: *const ffi::c_char) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_object_v1::MyObjectV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message = unsafe { ffi::CStr::from_ptr(message) }
-            .to_string_lossy()
-            .into_owned();
-        __dispatch
-            .event(
-                &proxy,
-                my_object_v1::Event::SendMessage {
-                    message,
-                },
-            );
-    }
-    unsafe extern "C" fn my_object_v1_method1<
-        D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
-    >(data: *mut ffi::c_void, message: super::spec::MyEnum) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_object_v1::MyObjectV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        __dispatch
-            .event(
-                &proxy,
-                my_object_v1::Event::SendEnum {
-                    message,
-                },
-            );
-    }
-    unsafe extern "C" fn my_object_v1_method2<
-        D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
-    >(data: *mut ffi::c_void) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_object_v1::MyObjectV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        __dispatch.event(&proxy, my_object_v1::Event::Destroy);
-    }
-    unsafe extern "C" fn my_object_v1_method3<
-        D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
-    >(data: *mut ffi::c_void, seq: u32) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_object_v1::MyObjectV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        __dispatch
-            .event(
-                &proxy,
-                my_object_v1::Event::MakeObject {
-                    seq,
-                },
-            );
     }
     pub trait TestProtocolV1Handler {
         /// Called whenever the server binds a new instance of the protocol's
@@ -602,7 +636,7 @@ pub mod server {
 }
 #[allow(clippy::all, dead_code, unused_imports)]
 pub mod client {
-    use std::{ffi, os::fd::*, rc, sync};
+    use std::{os::fd::*, rc, sync};
     pub mod my_manager_v1 {
         use super::*;
         /// manager object
@@ -648,34 +682,104 @@ pub mod client {
             /// Receives an array message to the server
             RecvMessageArrayUint { message: Vec<u32> },
         }
+        struct MyManagerV1ObjectData<D> {
+            object: *const dyn hyprwire::implementation::object::Object,
+            _phantom: std::marker::PhantomData<D>,
+        }
+        unsafe impl<D> Send for MyManagerV1ObjectData<D> {}
+        unsafe impl<D> Sync for MyManagerV1ObjectData<D> {}
+        impl<
+            D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
+        > hyprwire::implementation::object::ObjectData for MyManagerV1ObjectData<D> {
+            fn dispatch(
+                &self,
+                __method: u32,
+                __data: &[u8],
+                __fds: &[i32],
+                __state: *mut (),
+            ) {
+                if __state.is_null() {
+                    return;
+                }
+                unsafe { rc::Rc::increment_strong_count(self.object) };
+                let __proxy = my_manager_v1::MyManagerV1 {
+                    object: unsafe { rc::Rc::from_raw(self.object) },
+                };
+                let __dispatch = unsafe { &mut *(__state as *mut D) };
+                match __method {
+                    0u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 1;
+                        let (__len, __vl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __vl;
+                        let message = String::from_utf8_lossy(
+                                &__data[__needle..__needle + __len],
+                            )
+                            .into_owned();
+                        __needle += __len;
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::SendMessage {
+                                    message,
+                                },
+                            );
+                    }
+                    1u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 2;
+                        let (__count, __cl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __cl;
+                        let mut message = Vec::with_capacity(__count);
+                        for _ in 0..__count {
+                            message
+                                .push(
+                                    u32::from_le_bytes(
+                                        __data[__needle..__needle + 4].try_into().unwrap(),
+                                    ),
+                                );
+                            __needle += 4;
+                        }
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_manager_v1::Event::RecvMessageArrayUint {
+                                    message,
+                                },
+                            );
+                    }
+                    _ => {}
+                }
+            }
+        }
         impl hyprwire::Object for MyManagerV1 {
             type Event<'a> = Event;
             const NAME: &str = "my_manager_v1";
-            fn from_object<D: hyprwire::Dispatch<Self>>(
+            fn from_object<D: hyprwire::Dispatch<Self> + 'static>(
                 object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyManagerV1 {
-            pub fn new<D: hyprwire::Dispatch<Self>>(
+            pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
                 object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
-                unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
-                    drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
-                }
-                let dispatch_data = Box::into_raw(
-                    Box::new(hyprwire::DispatchData {
-                        object: rc::Rc::as_ptr(&object),
-                    }),
-                );
-                object
-                    .set_data(
-                        dispatch_data as *mut ffi::c_void,
-                        Some(drop_dispatch_data),
-                    );
-                object.listen(0u32, my_manager_v1_method0::<D> as *mut ffi::c_void);
-                object.listen(1u32, my_manager_v1_method1::<D> as *mut ffi::c_void);
+                let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyManagerV1ObjectData::<
+                    D,
+                > {
+                    object: rc::Rc::as_ptr(&object),
+                    _phantom: std::marker::PhantomData,
+                });
+                object.set_object_data(object_data);
                 Self { object }
             }
             /// Send a text message
@@ -792,7 +896,7 @@ pub mod client {
             ///
             /// Returns a new `my_object_v1` object.
             pub fn send_make_object<
-                D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1>,
+                D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
             >(&self) -> Option<super::my_object_v1::MyObjectV1> {
                 let seq = self.object.call(6u32, &[]);
                 let obj = self
@@ -806,53 +910,6 @@ pub mod client {
                 )
             }
         }
-    }
-    unsafe extern "C" fn my_manager_v1_method0<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(data: *mut ffi::c_void, message: *const ffi::c_char) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message = unsafe { ffi::CStr::from_ptr(message) }
-            .to_string_lossy()
-            .into_owned();
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::SendMessage {
-                    message,
-                },
-            );
-    }
-    unsafe extern "C" fn my_manager_v1_method1<
-        D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
-    >(data: *mut ffi::c_void, message: *const u32, message_len: u32) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_manager_v1::MyManagerV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message = unsafe {
-            std::slice::from_raw_parts(message, message_len as usize)
-        }
-            .to_vec();
-        __dispatch
-            .event(
-                &proxy,
-                my_manager_v1::Event::RecvMessageArrayUint {
-                    message,
-                },
-            );
     }
     pub mod my_object_v1 {
         use super::*;
@@ -895,33 +952,77 @@ pub mod client {
             /// Sends a text message to the client
             SendMessage { message: String },
         }
+        struct MyObjectV1ObjectData<D> {
+            object: *const dyn hyprwire::implementation::object::Object,
+            _phantom: std::marker::PhantomData<D>,
+        }
+        unsafe impl<D> Send for MyObjectV1ObjectData<D> {}
+        unsafe impl<D> Sync for MyObjectV1ObjectData<D> {}
+        impl<
+            D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
+        > hyprwire::implementation::object::ObjectData for MyObjectV1ObjectData<D> {
+            fn dispatch(
+                &self,
+                __method: u32,
+                __data: &[u8],
+                __fds: &[i32],
+                __state: *mut (),
+            ) {
+                if __state.is_null() {
+                    return;
+                }
+                unsafe { rc::Rc::increment_strong_count(self.object) };
+                let __proxy = my_object_v1::MyObjectV1 {
+                    object: unsafe { rc::Rc::from_raw(self.object) },
+                };
+                let __dispatch = unsafe { &mut *(__state as *mut D) };
+                match __method {
+                    0u32 => {
+                        let mut __needle: usize = 0;
+                        let mut __fd_cursor: usize = 0;
+                        __needle += 1;
+                        let (__len, __vl) = hyprwire::core::message::parse_var_int(
+                            __data,
+                            __needle,
+                        );
+                        __needle += __vl;
+                        let message = String::from_utf8_lossy(
+                                &__data[__needle..__needle + __len],
+                            )
+                            .into_owned();
+                        __needle += __len;
+                        __dispatch
+                            .event(
+                                &__proxy,
+                                my_object_v1::Event::SendMessage {
+                                    message,
+                                },
+                            );
+                    }
+                    _ => {}
+                }
+            }
+        }
         impl hyprwire::Object for MyObjectV1 {
             type Event<'a> = Event;
             const NAME: &str = "my_object_v1";
-            fn from_object<D: hyprwire::Dispatch<Self>>(
+            fn from_object<D: hyprwire::Dispatch<Self> + 'static>(
                 object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyObjectV1 {
-            pub fn new<D: hyprwire::Dispatch<Self>>(
+            pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
                 object: rc::Rc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
-                unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
-                    drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
-                }
-                let dispatch_data = Box::into_raw(
-                    Box::new(hyprwire::DispatchData {
-                        object: rc::Rc::as_ptr(&object),
-                    }),
-                );
-                object
-                    .set_data(
-                        dispatch_data as *mut ffi::c_void,
-                        Some(drop_dispatch_data),
-                    );
-                object.listen(0u32, my_object_v1_method0::<D> as *mut ffi::c_void);
+                let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyObjectV1ObjectData::<
+                    D,
+                > {
+                    object: rc::Rc::as_ptr(&object),
+                    _phantom: std::marker::PhantomData,
+                });
+                object.set_object_data(object_data);
                 Self { object }
             }
             /// Send a text message
@@ -957,7 +1058,7 @@ pub mod client {
             ///
             /// Returns a new `my_object_v1` object.
             pub fn send_make_object<
-                D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1>,
+                D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
             >(&self) -> Option<super::my_object_v1::MyObjectV1> {
                 let seq = self.object.call(3u32, &[]);
                 let obj = self
@@ -971,29 +1072,6 @@ pub mod client {
                 )
             }
         }
-    }
-    unsafe extern "C" fn my_object_v1_method0<
-        D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
-    >(data: *mut ffi::c_void, message: *const ffi::c_char) {
-        let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-        if dispatch.dispatch.is_null() {
-            return;
-        }
-        let __dispatch = unsafe { &mut *dispatch.dispatch };
-        unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-        let proxy = my_object_v1::MyObjectV1 {
-            object: unsafe { rc::Rc::from_raw(dispatch.object) },
-        };
-        let message = unsafe { ffi::CStr::from_ptr(message) }
-            .to_string_lossy()
-            .into_owned();
-        __dispatch
-            .event(
-                &proxy,
-                my_object_v1::Event::SendMessage {
-                    message,
-                },
-            );
     }
     #[derive(Default, Clone)]
     pub struct TestProtocolV1Impl {

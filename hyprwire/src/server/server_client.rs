@@ -1,6 +1,6 @@
 use super::server_object;
 use crate::SharedState;
-use crate::implementation::wire_object::WireObject;
+use crate::implementation::object::Object;
 use crate::{steady_millis, trace};
 use hyprwire_core::message::Message;
 use hyprwire_core::message::wire::{fatal_protocol_error, generic_protocol_message, new_object};
@@ -8,7 +8,7 @@ use nix::sys::socket;
 use nix::sys::socket::sockopt;
 use std::hash::{Hash, Hasher};
 use std::os::fd::AsRawFd;
-use std::{cell, ops, rc};
+use std::{cell, ops, ptr, rc};
 
 /// A handle to a connected client managed by a [`super::Server`].
 #[derive(Clone, Debug)]
@@ -192,13 +192,25 @@ impl ServerClientState {
             .map(rc::Rc::clone);
 
         if let Some(obj) = obj {
-            if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
-                crate::log_error!(
-                    "[{} @ {:.3}] object {} called method error: {e}",
-                    self.state.stream.as_raw_fd(),
-                    steady_millis(),
-                    msg.object(),
-                );
+            obj.dispatch(
+                msg.method(),
+                msg.data_span(),
+                msg.fds(),
+                ptr::from_mut(dispatch).cast::<()>(),
+            );
+
+            // Handle destructor methods
+            if let Some(spec) = &obj.spec
+                && let Some(method) = spec.c2s().get(msg.method() as usize)
+                && method.destructor
+            {
+                obj.destroyed.set(true);
+                let id = obj.id.get();
+                if id != 0
+                    && let Some(client) = obj.client.upgrade()
+                {
+                    client.destroy_object(id);
+                }
             }
         } else {
             let error = format!("generic message references unknown object {}", msg.object());

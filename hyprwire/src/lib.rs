@@ -127,7 +127,7 @@ pub trait Object: Sized {
 
     const NAME: &str;
 
-    fn from_object<D: Dispatch<Self>>(object: rc::Rc<dyn impl_object::Object>) -> Self;
+    fn from_object<D: Dispatch<Self> + 'static>(object: rc::Rc<dyn impl_object::Object>) -> Self;
 }
 
 #[doc(hidden)]
@@ -181,19 +181,6 @@ macro_rules! delegate_noop {
             }
         }
     };
-}
-
-#[doc(hidden)]
-#[allow(missing_docs)]
-pub struct DispatchData {
-    pub object: *const dyn impl_object::Object,
-}
-
-#[doc(hidden)]
-#[allow(missing_docs)]
-pub struct DispatchContext<D: ?Sized> {
-    pub object: *const dyn impl_object::Object,
-    pub dispatch: *mut D,
 }
 
 static START: sync::OnceLock<time::Instant> = sync::OnceLock::new();

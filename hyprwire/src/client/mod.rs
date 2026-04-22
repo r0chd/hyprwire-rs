@@ -2,8 +2,8 @@ mod client_object;
 pub(crate) mod client_socket;
 mod server_spec;
 
-use crate::implementation;
 use crate::implementation::client::ProtocolImplementations;
+use crate::implementation::object;
 use hyprwire_core::types;
 use std::os::fd;
 use std::{io, path, rc};
@@ -110,17 +110,15 @@ impl Client {
     /// Returns an error if the requested version is invalid, the connection
     /// closes during binding, or the server does not complete object creation
     /// successfully.
-    pub fn bind<O: crate::Object, D: crate::Dispatch<O>>(
+    pub fn bind<O: crate::Object, D: crate::Dispatch<O> + 'static>(
         &self,
         spec: &dyn types::ProtocolSpec,
         version: u32,
         state: &mut D,
     ) -> Result<O, io::Error> {
         let obj = self.0.bind_protocol(spec, version)?;
-        let raw_obj: rc::Rc<dyn implementation::object::Object> = obj.clone();
-        let typed = O::from_object::<D>(raw_obj);
         self.0.wait_for_object(&obj, state)?;
-        Ok(typed)
+        Ok(O::from_object::<D>(obj))
     }
 
     #[must_use]
@@ -141,10 +139,10 @@ impl Client {
     ///
     /// This is a low-level helper primarily used by generated code and manual
     /// protocol integrations.
-    pub fn object_for_seq(&self, seq: u32) -> Option<rc::Rc<dyn implementation::object::Object>> {
+    pub fn object_for_seq(&self, seq: u32) -> Option<rc::Rc<dyn object::Object>> {
         self.0
             .object_for_seq(seq)
-            .map(|obj| obj as rc::Rc<dyn implementation::object::Object>)
+            .map(|obj| obj as rc::Rc<dyn object::Object>)
     }
 
     #[must_use]
@@ -152,9 +150,9 @@ impl Client {
     ///
     /// This is a low-level helper primarily used by generated code and manual
     /// protocol integrations.
-    pub fn object_for_id(&self, id: u32) -> Option<rc::Rc<dyn implementation::object::Object>> {
+    pub fn object_for_id(&self, id: u32) -> Option<rc::Rc<dyn object::Object>> {
         self.0
             .object_for_id(id)
-            .map(|obj| obj as rc::Rc<dyn implementation::object::Object>)
+            .map(|obj| obj as rc::Rc<dyn object::Object>)
     }
 }

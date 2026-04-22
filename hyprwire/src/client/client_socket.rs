@@ -1,5 +1,6 @@
 use super::client_object;
 use crate::client::server_spec;
+use crate::implementation::object::Object;
 use crate::implementation::wire_object::WireObject;
 use crate::{implementation, socket, steady_millis, trace};
 use hyprwire_core::message;
@@ -12,7 +13,7 @@ use nix::{errno, poll, sys};
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
-use std::{cell, io, ops, path, rc, time};
+use std::{cell, io, ops, path, ptr, rc, time};
 
 pub struct ClientSocket {
     impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
@@ -476,13 +477,23 @@ impl ClientSocket {
             .map(rc::Rc::clone);
 
         if let Some(obj) = obj {
-            if let Err(e) = obj.called(msg.method(), msg.data_span(), msg.fds(), dispatch) {
-                crate::log_error!(
-                    "[{} @ {:.3}] object {} called method error: {e}",
-                    self.state.stream.as_raw_fd(),
-                    steady_millis(),
-                    msg.object(),
-                );
+            obj.dispatch(
+                msg.method(),
+                msg.data_span(),
+                msg.fds(),
+                ptr::from_mut(dispatch).cast::<()>(),
+            );
+
+            // Handle destructor methods
+            if let Some(spec) = &obj.spec
+                && let Some(method) = spec.s2c().get(msg.method() as usize)
+                && method.destructor
+            {
+                obj.destroyed.set(true);
+                let id = obj.id.get();
+                if id != 0 {
+                    self.destroy_object(id);
+                }
             }
         } else {
             crate::log_error!(

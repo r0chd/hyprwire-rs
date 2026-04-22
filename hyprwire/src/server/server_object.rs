@@ -1,21 +1,19 @@
 use super::server_client;
+use crate::implementation::object::Object;
 use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, wire_object};
 use crate::trace;
 use hyprwire_core::message;
 use hyprwire_core::message::wire::fatal_protocol_error;
 use hyprwire_core::types;
-use std::os::raw;
-use std::{any, cell, ptr, rc, sync};
+use std::{cell, ptr, rc, sync};
 
 pub(crate) struct ServerObject {
     pub(crate) client: rc::Weak<server_client::ServerClientState>,
     pub(crate) state: rc::Rc<crate::SharedState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
-    data: cell::Cell<*mut raw::c_void>,
-    data_destructor: cell::Cell<Option<unsafe fn(*mut raw::c_void)>>,
-    listeners: cell::RefCell<Vec<*mut raw::c_void>>,
-    destroyed: cell::Cell<bool>,
+    pub(crate) destroyed: cell::Cell<bool>,
+    object_data: cell::RefCell<Option<Box<dyn object::ObjectData>>>,
     pub(crate) id: cell::Cell<u32>,
     pub(crate) version: cell::Cell<u32>,
     pub(crate) seq: u32,
@@ -35,12 +33,10 @@ impl ServerObject {
         state: rc::Rc<crate::SharedState>,
     ) -> Self {
         Self {
+            object_data: cell::RefCell::new(None),
             client,
             state,
             spec: None,
-            data: cell::Cell::new(ptr::null_mut()),
-            data_destructor: cell::Cell::new(None),
-            listeners: cell::RefCell::new(Vec::new()),
             destroyed: cell::Cell::new(false),
             id: cell::Cell::new(0),
             version: cell::Cell::new(0),
@@ -62,34 +58,27 @@ impl ServerObject {
             return;
         };
 
-        if let Err(e) = wire_object::WireObject::called(self, method.idx, &[], &[], dispatch) {
-            crate::log_error!(
-                "server object {} (protocol {}) destructor dispatch error: {e}",
-                self.id.get(),
-                self.protocol_name
-            );
-        }
+        self.dispatch(method.idx, &[], &[], ptr::from_mut(dispatch).cast::<()>());
 
         self.destroy();
     }
 
     fn destroy(&self) {
-        if self.destroyed.replace(true) {
-            return;
-        }
-
-        if let Some(destructor) = self.data_destructor.replace(None)
-            && !self.data.get().is_null()
-        {
-            unsafe { destructor(self.data.get()) };
-            self.data.set(ptr::null_mut());
-        }
-
-        self.listeners.borrow_mut().clear();
+        self.destroyed.set(true);
     }
 }
 
 impl object::Object for ServerObject {
+    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: *mut ()) {
+        if let Some(object_data) = self.object_data.borrow().as_ref() {
+            object_data.dispatch(method, data, fds, state);
+        }
+    }
+
+    fn set_object_data(&self, data: Box<dyn object::ObjectData>) {
+        *self.object_data.borrow_mut() = Some(data);
+    }
+
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32 {
         if self.destroyed.get() {
             return 0;
@@ -108,18 +97,6 @@ impl object::Object for ServerObject {
         }
     }
 
-    fn listen(&self, id: u32, callback: *mut raw::c_void) {
-        if self.destroyed.get() {
-            return;
-        }
-
-        let mut listeners = self.listeners.borrow_mut();
-        if listeners.len() <= id as usize {
-            listeners.resize(id as usize + 1, ptr::null_mut());
-        }
-        listeners[id as usize] = callback;
-    }
-
     fn create_object(&self, object_name: &str, seq: u32) -> Option<rc::Rc<dyn object::Object>> {
         if self.destroyed.get() {
             return None;
@@ -132,15 +109,6 @@ impl object::Object for ServerObject {
 
     fn server_client(&self) -> Option<server_client::ServerClient> {
         self.client.upgrade().map(|client| client.handle())
-    }
-
-    fn set_data(&self, data: *mut raw::c_void, destructor: Option<unsafe fn(*mut raw::c_void)>) {
-        self.data.set(data);
-        self.data_destructor.set(destructor);
-    }
-
-    fn get_data(&self) -> *mut raw::c_void {
-        self.data.get()
     }
 
     fn error(&self, error_id: u32, error_msg: &str) {
@@ -186,13 +154,6 @@ impl wire_object::WireObject for ServerObject {
             .unwrap_or_default()
     }
 
-    fn methods_in(&self) -> &[types::Method] {
-        self.spec
-            .as_ref()
-            .map(|spec| spec.c2s())
-            .unwrap_or_default()
-    }
-
     fn errd(&self) {
         self.state.error.set(true);
     }
@@ -201,29 +162,7 @@ impl wire_object::WireObject for ServerObject {
         self.destroyed.set(true);
     }
 
-    fn on_destructor(&self) {
-        let id = self.id.get();
-        self.destroyed.set(true);
-        if id != 0
-            && let Some(client) = self.client.upgrade()
-        {
-            client.destroy_object(id);
-        }
-    }
-
     fn send_message(&self, msg: &dyn message::Message) {
         self.state.send_message(msg);
-    }
-
-    fn listener(&self, idx: usize) -> *mut raw::c_void {
-        self.listeners.borrow()[idx]
-    }
-
-    fn listener_count(&self) -> usize {
-        self.listeners.borrow().len()
-    }
-
-    fn as_any(&self) -> &dyn any::Any {
-        self
     }
 }

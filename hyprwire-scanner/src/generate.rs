@@ -83,17 +83,6 @@ fn snake_to_screaming(s: &str) -> String {
     s.to_uppercase()
 }
 
-fn is_array_type(arg_type: &ArgType) -> bool {
-    matches!(
-        arg_type,
-        ArgType::ArrayVarchar
-            | ArgType::ArrayFd
-            | ArgType::ArrayUint
-            | ArgType::ArrayInt
-            | ArgType::ArrayF32
-    )
-}
-
 fn magic_for_arg(arg_type: &ArgType) -> Vec<TokenStream> {
     match arg_type {
         ArgType::Varchar => {
@@ -151,20 +140,213 @@ fn event_field_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream 
     }
 }
 
-fn dispatch_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
-    match arg_type {
-        ArgType::Varchar => quote! { *const ffi::c_char },
-        ArgType::Fd | ArgType::Int => quote! { i32 },
-        ArgType::Uint => quote! { u32 },
-        ArgType::Enum => {
-            let ident = format_ident!("{}", snake_to_pascal(interface.unwrap()));
-            quote! { super::spec::#ident }
+fn write_parse_arg(name: &proc_macro2::Ident, arg: &Arg) -> TokenStream {
+    match &arg.arg_type {
+        ArgType::Varchar => {
+            quote! {
+                __needle += 1;
+                let (__len, __vl) = hyprwire::core::message::parse_var_int(__data, __needle);
+                __needle += __vl;
+                let #name = String::from_utf8_lossy(&__data[__needle..__needle + __len]).into_owned();
+                __needle += __len;
+            }
         }
-        ArgType::F32 => quote! { f32 },
-        ArgType::ArrayVarchar => quote! { *const *const ffi::c_char },
-        ArgType::ArrayFd | ArgType::ArrayInt => quote! { *const i32 },
-        ArgType::ArrayUint => quote! { *const u32 },
-        ArgType::ArrayF32 => quote! { *const f32 },
+        ArgType::Uint => {
+            quote! {
+                __needle += 1;
+                let #name = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
+                __needle += 4;
+            }
+        }
+        ArgType::Int => {
+            quote! {
+                __needle += 1;
+                let #name = i32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
+                __needle += 4;
+            }
+        }
+        ArgType::F32 => {
+            quote! {
+                __needle += 1;
+                let #name = f32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
+                __needle += 4;
+            }
+        }
+        ArgType::Enum => {
+            let ident = format_ident!("{}", snake_to_pascal(arg.interface.as_deref().unwrap()));
+            quote! {
+                __needle += 1;
+                let #name: super::super::spec::#ident = unsafe {
+                    std::mem::transmute::<u32, super::super::spec::#ident>(
+                        u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap())
+                    )
+                };
+                __needle += 4;
+            }
+        }
+        ArgType::Fd => {
+            quote! {
+                __needle += 1;
+                let #name = unsafe { OwnedFd::from_raw_fd(__fds[__fd_cursor]) };
+                __fd_cursor += 1;
+            }
+        }
+        ArgType::ArrayVarchar => {
+            quote! {
+                __needle += 2;
+                let (__count, __cl) = hyprwire::core::message::parse_var_int(__data, __needle);
+                __needle += __cl;
+                let mut #name = Vec::with_capacity(__count);
+                for _ in 0..__count {
+                    let (__slen, __svl) = hyprwire::core::message::parse_var_int(__data, __needle);
+                    __needle += __svl;
+                    #name.push(String::from_utf8_lossy(&__data[__needle..__needle + __slen]).into_owned());
+                    __needle += __slen;
+                }
+            }
+        }
+        ArgType::ArrayFd => {
+            quote! {
+                __needle += 2;
+                let (__count, __cl) = hyprwire::core::message::parse_var_int(__data, __needle);
+                __needle += __cl;
+                let mut #name = Vec::with_capacity(__count);
+                for _ in 0..__count {
+                    #name.push(unsafe { OwnedFd::from_raw_fd(__fds[__fd_cursor]) });
+                    __fd_cursor += 1;
+                }
+            }
+        }
+        ArgType::ArrayUint => {
+            quote! {
+                __needle += 2;
+                let (__count, __cl) = hyprwire::core::message::parse_var_int(__data, __needle);
+                __needle += __cl;
+                let mut #name = Vec::with_capacity(__count);
+                for _ in 0..__count {
+                    #name.push(u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap()));
+                    __needle += 4;
+                }
+            }
+        }
+        ArgType::ArrayInt => {
+            quote! {
+                __needle += 2;
+                let (__count, __cl) = hyprwire::core::message::parse_var_int(__data, __needle);
+                __needle += __cl;
+                let mut #name = Vec::with_capacity(__count);
+                for _ in 0..__count {
+                    #name.push(i32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap()));
+                    __needle += 4;
+                }
+            }
+        }
+        ArgType::ArrayF32 => {
+            quote! {
+                __needle += 2;
+                let (__count, __cl) = hyprwire::core::message::parse_var_int(__data, __needle);
+                __needle += __cl;
+                let mut #name = Vec::with_capacity(__count);
+                for _ in 0..__count {
+                    #name.push(f32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap()));
+                    __needle += 4;
+                }
+            }
+        }
+    }
+}
+
+fn write_object_data_impl(
+    obj_name: &str,
+    obj_path: &TokenStream,
+    event_path: &TokenStream,
+    methods: &[Method],
+) -> TokenStream {
+    let data_ident = format_ident!("{}ObjectData", snake_to_pascal(obj_name));
+
+    let match_arms: Vec<TokenStream> = methods
+        .iter()
+        .enumerate()
+        .map(|(idx, m)| {
+            let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
+            let variant_ident = format_ident!("{}", snake_to_pascal(&m.name));
+
+            let locals_init = quote! {
+                let mut __needle: usize = 0;
+                let mut __fd_cursor: usize = 0;
+            };
+
+            let seq_parse = if m.returns.is_some() {
+                quote! {
+                    __needle += 1;
+                    let seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
+                    __needle += 4;
+                }
+            } else {
+                quote! {}
+            };
+
+            let parse_stmts: Vec<TokenStream> = m
+                .args
+                .iter()
+                .map(|a| {
+                    let aname = raw_ident(&a.name);
+                    write_parse_arg(&aname, a)
+                })
+                .collect();
+
+            let mut event_fields: Vec<TokenStream> = Vec::new();
+            if m.returns.is_some() {
+                event_fields.push(quote! { seq, });
+            }
+            for a in &m.args {
+                let aname = raw_ident(&a.name);
+                event_fields.push(quote! { #aname, });
+            }
+
+            let event_construct = if event_fields.is_empty() {
+                quote! { #event_path::#variant_ident }
+            } else {
+                quote! { #event_path::#variant_ident { #(#event_fields)* } }
+            };
+
+            quote! {
+                #idx_lit => {
+                    #locals_init
+                    #seq_parse
+                    #(#parse_stmts)*
+                    __dispatch.event(&__proxy, #event_construct);
+                }
+            }
+        })
+        .collect();
+
+    quote! {
+        struct #data_ident<D> {
+            object: *const dyn hyprwire::implementation::object::Object,
+            _phantom: std::marker::PhantomData<D>,
+        }
+
+        unsafe impl<D> Send for #data_ident<D> {}
+        unsafe impl<D> Sync for #data_ident<D> {}
+
+        impl<D: hyprwire::Dispatch<#obj_path>> hyprwire::implementation::object::ObjectData for #data_ident<D> {
+            fn dispatch(&self, __method: u32, __data: &[u8], __fds: &[i32], __state: *mut ()) {
+                if __state.is_null() {
+                    return;
+                }
+                unsafe { rc::Rc::increment_strong_count(self.object) };
+                let __proxy = #obj_path {
+                    object: unsafe { rc::Rc::from_raw(self.object) },
+                };
+                let __dispatch = unsafe { &mut *(__state as *mut D) };
+
+                match __method {
+                    #(#match_arms)*
+                    _ => {}
+                }
+            }
+        }
     }
 }
 
@@ -559,110 +741,6 @@ fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> Tok
     }
 }
 
-fn write_dispatch_fn(
-    obj_name: &str,
-    obj_path: &TokenStream,
-    event_path: &TokenStream,
-    idx: usize,
-    m: &Method,
-) -> TokenStream {
-    let fn_ident = format_ident!("{}_method{}", obj_name, idx);
-    let variant_ident = format_ident!("{}", snake_to_pascal(&m.name));
-
-    let mut fn_params: Vec<TokenStream> = vec![quote! { data: *mut ffi::c_void }];
-    if m.returns.is_some() {
-        fn_params.push(quote! { seq: u32 });
-    }
-    for arg in &m.args {
-        let aname = raw_ident(&arg.name);
-        let atype = dispatch_param_type(&arg.arg_type, arg.interface.as_deref());
-        fn_params.push(quote! { #aname: #atype });
-        if is_array_type(&arg.arg_type) {
-            let len_ident = format_ident!("{}_len", aname);
-            fn_params.push(quote! { #len_ident: u32 });
-        }
-    }
-
-    let mut conversions: Vec<TokenStream> = Vec::new();
-    let mut event_fields: Vec<TokenStream> = Vec::new();
-
-    if m.returns.is_some() {
-        event_fields.push(quote! { seq, });
-    }
-
-    for arg in &m.args {
-        let aname = raw_ident(&arg.name);
-        match &arg.arg_type {
-            ArgType::Varchar => {
-                conversions.push(quote! {
-                    let #aname = unsafe { ffi::CStr::from_ptr(#aname) }.to_string_lossy().into_owned();
-                });
-                event_fields.push(quote! { #aname, });
-            }
-            ArgType::Fd => {
-                conversions.push(quote! {
-                    let #aname = unsafe { OwnedFd::from_raw_fd(#aname) };
-                });
-                event_fields.push(quote! { #aname, });
-            }
-            ArgType::ArrayVarchar => {
-                let len_ident = format_ident!("{}_len", aname);
-                conversions.push(quote! {
-                    let #aname: Vec<String> = unsafe { std::slice::from_raw_parts(#aname, #len_ident as usize) }
-                        .iter()
-                        .map(|&p| unsafe { ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
-                        .collect();
-                });
-                event_fields.push(quote! { #aname, });
-            }
-            ArgType::ArrayFd => {
-                let len_ident = format_ident!("{}_len", aname);
-                conversions.push(quote! {
-                    let #aname: Vec<OwnedFd> = unsafe { std::slice::from_raw_parts(#aname, #len_ident as usize) }
-                        .iter()
-                        .map(|&fd| unsafe { OwnedFd::from_raw_fd(fd) })
-                        .collect();
-                });
-                event_fields.push(quote! { #aname, });
-            }
-            t if is_array_type(t) => {
-                let len_ident = format_ident!("{}_len", aname);
-                conversions.push(quote! {
-                    let #aname = unsafe { std::slice::from_raw_parts(#aname, #len_ident as usize) }.to_vec();
-                });
-                event_fields.push(quote! { #aname, });
-            }
-            _ => {
-                event_fields.push(quote! { #aname, });
-            }
-        }
-    }
-
-    let dispatch_call = if event_fields.is_empty() {
-        quote! { __dispatch.event(&proxy, #event_path::#variant_ident); }
-    } else {
-        quote! { __dispatch.event(&proxy, #event_path::#variant_ident { #(#event_fields)* }); }
-    };
-
-    quote! {
-        unsafe extern "C" fn #fn_ident<D: hyprwire::Dispatch<#obj_path>>(
-            #(#fn_params,)*
-        ) {
-            let dispatch = unsafe { &*(data as *const hyprwire::DispatchContext<D>) };
-            if dispatch.dispatch.is_null() {
-                return;
-            }
-            let __dispatch = unsafe { &mut *dispatch.dispatch };
-            unsafe { rc::Rc::increment_strong_count(dispatch.object) };
-            let proxy = #obj_path {
-                object: unsafe { rc::Rc::from_raw(dispatch.object) },
-            };
-            #(#conversions)*
-            #dispatch_call
-        }
-    }
-}
-
 fn write_send_method(idx: usize, m: &Method) -> TokenStream {
     let method_ident = format_ident!("send_{}", m.name);
     let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
@@ -700,7 +778,7 @@ fn write_send_method(idx: usize, m: &Method) -> TokenStream {
         let returned_obj_path = quote! { super::#returned_mod_ident::#returned_obj_ident };
         quote! {
             #docs
-            pub fn #method_ident<#s_bound #f_bound D: hyprwire::Dispatch<#returned_obj_path>>(
+            pub fn #method_ident<#s_bound #f_bound D: hyprwire::Dispatch<#returned_obj_path> + 'static>(
                 &self,
                 #(#param_pairs,)*
             ) -> Option<#returned_obj_path> {
@@ -750,7 +828,7 @@ fn write_server_create_helper(m: &Method) -> Option<TokenStream> {
     let docs = method_doc_attrs(m, true);
     Some(quote! {
         #docs
-        pub fn #helper_ident<D: hyprwire::Dispatch<#returned_obj_path>>(
+        pub fn #helper_ident<D: hyprwire::Dispatch<#returned_obj_path> + 'static>(
             &self,
             seq: u32,
         ) -> Option<#returned_obj_path> {
@@ -800,34 +878,19 @@ fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> Toke
     }
 }
 
-fn write_new_fn(obj_name: &str, methods: &[Method]) -> TokenStream {
-    let listen_calls: Vec<TokenStream> = methods
-        .iter()
-        .enumerate()
-        .map(|(idx, _m)| {
-            let listen_fn = format_ident!("{}_method{}", obj_name, idx);
-            let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
-            quote! {
-                object.listen(#idx_lit, #listen_fn::<D> as *mut ffi::c_void);
-            }
-        })
-        .collect();
-
+fn write_new_fn(obj_name: &str) -> TokenStream {
+    let data_ident = format_ident!("{}ObjectData", snake_to_pascal(obj_name));
     let raw_obj = raw_object_type();
+
     quote! {
-        pub fn new<D: hyprwire::Dispatch<Self>>(
+        pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
             object: #raw_obj,
         ) -> Self {
-            unsafe fn drop_dispatch_data(ptr: *mut ffi::c_void) {
-                drop(unsafe { Box::from_raw(ptr as *mut hyprwire::DispatchData) });
-            }
-
-            let dispatch_data = Box::into_raw(Box::new(hyprwire::DispatchData {
+            let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(#data_ident::<D> {
                 object: rc::Rc::as_ptr(&object),
-            }));
-
-            object.set_data(dispatch_data as *mut ffi::c_void, Some(drop_dispatch_data));
-            #(#listen_calls)*
+                _phantom: std::marker::PhantomData,
+            });
+            object.set_object_data(object_data);
 
             Self { object }
         }
@@ -851,7 +914,8 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
         let event_enum = write_event_enum(&event_ident, &obj.c2s);
         let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
         let event_path = quote! { #obj_mod_ident::Event };
-        let new_fn = write_new_fn(&obj.name, &obj.c2s);
+        let object_data_impl = write_object_data_impl(&obj.name, &obj_path, &event_path, &obj.c2s);
+        let new_fn = write_new_fn(&obj.name);
         let create_helpers: Vec<TokenStream> = obj
             .c2s
             .iter()
@@ -898,10 +962,12 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                 #[doc = #event_docs]
                 #event_enum
 
+                #object_data_impl
+
                 impl hyprwire::Object for #obj_type_ident {
                     type Event<'a> = Event;
                     const NAME: &str = #obj_name_str;
-                    fn from_object<D: hyprwire::Dispatch<Self>>(object: #raw_obj) -> Self {
+                    fn from_object<D: hyprwire::Dispatch<Self> + 'static>(object: #raw_obj) -> Self {
                         Self::new::<D>(object)
                     }
                 }
@@ -923,10 +989,6 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                 }
             }
         });
-
-        for (idx, m) in obj.c2s.iter().enumerate() {
-            items.push(write_dispatch_fn(&obj.name, &obj_path, &event_path, idx, m));
-        }
     }
 
     let proto_pascal = snake_to_pascal(&protocol.name);
@@ -1015,7 +1077,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     quote! {
         #[allow(clippy::all, dead_code, unused_imports)]
         pub mod server {
-            use std::{ffi, os::fd::*, rc, sync};
+            use std::{os::fd::*, rc, sync};
 
             #(#items)*
         }
@@ -1039,7 +1101,8 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
         let obj_name_str = &obj.name;
         let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
         let event_path = quote! { #obj_mod_ident::Event };
-        let new_fn = write_new_fn(&obj.name, &obj.s2c);
+        let object_data_impl = write_object_data_impl(&obj.name, &obj_path, &event_path, &obj.s2c);
+        let new_fn = write_new_fn(&obj.name);
         let send_methods: Vec<TokenStream> = obj
             .c2s
             .iter()
@@ -1082,10 +1145,12 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
                 #[doc = #event_docs]
                 #event_enum
 
+                #object_data_impl
+
                 impl hyprwire::Object for #obj_type_ident {
                     type Event<'a> = Event;
                     const NAME: &str = #obj_name_str;
-                    fn from_object<D: hyprwire::Dispatch<Self>>(object: #raw_obj) -> Self {
+                    fn from_object<D: hyprwire::Dispatch<Self> + 'static>(object: #raw_obj) -> Self {
                         Self::new::<D>(object)
                     }
                 }
@@ -1097,10 +1162,6 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
                 }
             }
         });
-
-        for (idx, m) in obj.s2c.iter().enumerate() {
-            items.push(write_dispatch_fn(&obj.name, &obj_path, &event_path, idx, m));
-        }
     }
 
     let proto_pascal = snake_to_pascal(&protocol.name);
@@ -1139,7 +1200,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
     quote! {
         #[allow(clippy::all, dead_code, unused_imports)]
         pub mod client {
-            use std::{ffi, os::fd::*, rc, sync};
+            use std::{os::fd::*, rc, sync};
 
             #(#items)*
         }
