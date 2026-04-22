@@ -8,7 +8,7 @@ use nix::sys::socket;
 use nix::sys::socket::sockopt;
 use std::hash::{Hash, Hasher};
 use std::os::fd::AsRawFd;
-use std::{cell, ops, ptr, rc};
+use std::{cell, ops, rc};
 
 /// A handle to a connected client managed by a [`super::Server`].
 #[derive(Clone, Debug)]
@@ -179,7 +179,7 @@ impl ServerClientState {
         self.objects.borrow_mut().retain(|obj| obj.id.get() != id);
     }
 
-    pub(crate) fn on_generic<D>(
+    pub(crate) fn on_generic<D: 'static>(
         &self,
         msg: &generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>,
         dispatch: &mut D,
@@ -192,12 +192,7 @@ impl ServerClientState {
             .map(rc::Rc::clone);
 
         if let Some(obj) = obj {
-            obj.dispatch(
-                msg.method(),
-                msg.data_span(),
-                msg.fds(),
-                ptr::from_mut(dispatch).cast::<()>(),
-            );
+            obj.dispatch(msg.method(), msg.data_span(), msg.fds(), dispatch);
 
             // Handle destructor methods
             if let Some(spec) = &obj.spec
@@ -227,7 +222,7 @@ impl ServerClientState {
         }
     }
 
-    pub(crate) fn destroy_objects_for_disconnect<D>(&self, dispatch: &mut D) {
+    pub(crate) fn destroy_objects_for_disconnect<D: 'static>(&self, dispatch: &mut D) {
         let objects = self
             .objects
             .borrow()

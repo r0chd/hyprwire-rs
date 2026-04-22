@@ -49,8 +49,8 @@ struct ClientApp;
 fn client_process_main(
     server_stream: net::UnixStream,
     mut shutdown_write: net::UnixStream,
-) -> io::Result<()> {
-    let mut socket = client::Client::from_fd(server_stream)?;
+) -> hyprwire::Result<()> {
+    let mut socket = client::Client::from_fd(server_stream).map_err(hyprwire::Error::Io)?;
     let mut app = ClientApp;
 
     socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
@@ -58,15 +58,15 @@ fn client_process_main(
 
     let spec = socket
         .get_spec::<bench_protocol_v1::c::BenchProtocolV1Impl>()
-        .ok_or_else(|| io::Error::other("test protocol unsupported"))?;
+        .ok_or(hyprwire::Error::ProtocolViolation(
+            hyprwire::core::message::Error::NoSpec,
+        ))?;
 
-    let manager = socket
-        .bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-            &spec,
-            BENCH_PROTOCOL_VERSION,
-            &mut app,
-        )
-        .map_err(io::Error::other)?;
+    let manager = socket.bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
+        &spec,
+        BENCH_PROTOCOL_VERSION,
+        &mut app,
+    )?;
 
     let long_message = make_lorem_ipsum(LONG_MESSAGE_TARGET_BYTES);
     assert!(long_message.len() >= LONG_MESSAGE_TARGET_BYTES);
@@ -155,7 +155,7 @@ fn main() -> io::Result<()> {
         &mut app,
     );
 
-    socket.add_client(server_stream);
+    socket.add_client(server_stream).expect("add_client failed");
 
     loop {
         let (loop_ready, shutdown_ready) = {

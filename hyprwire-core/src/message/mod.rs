@@ -1,64 +1,12 @@
 extern crate alloc;
 
+mod error;
 pub mod wire;
 
 use alloc::fmt;
-use core::error;
+
+pub use error::Error;
 pub use wire::Message;
-use wire::{generic_protocol_message, handshake_begin, handshake_protocols};
-
-#[derive(Debug)]
-pub enum Error {
-    UnexpectedEof,
-    InvalidMessageType,
-    InvalidFieldType,
-    InvalidVarInt,
-    InvalidProtocolLength,
-    InvalidVersion,
-    InvalidMessage,
-    InvalidMethod,
-    InvalidParameter,
-    IncorrectParamIdx,
-    ProtocolVersionTooLow,
-    DemarshalingFailed,
-    Unimplemented,
-    VersionNegotiationFailed,
-    MalformedMessage,
-    NoSpec,
-    ArrayTooLong,
-    HandshakeBegin(handshake_begin::Error),
-    HandshakeProtocols(handshake_protocols::Error),
-    GenericProtocol(generic_protocol_message::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnexpectedEof => write!(f, "unexpected end of data"),
-            Self::InvalidMessageType => write!(f, "invalid message type"),
-            Self::InvalidFieldType => write!(f, "invalid field type"),
-            Self::InvalidVarInt => write!(f, "invalid variable-length integer"),
-            Self::InvalidProtocolLength => write!(f, "invalid protocol length"),
-            Self::InvalidVersion => write!(f, "invalid version"),
-            Self::InvalidMessage => write!(f, "invalid message"),
-            Self::InvalidMethod => write!(f, "invalid method"),
-            Self::InvalidParameter => write!(f, "invalid parameter"),
-            Self::IncorrectParamIdx => write!(f, "incorrect param index"),
-            Self::ProtocolVersionTooLow => write!(f, "protocol version too low"),
-            Self::DemarshalingFailed => write!(f, "demarshaling failed"),
-            Self::Unimplemented => write!(f, "unimplemented"),
-            Self::VersionNegotiationFailed => write!(f, "version negotiation failed"),
-            Self::MalformedMessage => write!(f, "malformed message"),
-            Self::NoSpec => write!(f, "no spec found for object"),
-            Self::ArrayTooLong => write!(f, "array length exceeded 10000"),
-            Self::HandshakeBegin(e) => write!(f, "handshake_begin: {e}"),
-            Self::HandshakeProtocols(e) => write!(f, "handshake_protocols: {e}"),
-            Self::GenericProtocol(e) => write!(f, "generic_protocol_error: {e}"),
-        }
-    }
-}
-
-impl error::Error for Error {}
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]

@@ -48,6 +48,7 @@ pub mod server {
             }
         }
         ///Incoming events for `my_manager_v1::MyManagerV1`.
+        #[non_exhaustive]
         #[derive(Debug)]
         pub enum Event {
             /// Send a text message
@@ -86,23 +87,22 @@ pub mod server {
         unsafe impl<D> Send for MyManagerV1ObjectData<D> {}
         unsafe impl<D> Sync for MyManagerV1ObjectData<D> {}
         impl<
-            D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
+            D: hyprwire::Dispatch<my_manager_v1::MyManagerV1> + 'static,
         > hyprwire::implementation::object::ObjectData for MyManagerV1ObjectData<D> {
             fn dispatch(
                 &self,
                 __method: u32,
                 __data: &[u8],
                 __fds: &[i32],
-                __state: *mut (),
+                __state: &mut dyn std::any::Any,
             ) {
-                if __state.is_null() {
+                let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
-                }
+                };
                 unsafe { rc::Rc::increment_strong_count(self.object) };
                 let __proxy = my_manager_v1::MyManagerV1 {
                     object: unsafe { rc::Rc::from_raw(self.object) },
                 };
-                let __dispatch = unsafe { &mut *(__state as *mut D) };
                 match __method {
                     0u32 => {
                         let mut __needle: usize = 0;
@@ -405,6 +405,7 @@ pub mod server {
             }
         }
         ///Incoming events for `my_object_v1::MyObjectV1`.
+        #[non_exhaustive]
         #[derive(Debug)]
         pub enum Event {
             /// Send a text message
@@ -431,23 +432,22 @@ pub mod server {
         unsafe impl<D> Send for MyObjectV1ObjectData<D> {}
         unsafe impl<D> Sync for MyObjectV1ObjectData<D> {}
         impl<
-            D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
+            D: hyprwire::Dispatch<my_object_v1::MyObjectV1> + 'static,
         > hyprwire::implementation::object::ObjectData for MyObjectV1ObjectData<D> {
             fn dispatch(
                 &self,
                 __method: u32,
                 __data: &[u8],
                 __fds: &[i32],
-                __state: *mut (),
+                __state: &mut dyn std::any::Any,
             ) {
-                if __state.is_null() {
+                let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
-                }
+                };
                 unsafe { rc::Rc::increment_strong_count(self.object) };
                 let __proxy = my_object_v1::MyObjectV1 {
                     object: unsafe { rc::Rc::from_raw(self.object) },
                 };
-                let __dispatch = unsafe { &mut *(__state as *mut D) };
                 match __method {
                     0u32 => {
                         let mut __needle: usize = 0;
@@ -671,6 +671,7 @@ pub mod client {
             }
         }
         ///Incoming events for `my_manager_v1::MyManagerV1`.
+        #[non_exhaustive]
         #[derive(Debug)]
         pub enum Event {
             /// Send a text message
@@ -689,23 +690,22 @@ pub mod client {
         unsafe impl<D> Send for MyManagerV1ObjectData<D> {}
         unsafe impl<D> Sync for MyManagerV1ObjectData<D> {}
         impl<
-            D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>,
+            D: hyprwire::Dispatch<my_manager_v1::MyManagerV1> + 'static,
         > hyprwire::implementation::object::ObjectData for MyManagerV1ObjectData<D> {
             fn dispatch(
                 &self,
                 __method: u32,
                 __data: &[u8],
                 __fds: &[i32],
-                __state: *mut (),
+                __state: &mut dyn std::any::Any,
             ) {
-                if __state.is_null() {
+                let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
-                }
+                };
                 unsafe { rc::Rc::increment_strong_count(self.object) };
                 let __proxy = my_manager_v1::MyManagerV1 {
                     object: unsafe { rc::Rc::from_raw(self.object) },
                 };
-                let __dispatch = unsafe { &mut *(__state as *mut D) };
                 match __method {
                     0u32 => {
                         let mut __needle: usize = 0;
@@ -945,6 +945,7 @@ pub mod client {
             }
         }
         ///Incoming events for `my_object_v1::MyObjectV1`.
+        #[non_exhaustive]
         #[derive(Debug)]
         pub enum Event {
             /// Send a text message
@@ -959,23 +960,22 @@ pub mod client {
         unsafe impl<D> Send for MyObjectV1ObjectData<D> {}
         unsafe impl<D> Sync for MyObjectV1ObjectData<D> {}
         impl<
-            D: hyprwire::Dispatch<my_object_v1::MyObjectV1>,
+            D: hyprwire::Dispatch<my_object_v1::MyObjectV1> + 'static,
         > hyprwire::implementation::object::ObjectData for MyObjectV1ObjectData<D> {
             fn dispatch(
                 &self,
                 __method: u32,
                 __data: &[u8],
                 __fds: &[i32],
-                __state: *mut (),
+                __state: &mut dyn std::any::Any,
             ) {
-                if __state.is_null() {
+                let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
-                }
+                };
                 unsafe { rc::Rc::increment_strong_count(self.object) };
                 let __proxy = my_object_v1::MyObjectV1 {
                     object: unsafe { rc::Rc::from_raw(self.object) },
                 };
-                let __dispatch = unsafe { &mut *(__state as *mut D) };
                 match __method {
                     0u32 => {
                         let mut __needle: usize = 0;

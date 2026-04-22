@@ -55,7 +55,7 @@ impl Client {
     /// # Errors
     /// Returns an error if the connection closes, the handshake times out, or
     /// the server sends invalid handshake traffic.
-    pub fn wait_for_handshake<D>(&mut self, state: &mut D) -> Result<(), io::Error> {
+    pub fn wait_for_handshake<D: 'static>(&mut self, state: &mut D) -> crate::Result<()> {
         self.0.wait_for_handshake(state)
     }
 
@@ -67,7 +67,7 @@ impl Client {
     /// # Errors
     /// Returns an error if the connection closes, polling fails, or incoming
     /// protocol traffic is malformed.
-    pub fn dispatch_events<D>(&self, state: &mut D, block: bool) -> Result<(), io::Error> {
+    pub fn dispatch_events<D: 'static>(&self, state: &mut D, block: bool) -> crate::Result<()> {
         self.0.dispatch_events(state, block)
     }
 
@@ -80,7 +80,7 @@ impl Client {
     /// # Errors
     /// Returns an error if the connection closes or dispatching protocol
     /// traffic fails while waiting for the roundtrip acknowledgment.
-    pub fn roundtrip<D>(&self, state: &mut D) -> Result<(), io::Error> {
+    pub fn roundtrip<D: 'static>(&self, state: &mut D) -> crate::Result<()> {
         self.0.roundtrip(state)
     }
 
@@ -115,7 +115,7 @@ impl Client {
         spec: &dyn types::ProtocolSpec,
         version: u32,
         state: &mut D,
-    ) -> Result<O, io::Error> {
+    ) -> crate::Result<O> {
         let obj = self.0.bind_protocol(spec, version)?;
         self.0.wait_for_object(&obj, state)?;
         Ok(O::from_object::<D>(obj))

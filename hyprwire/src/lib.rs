@@ -11,6 +11,11 @@ pub use hyprwire_core as core;
 /// Client-side APIs for connecting to a Hyprwire server and dispatching
 /// generated protocol events.
 pub mod client;
+/// Error types returned by the public Hyprwire API.
+pub mod error;
+pub use error::Error;
+/// A `Result` type alias that uses [`Error`] as the error type.
+pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) mod helpers;
 pub use helpers::reset_trace_cache;
 /// Traits and low-level types used by generated client/server protocol
@@ -130,9 +135,35 @@ pub trait Object: Sized {
     fn from_object<D: Dispatch<Self> + 'static>(object: rc::Rc<dyn impl_object::Object>) -> Self;
 }
 
-#[doc(hidden)]
-#[allow(missing_docs)]
+/// Trait for receiving events from a Hyprwire interface.
+///
+/// Implement this on your application state type for every interface object
+/// you want to receive events from. The [`delegate_noop!`] macro can be used
+/// to opt out of events you do not care about.
+///
+/// # Example
+///
+/// ```ignore
+/// mod my_protocol_v1 {
+///     hyprwire::include_protocol!("my_protocol_v1");
+///     pub use client::*;
+/// }
+/// use my_protocol_v1::my_manager_v1;
+///
+/// struct App;
+///
+/// impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
+///     fn event(
+///         &mut self,
+///         _object: &my_manager_v1::MyManagerV1,
+///         event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
+///     ) {
+///         // handle events here
+///     }
+/// }
+/// ```
 pub trait Dispatch<O: crate::Object> {
+    /// Called when the interface emits an event.
     fn event(&mut self, object: &O, event: <O as crate::Object>::Event<'_>);
 }
 

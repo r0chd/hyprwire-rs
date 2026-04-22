@@ -1,23 +1,8 @@
 extern crate alloc;
 
 use crate::{message, types};
-use alloc::{fmt, vec};
-use core::{error, ops};
-
-#[derive(Debug)]
-pub enum Error {
-    ArrayMessageTooLong,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ArrayMessageTooLong => write!(f, "array max size is 1000"),
-        }
-    }
-}
-
-impl error::Error for Error {}
+use alloc::vec;
+use core::ops;
 
 #[derive(Debug, Clone)]
 pub struct GenericProtocolMessage<R>
@@ -112,7 +97,7 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                     let mut arr_message_len: usize = 2 + len_len;
 
                     if arr_len >= 10000 {
-                        return Err(message::Error::GenericProtocol(Error::ArrayMessageTooLong));
+                        return Err(message::Error::ArrayTooLong);
                     }
 
                     match arr_type {

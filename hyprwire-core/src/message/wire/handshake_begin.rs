@@ -1,23 +1,7 @@
 extern crate alloc;
 
 use crate::{message, types};
-use alloc::{borrow, fmt, vec};
-use core::error;
-
-#[derive(Debug)]
-pub enum Error {
-    TooManyVersions,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooManyVersions => write!(f, "up to 256 handshake versions allowed"),
-        }
-    }
-}
-
-impl error::Error for Error {}
+use alloc::{borrow, vec};
 
 #[derive(Debug)]
 pub struct HandshakeBegin<'a> {
@@ -85,7 +69,7 @@ impl<'a> HandshakeBegin<'a> {
 
         // Limit the amount of versions to 256, doesn't make sense otherwise.
         if n_vars >= 256 {
-            return Err(message::Error::HandshakeBegin(Error::TooManyVersions));
+            return Err(message::Error::TooManyVersions);
         }
 
         let versions = (0..n_vars)

@@ -16,7 +16,7 @@ mod server_socket {
     use std::io::Read;
     use std::os::fd::AsRawFd;
     use std::os::unix::net;
-    use std::{fs, io, path};
+    use std::{fs, path};
     use test_protocol_v1::{my_manager_v1, my_object_v1};
 
     #[derive(Default)]
@@ -112,18 +112,19 @@ mod server_socket {
         }
     }
 
-    pub fn main(client_fd: net::UnixStream) -> io::Result<()> {
-        let mut socket = server::Server::open::<path::PathBuf>(None)?;
+    pub fn main(client_fd: net::UnixStream) -> hyprwire::Result<()> {
+        let mut socket =
+            server::Server::open::<path::PathBuf>(None).map_err(hyprwire::Error::Io)?;
         let mut app = App::default();
         socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(
             TEST_PROTOCOL_VERSION,
             &mut app,
         );
 
-        socket.add_client(client_fd);
+        socket.add_client(client_fd)?;
 
         while !app.quit {
-            socket.dispatch_events(&mut app, true);
+            socket.dispatch_events(&mut app, true)?;
         }
 
         Ok(())
@@ -139,7 +140,6 @@ mod client_socket {
 
     use hyprwire::client;
     use hyprwire_core::types::ProtocolSpec;
-    use std::io;
     use std::io::Write;
     use std::os::fd::AsRawFd;
     use std::os::unix::net;
@@ -187,8 +187,8 @@ mod client_socket {
         }
     }
 
-    pub fn main(server_fd: net::UnixStream) -> io::Result<()> {
-        let mut socket = client::Client::from_fd(server_fd)?;
+    pub fn main(server_fd: net::UnixStream) -> hyprwire::Result<()> {
+        let mut socket = client::Client::from_fd(server_fd).map_err(hyprwire::Error::Io)?;
         let mut app = App::default();
         socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
         socket.wait_for_handshake(&mut app)?;
@@ -197,16 +197,17 @@ mod client_socket {
 
         let spec = socket
             .get_spec::<test_protocol_v1::TestProtocolV1Impl>()
-            .ok_or_else(|| io::Error::other("test protocol unsupported"))?;
+            .ok_or(hyprwire::Error::ProtocolViolation(
+                hyprwire::core::message::Error::NoSpec,
+            ))?;
 
         println!(
             "test protocol supported at version {}. Binding.",
             spec.spec_ver()
         );
 
-        let manager = socket
-            .bind::<my_manager_v1::MyManagerV1, App>(&spec, spec.spec_ver(), &mut app)
-            .map_err(io::Error::other)?;
+        let manager =
+            socket.bind::<my_manager_v1::MyManagerV1, App>(&spec, spec.spec_ver(), &mut app)?;
 
         println!("Bound!");
 
@@ -233,10 +234,10 @@ mod client_socket {
 
         let object = manager
             .send_make_object::<App>()
-            .ok_or_else(|| io::Error::other("failed to create first object"))?;
+            .ok_or(hyprwire::Error::ConnectionClosed)?;
         let object2 = object
             .send_make_object::<App>()
-            .ok_or_else(|| io::Error::other("failed to create second object"))?;
+            .ok_or(hyprwire::Error::ConnectionClosed)?;
 
         app.object = Some(object.clone());
         app.object2 = Some(object2.clone());

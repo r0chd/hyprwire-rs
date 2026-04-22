@@ -115,5 +115,5 @@ fn main() {
     let mut app = App::default();
     sock.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut app);
 
-    while sock.dispatch_events(&mut app, true) {}
+    while sock.dispatch_events(&mut app, true).is_ok() {}
 }

@@ -6,3 +6,5 @@ description = "Wire format, message types, and protocol traits for the Hyprwire 
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
+keywords = ["ipc", "wire-protocol", "hyprwire", "serialization", "no-std"]
+categories = ["no-std", "encoding", "network-programming"]

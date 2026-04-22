@@ -330,16 +330,15 @@ fn write_object_data_impl(
         unsafe impl<D> Send for #data_ident<D> {}
         unsafe impl<D> Sync for #data_ident<D> {}
 
-        impl<D: hyprwire::Dispatch<#obj_path>> hyprwire::implementation::object::ObjectData for #data_ident<D> {
-            fn dispatch(&self, __method: u32, __data: &[u8], __fds: &[i32], __state: *mut ()) {
-                if __state.is_null() {
+        impl<D: hyprwire::Dispatch<#obj_path> + 'static> hyprwire::implementation::object::ObjectData for #data_ident<D> {
+            fn dispatch(&self, __method: u32, __data: &[u8], __fds: &[i32], __state: &mut dyn std::any::Any) {
+                let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
-                }
+                };
                 unsafe { rc::Rc::increment_strong_count(self.object) };
                 let __proxy = #obj_path {
                     object: unsafe { rc::Rc::from_raw(self.object) },
                 };
-                let __dispatch = unsafe { &mut *(__state as *mut D) };
 
                 match __method {
                     #(#match_arms)*
@@ -734,6 +733,7 @@ fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> Tok
         .collect();
 
     quote! {
+        #[non_exhaustive]
         #[derive(Debug)]
         pub enum #event_ident {
             #(#variants)*

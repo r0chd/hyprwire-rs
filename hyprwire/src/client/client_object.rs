@@ -3,7 +3,7 @@ use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, wire_object};
 use crate::{client, trace};
 use hyprwire_core::{message, types};
-use std::{cell, rc, sync};
+use std::{any, cell, rc, sync};
 
 pub struct ClientObject {
     client: rc::Weak<client_socket::ClientSocket>,
@@ -78,7 +78,7 @@ impl object::Object for ClientObject {
         *self.object_data.borrow_mut() = Some(data);
     }
 
-    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: *mut ()) {
+    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any) {
         if let Some(object_data) = self.object_data.borrow().as_ref() {
             object_data.dispatch(method, data, fds, state);
         }

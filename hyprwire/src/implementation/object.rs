@@ -1,15 +1,11 @@
 use crate::server::server_client;
 use crate::{client, server};
 use hyprwire_core::types;
-use std::rc;
+use std::{any, rc};
 
 pub trait ObjectData {
     /// Dispatch an incoming method call.
-    ///
-    /// `state` is a type-erased pointer to the caller's dispatch state (`&mut D`
-    /// passed to `dispatch_events`). The concrete `ObjectData` implementation is
-    /// monomorphized for the correct `D` and casts it back.
-    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: *mut ());
+    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any);
 
     fn destroyed(&self) {}
 }
@@ -37,5 +33,5 @@ pub trait Object {
 
     fn set_object_data(&self, data: Box<dyn ObjectData>);
 
-    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: *mut ());
+    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any);
 }

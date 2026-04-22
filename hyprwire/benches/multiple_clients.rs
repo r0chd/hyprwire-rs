@@ -50,7 +50,7 @@ struct ClientApp;
 fn client_process_main(
     server_streams: Vec<net::UnixStream>,
     mut shutdown_write: net::UnixStream,
-) -> io::Result<()> {
+) -> hyprwire::Result<()> {
     let mut app = ClientApp;
 
     let long_message = make_lorem_ipsum(LONG_MESSAGE_TARGET_BYTES);
@@ -61,22 +61,22 @@ fn client_process_main(
     let mut specs = Vec::with_capacity(server_streams.len());
 
     for stream in server_streams {
-        let mut socket = client::Client::from_fd(stream)?;
+        let mut socket = client::Client::from_fd(stream).map_err(hyprwire::Error::Io)?;
 
         socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
         socket.wait_for_handshake(&mut app)?;
 
         let spec = socket
             .get_spec::<bench_protocol_v1::c::BenchProtocolV1Impl>()
-            .ok_or_else(|| io::Error::other("test protocol unsupported"))?;
+            .ok_or(hyprwire::Error::ProtocolViolation(
+                hyprwire::core::message::Error::NoSpec,
+            ))?;
 
-        let manager = socket
-            .bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-                &spec,
-                BENCH_PROTOCOL_VERSION,
-                &mut app,
-            )
-            .map_err(io::Error::other)?;
+        let manager = socket.bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
+            &spec,
+            BENCH_PROTOCOL_VERSION,
+            &mut app,
+        )?;
 
         managers.push(manager);
         specs.push(spec);
@@ -193,7 +193,7 @@ fn main() -> io::Result<()> {
     );
 
     for server_stream in server_streams {
-        socket.add_client(server_stream);
+        socket.add_client(server_stream).expect("add_client failed");
     }
 
     loop {

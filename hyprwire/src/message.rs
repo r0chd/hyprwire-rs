@@ -30,7 +30,7 @@ impl<'a> Role<'a> {
     }
 }
 
-pub fn handle_message<D>(
+pub fn handle_message<D: 'static>(
     raw: &mut socket::SocketRawParsedMessage,
     role: &Role,
     dispatch: &mut D,
@@ -112,7 +112,7 @@ pub fn handle_message<D>(
                 let msg = generic_protocol_message::GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, needle)
                     .inspect_err(|e| {
                         match e {
-                            message::Error::GenericProtocol(generic_protocol_message::Error::ArrayMessageTooLong) => {
+                            message::Error::ArrayTooLong => {
                                 trace! { crate::log_debug!("GenericProtocolMessage: failed demarshaling array message, array max size is 10000.") };
                             }
                             message::Error::MalformedMessage => {
@@ -246,7 +246,7 @@ pub fn handle_message<D>(
                 let msg = generic_protocol_message::GenericProtocolMessage::from_bytes(&raw.data, &mut raw.fds, needle)
                     .inspect_err(|e| {
                         match e {
-                            message::Error::GenericProtocol(generic_protocol_message::Error::ArrayMessageTooLong) => {
+                            message::Error::ArrayTooLong => {
                                 trace! { crate::log_debug!("GenericProtocolMessage: failed demarshaling array message, array max size is 10000.") };
                             }
                             message::Error::MalformedMessage => {

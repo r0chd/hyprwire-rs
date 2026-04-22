@@ -6,7 +6,7 @@ use crate::trace;
 use hyprwire_core::message;
 use hyprwire_core::message::wire::fatal_protocol_error;
 use hyprwire_core::types;
-use std::{cell, ptr, rc, sync};
+use std::{any, cell, rc, sync};
 
 pub(crate) struct ServerObject {
     pub(crate) client: rc::Weak<server_client::ServerClientState>,
@@ -45,7 +45,7 @@ impl ServerObject {
         }
     }
 
-    pub(crate) fn destroy_for_disconnect<D>(&self, dispatch: &mut D) {
+    pub(crate) fn destroy_for_disconnect(&self, dispatch: &mut dyn any::Any) {
         if self.destroyed.get() {
             return;
         }
@@ -58,7 +58,7 @@ impl ServerObject {
             return;
         };
 
-        self.dispatch(method.idx, &[], &[], ptr::from_mut(dispatch).cast::<()>());
+        self.dispatch(method.idx, &[], &[], dispatch);
 
         self.destroy();
     }
@@ -69,7 +69,7 @@ impl ServerObject {
 }
 
 impl object::Object for ServerObject {
-    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: *mut ()) {
+    fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any) {
         if let Some(object_data) = self.object_data.borrow().as_ref() {
             object_data.dispatch(method, data, fds, state);
         }

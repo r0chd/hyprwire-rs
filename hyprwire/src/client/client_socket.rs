@@ -13,7 +13,7 @@ use nix::{errno, poll, sys};
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
-use std::{cell, io, ops, path, ptr, rc, time};
+use std::{cell, io, ops, path, rc, time};
 
 pub struct ClientSocket {
     impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
@@ -81,16 +81,13 @@ impl ClientSocket {
         self.impls.borrow_mut().push(p_impl);
     }
 
-    pub fn wait_for_handshake<D>(&self, dispatch: &mut D) -> Result<(), io::Error> {
+    pub fn wait_for_handshake<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
         while !self.state.error.get() && !self.handshake_done.get() {
             self.dispatch_events(dispatch, true)?;
         }
 
         if self.state.error.get() {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "handshake failed",
-            ));
+            return Err(crate::Error::ConnectionClosed);
         }
 
         Ok(())
@@ -108,33 +105,25 @@ impl ClientSocket {
         &self,
         spec: &dyn ProtocolSpec,
         version: u32,
-    ) -> Result<rc::Rc<client_object::ClientObject>, io::Error> {
+    ) -> crate::Result<rc::Rc<client_object::ClientObject>> {
         if version > spec.spec_ver() {
             crate::log_error!(
                 "version {} is larger than current spec ver of {}",
                 version,
                 spec.spec_ver()
             );
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "version {} exceeds spec version {}",
-                    version,
-                    spec.spec_ver()
-                ),
-            ));
+            return Err(crate::Error::VersionOutOfRange {
+                requested: version,
+                max: spec.spec_ver(),
+            });
         }
 
         let mut object =
             client_object::ClientObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
         let objects = spec.objects();
         if objects.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "protocol {} does not expose object metadata; bind requires a generated protocol spec",
-                    spec.spec_name()
-                ),
+            return Err(crate::Error::ProtocolViolation(
+                hyprwire_core::message::Error::NoSpec,
             ));
         }
         object.spec = Some(std::sync::Arc::clone(&objects[0]));
@@ -153,20 +142,17 @@ impl ClientSocket {
         Ok(object)
     }
 
-    pub(crate) fn wait_for_object<D>(
+    pub(crate) fn wait_for_object<D: 'static>(
         &self,
         object: &rc::Rc<client_object::ClientObject>,
         dispatch: &mut D,
-    ) -> Result<(), io::Error> {
+    ) -> crate::Result<()> {
         while object.id.get() == 0 && !self.state.error.get() {
             self.dispatch_events(dispatch, true)?;
         }
 
         if self.state.error.get() {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "connection error while waiting for object",
-            ));
+            return Err(crate::Error::ConnectionClosed);
         }
 
         Ok(())
@@ -231,12 +217,9 @@ impl ClientSocket {
         let _ = self.state.stream.shutdown(std::net::Shutdown::Both);
     }
 
-    pub fn roundtrip<D>(&self, dispatch: &mut D) -> Result<(), io::Error> {
+    pub fn roundtrip<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
         if self.state.error.get() {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "connection closed",
-            ));
+            return Err(crate::Error::ConnectionClosed);
         }
 
         let next_seq = self.last_sent_roundtrip_seq.get() + 1;
@@ -251,12 +234,9 @@ impl ClientSocket {
         Ok(())
     }
 
-    pub fn dispatch_events<D>(&self, dispatch: &mut D, block: bool) -> Result<(), io::Error> {
+    pub fn dispatch_events<D: 'static>(&self, dispatch: &mut D, block: bool) -> crate::Result<()> {
         if self.state.error.get() {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "connection closed",
-            ));
+            return Err(crate::Error::ConnectionClosed);
         }
 
         self.collect_orphaned_objects();
@@ -280,15 +260,12 @@ impl ClientSocket {
             )];
 
             let ready = poll::poll(&mut pfd, timeout)
-                .map_err(|e| io::Error::from_raw_os_error(e as i32))?;
+                .map_err(|e| crate::Error::Io(io::Error::from_raw_os_error(e as i32)))?;
 
             if ready == 0 {
                 if block {
                     self.disconnect_on_error();
-                    return Err(io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        "handshake timed out",
-                    ));
+                    return Err(crate::Error::HandshakeTimeout);
                 }
                 return Ok(());
             }
@@ -302,14 +279,13 @@ impl ClientSocket {
             ) {
                 Ok(0) => {
                     if block {
-                        return Err(io::Error::new(
-                            io::ErrorKind::ConnectionAborted,
-                            "connection closed",
-                        ));
+                        return Err(crate::Error::ConnectionClosed);
                     }
                     return Ok(());
                 }
-                Err(e) => return Err(io::Error::from_raw_os_error(e as i32)),
+                Err(e) => {
+                    return Err(crate::Error::Io(io::Error::from_raw_os_error(e as i32)));
+                }
                 Ok(_) => {}
             }
         }
@@ -327,14 +303,11 @@ impl ClientSocket {
             )];
 
             let ready = poll::poll(&mut pfd, timeout)
-                .map_err(|e| io::Error::from_raw_os_error(e as i32))?;
+                .map_err(|e| crate::Error::Io(io::Error::from_raw_os_error(e as i32)))?;
 
             if ready == 0 {
                 if block {
-                    return Err(io::Error::new(
-                        io::ErrorKind::ConnectionAborted,
-                        "connection closed",
-                    ));
+                    return Err(crate::Error::ConnectionClosed);
                 }
                 self.collect_orphaned_objects();
                 return Ok(());
@@ -349,20 +322,13 @@ impl ClientSocket {
             ) {
                 Ok(0) => {
                     if block {
-                        return Err(io::Error::new(
-                            io::ErrorKind::ConnectionAborted,
-                            "connection closed",
-                        ));
+                        return Err(crate::Error::ConnectionClosed);
                     }
                     return Ok(());
                 }
-                Err(errno::Errno::ECONNRESET) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::ConnectionAborted,
-                        "connection closed",
-                    ));
+                Err(errno::Errno::ECONNRESET) | Err(_) => {
+                    return Err(crate::Error::ConnectionClosed);
                 }
-                Err(e) => return Err(io::Error::from_raw_os_error(e as i32)),
                 Ok(_) => {}
             }
         }
@@ -374,31 +340,22 @@ impl ClientSocket {
                 Err(_) => {
                     crate::log_error!("fatal: received malformed message from server");
                     self.disconnect_on_error();
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "received malformed message from server",
-                    ));
+                    return Err(crate::Error::ConnectionClosed);
                 }
                 Ok(data) => data,
             }
         };
 
         if data.data.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "connection closed",
-            ));
+            return Err(crate::Error::ConnectionClosed);
         }
 
-        if crate::message::handle_message(&mut data, &crate::message::Role::Client(self), dispatch)
-            .is_err()
+        if let Err(e) =
+            crate::message::handle_message(&mut data, &crate::message::Role::Client(self), dispatch)
         {
             crate::log_error!("fatal: failed to handle message on wire");
             self.disconnect_on_error();
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "failed to handle message",
-            ));
+            return Err(crate::Error::from(e));
         }
 
         let pending = std::mem::take(&mut *self.pending_outgoing.borrow_mut());
@@ -426,10 +383,7 @@ impl ClientSocket {
         self.collect_orphaned_objects();
 
         if self.state.error.get() {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "connection closed",
-            ));
+            return Err(crate::Error::ConnectionClosed);
         }
 
         Ok(())
@@ -464,7 +418,7 @@ impl ClientSocket {
         });
     }
 
-    pub fn on_generic<D>(
+    pub fn on_generic<D: 'static>(
         &self,
         msg: &generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>,
         dispatch: &mut D,
@@ -477,12 +431,7 @@ impl ClientSocket {
             .map(rc::Rc::clone);
 
         if let Some(obj) = obj {
-            obj.dispatch(
-                msg.method(),
-                msg.data_span(),
-                msg.fds(),
-                ptr::from_mut(dispatch).cast::<()>(),
-            );
+            obj.dispatch(msg.method(), msg.data_span(), msg.fds(), dispatch);
 
             // Handle destructor methods
             if let Some(spec) = &obj.spec

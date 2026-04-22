@@ -1,23 +1,7 @@
 extern crate alloc;
 
 use crate::{message, types};
-use alloc::{borrow, boxed, fmt, str, vec};
-use core::error;
-
-#[derive(Debug)]
-pub enum Error {
-    TooManyProtocols,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TooManyProtocols => write!(f, "up to 2048 protocols allowed per connection"),
-        }
-    }
-}
-
-impl error::Error for Error {}
+use alloc::{borrow, boxed, str, vec};
 
 #[derive(Debug)]
 pub struct HandshakeProtocols<'a> {
@@ -86,7 +70,7 @@ impl<'a> HandshakeProtocols<'a> {
 
         // max 2048 protocols per connection
         if els >= 2048 {
-            return Err(message::Error::HandshakeProtocols(Error::TooManyProtocols));
+            return Err(message::Error::TooManyProtocols);
         }
 
         let mut protocols = vec::Vec::with_capacity(els);
