@@ -1,6 +1,9 @@
+extern crate alloc;
+
 pub mod wire;
 
-use std::{error, fmt};
+use alloc::fmt;
+use core::error;
 pub use wire::Message;
 use wire::{generic_protocol_message, handshake_begin, handshake_protocols};
 

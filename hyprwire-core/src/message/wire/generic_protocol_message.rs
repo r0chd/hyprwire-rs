@@ -1,5 +1,8 @@
+extern crate alloc;
+
 use crate::{message, types};
-use std::{error, fmt, ops};
+use alloc::{fmt, vec};
+use core::{error, ops};
 
 #[derive(Debug)]
 pub enum Error {
@@ -24,13 +27,13 @@ where
     depends_on_seq: u32,
     object: u32,
     method: u32,
-    fds: Vec<i32>,
-    data: Vec<u8>,
+    fds: vec::Vec<i32>,
+    data: vec::Vec<u8>,
     range: R,
 }
 
 impl GenericProtocolMessage<ops::Range<usize>> {
-    pub fn new(data: Vec<u8>, fds: Vec<i32>) -> Self {
+    pub fn new(data: vec::Vec<u8>, fds: vec::Vec<i32>) -> Self {
         let len = data.len();
         Self {
             depends_on_seq: 0,
@@ -42,7 +45,7 @@ impl GenericProtocolMessage<ops::Range<usize>> {
         }
     }
 
-    pub fn from_bytes(data: &[u8], fds: &mut Vec<i32>, offset: usize) -> super::Result<Self> {
+    pub fn from_bytes(data: &[u8], fds: &mut vec::Vec<i32>, offset: usize) -> super::Result<Self> {
         let mut fds_cursor = 0;
 
         if *data.get(offset).ok_or(message::Error::UnexpectedEof)?
@@ -77,7 +80,7 @@ impl GenericProtocolMessage<ops::Range<usize>> {
                 .unwrap(),
         );
 
-        let mut consumed_fds = Vec::new();
+        let mut consumed_fds = vec::Vec::new();
 
         let mut i: usize = 11;
         while *data.get(offset + i).ok_or(message::Error::UnexpectedEof)?
@@ -246,7 +249,7 @@ mod tests {
             0x00, // method = 2
             types::MessageMagic::End as u8,
         ];
-        let mut fds = Vec::new();
+        let mut fds = vec::Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.object, 1);
         assert_eq!(msg.method, 2);
@@ -280,7 +283,7 @@ mod tests {
             0xFF,
             types::MessageMagic::End as u8,
         ];
-        let mut fds = Vec::new();
+        let mut fds = vec::Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.object, 5);
         assert_eq!(msg.method, 3);
@@ -307,7 +310,7 @@ mod tests {
             b'i',
             types::MessageMagic::End as u8,
         ];
-        let mut fds = Vec::new();
+        let mut fds = vec::Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.object, 1);
         assert_eq!(msg.method, 1);
@@ -353,7 +356,7 @@ mod tests {
             types::MessageMagic::TypeFd as u8,
             types::MessageMagic::End as u8,
         ];
-        let mut fds = Vec::new();
+        let mut fds = vec::Vec::new();
         let err = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap_err();
         assert!(matches!(err, message::Error::MalformedMessage));
     }
@@ -386,7 +389,7 @@ mod tests {
             0x00,
             types::MessageMagic::End as u8,
         ];
-        let mut fds = Vec::new();
+        let mut fds = vec::Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap();
         assert_eq!(msg.object, 1);
         assert_eq!(msg.method, 1);
@@ -436,7 +439,7 @@ mod tests {
             0x00,
             types::MessageMagic::End as u8,
         ];
-        let mut fds = Vec::new();
+        let mut fds = vec::Vec::new();
         let msg = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 2).unwrap();
         assert_eq!(msg.object, 7);
         assert_eq!(msg.method, 9);
@@ -445,7 +448,7 @@ mod tests {
     #[test]
     fn from_bytes_invalid_message_type() {
         let bytes = [message::MessageType::Sup as u8];
-        let mut fds = Vec::new();
+        let mut fds = vec::Vec::new();
         let err = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap_err();
         assert!(matches!(err, message::Error::InvalidMessageType));
     }
@@ -456,7 +459,7 @@ mod tests {
             message::MessageType::GenericProtocolMessage as u8,
             types::MessageMagic::TypeObject as u8,
         ];
-        let mut fds = Vec::new();
+        let mut fds = vec::Vec::new();
         let err = GenericProtocolMessage::from_bytes(&bytes, &mut fds, 0).unwrap_err();
         assert!(matches!(err, message::Error::UnexpectedEof));
     }

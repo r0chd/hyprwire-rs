@@ -8,7 +8,7 @@ use libffi::low as ffi;
 use libffi::low;
 use std::os::fd::AsRawFd;
 use std::os::raw;
-use std::{any, ptr};
+use std::{any, mem, ptr};
 
 struct FfiType(pub *mut low::ffi_type);
 
@@ -245,7 +245,7 @@ pub trait WireObject: object::Object {
             object: object_data.object,
             dispatch: ptr::from_mut(dispatch),
         };
-        let mut data_ptr_slot = vec![0u8; std::mem::size_of::<*mut raw::c_void>()];
+        let mut data_ptr_slot = vec![0u8; mem::size_of::<*mut raw::c_void>()];
         data_ptr_slot.copy_from_slice(&((&raw const call_ctx) as usize).to_ne_bytes());
         avalues.push(data_ptr_slot.as_mut_ptr().cast::<raw::c_void>());
         other_buffers.push(data_ptr_slot);
@@ -260,25 +260,25 @@ pub trait WireObject: object::Object {
                 types::MessageMagic::TypeUint
                 | types::MessageMagic::TypeObject
                 | types::MessageMagic::TypeSeq => {
-                    let mut storage = vec![0u8; std::mem::size_of::<u32>()];
-                    storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<u32>()]);
+                    let mut storage = vec![0u8; mem::size_of::<u32>()];
+                    storage.copy_from_slice(&data[i + 1..i + 1 + mem::size_of::<u32>()]);
                     buf = Some(storage.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(storage);
-                    i += std::mem::size_of::<u32>();
+                    i += mem::size_of::<u32>();
                 }
                 types::MessageMagic::TypeF32 => {
-                    let mut storage = vec![0u8; std::mem::size_of::<f32>()];
-                    storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<f32>()]);
+                    let mut storage = vec![0u8; mem::size_of::<f32>()];
+                    storage.copy_from_slice(&data[i + 1..i + 1 + mem::size_of::<f32>()]);
                     buf = Some(storage.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(storage);
-                    i += std::mem::size_of::<f32>();
+                    i += mem::size_of::<f32>();
                 }
                 types::MessageMagic::TypeInt => {
-                    let mut storage = vec![0u8; std::mem::size_of::<i32>()];
-                    storage.copy_from_slice(&data[i + 1..i + 1 + std::mem::size_of::<i32>()]);
+                    let mut storage = vec![0u8; mem::size_of::<i32>()];
+                    storage.copy_from_slice(&data[i + 1..i + 1 + mem::size_of::<i32>()]);
                     buf = Some(storage.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(storage);
-                    i += std::mem::size_of::<i32>();
+                    i += mem::size_of::<i32>();
                 }
                 types::MessageMagic::TypeVarchar => {
                     let (str_len, len_len) = message::parse_var_int(data, i + 1);
@@ -290,7 +290,7 @@ pub trait WireObject: object::Object {
                     strings.push(owned_str);
 
                     let str_ptr = strings.last().unwrap().as_ptr();
-                    let mut slot = vec![0u8; std::mem::size_of::<*const u8>()];
+                    let mut slot = vec![0u8; mem::size_of::<*const u8>()];
                     slot.copy_from_slice(&(str_ptr as usize).to_ne_bytes());
                     buf = Some(slot.as_mut_ptr().cast::<raw::c_void>());
                     other_buffers.push(slot);
@@ -308,7 +308,7 @@ pub trait WireObject: object::Object {
                         | types::MessageMagic::TypeInt
                         | types::MessageMagic::TypeObject
                         | types::MessageMagic::TypeSeq => {
-                            let elem_size = std::mem::size_of::<u32>();
+                            let elem_size = mem::size_of::<u32>();
                             let alloc_len = if arr_len == 0 { 1 } else { arr_len };
                             let mut data_buf = vec![0u8; alloc_len * elem_size];
 
@@ -322,12 +322,12 @@ pub trait WireObject: object::Object {
                             let data_ptr = data_buf.as_mut_ptr();
                             other_buffers.push(data_buf);
 
-                            let mut data_slot = vec![0u8; std::mem::size_of::<*mut u8>()];
+                            let mut data_slot = vec![0u8; mem::size_of::<*mut u8>()];
                             data_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
                             avalues.push(data_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(data_slot);
 
-                            let mut size_slot = vec![0u8; std::mem::size_of::<u32>()];
+                            let mut size_slot = vec![0u8; mem::size_of::<u32>()];
                             #[allow(clippy::cast_possible_truncation)]
                             let arr_len_u32 = arr_len as u32;
                             size_slot.copy_from_slice(&arr_len_u32.to_le_bytes());
@@ -336,7 +336,7 @@ pub trait WireObject: object::Object {
                         }
                         types::MessageMagic::TypeVarchar => {
                             let alloc_len = if arr_len == 0 { 1 } else { arr_len };
-                            let ptr_size = std::mem::size_of::<*const u8>();
+                            let ptr_size = mem::size_of::<*const u8>();
                             let mut data_buf = vec![0u8; alloc_len * ptr_size];
 
                             for j in 0..arr_len {
@@ -360,12 +360,12 @@ pub trait WireObject: object::Object {
                             let data_ptr = data_buf.as_mut_ptr();
                             other_buffers.push(data_buf);
 
-                            let mut data_slot = vec![0u8; std::mem::size_of::<*mut u8>()];
+                            let mut data_slot = vec![0u8; mem::size_of::<*mut u8>()];
                             data_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
                             avalues.push(data_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(data_slot);
 
-                            let mut size_slot = vec![0u8; std::mem::size_of::<u32>()];
+                            let mut size_slot = vec![0u8; mem::size_of::<u32>()];
                             #[allow(clippy::cast_possible_truncation)]
                             let arr_len_u32 = arr_len as u32;
                             size_slot.copy_from_slice(&arr_len_u32.to_le_bytes());
@@ -374,7 +374,7 @@ pub trait WireObject: object::Object {
                         }
                         types::MessageMagic::TypeFd => {
                             let alloc_len = if arr_len == 0 { 1 } else { arr_len };
-                            let elem_size = std::mem::size_of::<i32>();
+                            let elem_size = mem::size_of::<i32>();
                             let mut data_buf = vec![0u8; alloc_len * elem_size];
 
                             for j in 0..arr_len {
@@ -392,12 +392,12 @@ pub trait WireObject: object::Object {
                             let data_ptr = data_buf.as_mut_ptr();
                             other_buffers.push(data_buf);
 
-                            let mut data_slot = vec![0u8; std::mem::size_of::<*mut u8>()];
+                            let mut data_slot = vec![0u8; mem::size_of::<*mut u8>()];
                             data_slot.copy_from_slice(&(data_ptr as usize).to_ne_bytes());
                             avalues.push(data_slot.as_mut_ptr().cast::<raw::c_void>());
                             other_buffers.push(data_slot);
 
-                            let mut size_slot = vec![0u8; std::mem::size_of::<u32>()];
+                            let mut size_slot = vec![0u8; mem::size_of::<u32>()];
                             #[allow(clippy::cast_possible_truncation)]
                             let arr_len_u32 = arr_len as u32;
                             size_slot.copy_from_slice(&arr_len_u32.to_le_bytes());
@@ -427,7 +427,7 @@ pub trait WireObject: object::Object {
                         self.error(self.id(), msg);
                         return Err(message::Error::DemarshalingFailed);
                     }
-                    let mut storage = vec![0u8; std::mem::size_of::<i32>()];
+                    let mut storage = vec![0u8; mem::size_of::<i32>()];
                     storage.copy_from_slice(&fds[fd_no].to_le_bytes());
                     fd_no += 1;
                     buf = Some(storage.as_mut_ptr().cast::<raw::c_void>());

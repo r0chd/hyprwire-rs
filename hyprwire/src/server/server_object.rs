@@ -5,9 +5,8 @@ use crate::trace;
 use hyprwire_core::message;
 use hyprwire_core::message::wire::fatal_protocol_error;
 use hyprwire_core::types;
-use std::cell;
 use std::os::raw;
-use std::{rc, sync};
+use std::{any, cell, ptr, rc, sync};
 
 pub(crate) struct ServerObject {
     pub(crate) client: rc::Weak<server_client::ServerClientState>,
@@ -39,7 +38,7 @@ impl ServerObject {
             client,
             state,
             spec: None,
-            data: cell::Cell::new(std::ptr::null_mut()),
+            data: cell::Cell::new(ptr::null_mut()),
             data_destructor: cell::Cell::new(None),
             listeners: cell::RefCell::new(Vec::new()),
             destroyed: cell::Cell::new(false),
@@ -83,7 +82,7 @@ impl ServerObject {
             && !self.data.get().is_null()
         {
             unsafe { destructor(self.data.get()) };
-            self.data.set(std::ptr::null_mut());
+            self.data.set(ptr::null_mut());
         }
 
         self.listeners.borrow_mut().clear();
@@ -116,7 +115,7 @@ impl object::Object for ServerObject {
 
         let mut listeners = self.listeners.borrow_mut();
         if listeners.len() <= id as usize {
-            listeners.resize(id as usize + 1, std::ptr::null_mut());
+            listeners.resize(id as usize + 1, ptr::null_mut());
         }
         listeners[id as usize] = callback;
     }
@@ -224,7 +223,7 @@ impl wire_object::WireObject for ServerObject {
         self.listeners.borrow().len()
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn any::Any {
         self
     }
 }

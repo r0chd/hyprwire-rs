@@ -1,3 +1,5 @@
+extern crate alloc;
+
 pub mod bind_protocol;
 pub mod fatal_protocol_error;
 pub mod generic_protocol_message;
@@ -10,8 +12,10 @@ pub mod roundtrip_done;
 pub mod roundtrip_request;
 
 use crate::{message, types};
-use std::fmt::Write;
-use std::result;
+use alloc::fmt::Write;
+use alloc::string::ToString;
+use alloc::{format, string};
+use core::result;
 
 pub type Result<T> = result::Result<T, message::Error>;
 
@@ -24,8 +28,8 @@ pub trait Message {
         &[]
     }
 
-    fn parse_data(&self) -> String {
-        let mut result = String::new();
+    fn parse_data(&self) -> string::String {
+        let mut result = string::String::new();
         let data = self.data();
 
         let _ = write!(result, "{} ( ", self.message_type());
@@ -85,7 +89,7 @@ pub trait Message {
                     let (len, int_len) = message::parse_var_int(data, needle);
                     if len > 0 {
                         let str_data = &data[needle + int_len..needle + int_len + len];
-                        let s = String::from_utf8_lossy(str_data);
+                        let s = string::String::from_utf8_lossy(str_data);
                         let _ = write!(result, "\"{s}\"");
                     } else {
                         result.push_str("\"\"");
@@ -143,7 +147,7 @@ pub trait Message {
     }
 }
 
-fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(String, usize)> {
+fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(string::String, usize)> {
     match r#type {
         types::MessageMagic::TypeUint => {
             let bytes: [u8; 4] = s
@@ -192,7 +196,7 @@ fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(Strin
             let str_data = s
                 .get(int_len..int_len + len)
                 .ok_or(message::Error::UnexpectedEof)?;
-            let value = String::from_utf8(str_data.to_vec())
+            let value = string::String::from_utf8(str_data.to_vec())
                 .map_err(|_| message::Error::MalformedMessage)?;
             Ok((format!("\"{value}\""), len + int_len))
         }

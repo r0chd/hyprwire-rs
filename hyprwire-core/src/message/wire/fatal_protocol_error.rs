@@ -1,5 +1,8 @@
+extern crate alloc;
+
 use crate::{message, types};
-use std::borrow;
+use alloc::string::ToString;
+use alloc::{borrow, str, vec};
 
 #[derive(Debug)]
 pub struct FatalProtocolError<'a> {
@@ -11,7 +14,7 @@ pub struct FatalProtocolError<'a> {
 
 impl<'a> FatalProtocolError<'a> {
     pub fn new(object_id: u32, error_id: u32, error_msg: &'a str) -> Self {
-        let mut data = Vec::new();
+        let mut data = vec::Vec::new();
         data.push(message::MessageType::FatalProtocolError as u8);
         data.push(types::MessageMagic::TypeUint as u8);
         data.extend_from_slice(&object_id.to_le_bytes());
@@ -90,7 +93,7 @@ impl<'a> FatalProtocolError<'a> {
         let (str_len, var_int_len) = message::parse_var_int(data, offset + needle);
         needle += var_int_len;
 
-        let error_msg = std::str::from_utf8(
+        let error_msg = str::from_utf8(
             data.get(offset + needle..offset + needle + str_len)
                 .ok_or(message::Error::UnexpectedEof)?,
         )

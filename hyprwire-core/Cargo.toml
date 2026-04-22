@@ -2,8 +2,7 @@
 name = "hyprwire-core"
 version.workspace = true
 edition.workspace = true
+description = "Wire format, message types, and protocol traits for the Hyprwire IPC protocol"
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
-
-[dependencies]

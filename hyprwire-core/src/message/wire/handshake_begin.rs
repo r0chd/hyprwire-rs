@@ -1,5 +1,8 @@
+extern crate alloc;
+
 use crate::{message, types};
-use std::{borrow, error, fmt};
+use alloc::{borrow, fmt, vec};
+use core::error;
 
 #[derive(Debug)]
 pub enum Error {
@@ -18,13 +21,13 @@ impl error::Error for Error {}
 
 #[derive(Debug)]
 pub struct HandshakeBegin<'a> {
-    versions: Vec<u32>,
+    versions: vec::Vec<u32>,
     data: borrow::Cow<'a, [u8]>,
 }
 
 impl<'a> HandshakeBegin<'a> {
     pub fn new(versions: &[u32]) -> Self {
-        let mut data = Vec::new();
+        let mut data = vec::Vec::new();
 
         data.push(message::MessageType::HandshakeBegin as u8);
         data.push(types::MessageMagic::TypeArray as u8);
@@ -94,7 +97,7 @@ impl<'a> HandshakeBegin<'a> {
                     .unwrap();
                 Ok(u32::from_le_bytes(bytes))
             })
-            .collect::<super::Result<Vec<_>>>()?;
+            .collect::<super::Result<vec::Vec<_>>>()?;
 
         needle += n_vars * 4;
 

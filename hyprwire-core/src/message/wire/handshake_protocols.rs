@@ -1,5 +1,8 @@
+extern crate alloc;
+
 use crate::{message, types};
-use std::{borrow, error, fmt};
+use alloc::{borrow, boxed, fmt, str, vec};
+use core::error;
 
 #[derive(Debug)]
 pub enum Error {
@@ -18,7 +21,7 @@ impl error::Error for Error {}
 
 #[derive(Debug)]
 pub struct HandshakeProtocols<'a> {
-    protocols: Vec<Box<str>>,
+    protocols: vec::Vec<boxed::Box<str>>,
     data: borrow::Cow<'a, [u8]>,
 }
 
@@ -27,7 +30,7 @@ impl<'a> HandshakeProtocols<'a> {
     where
         S: AsRef<str>,
     {
-        let mut data = Vec::new();
+        let mut data = vec::Vec::new();
 
         data.push(message::MessageType::HandshakeProtocols as u8);
         data.push(types::MessageMagic::TypeArray as u8);
@@ -47,12 +50,15 @@ impl<'a> HandshakeProtocols<'a> {
         data.push(types::MessageMagic::End as u8);
 
         Self {
-            protocols: protocols.iter().map(|s| Box::from(s.as_ref())).collect(),
+            protocols: protocols
+                .iter()
+                .map(|s| boxed::Box::from(s.as_ref()))
+                .collect(),
             data: borrow::Cow::Owned(data),
         }
     }
 
-    pub fn protocols(&self) -> &[Box<str>] {
+    pub fn protocols(&self) -> &[boxed::Box<str>] {
         &self.protocols
     }
 
@@ -83,7 +89,7 @@ impl<'a> HandshakeProtocols<'a> {
             return Err(message::Error::HandshakeProtocols(Error::TooManyProtocols));
         }
 
-        let mut protocols = Vec::with_capacity(els);
+        let mut protocols = vec::Vec::with_capacity(els);
 
         for _ in 0..els {
             data.get(offset + needle)
@@ -92,7 +98,7 @@ impl<'a> HandshakeProtocols<'a> {
             let (str_len, var_int_len) = message::parse_var_int(data, offset + needle);
             needle += var_int_len;
 
-            let protocol: Box<str> = std::str::from_utf8(
+            let protocol: boxed::Box<str> = str::from_utf8(
                 data.get(offset + needle..offset + needle + str_len)
                     .ok_or(message::Error::UnexpectedEof)?,
             )

@@ -155,16 +155,16 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
+## Crates
+
+| Crate | Description |
+|---|---|
+| [`hyprwire`](hyprwire) | Client/server runtime, transport over Unix sockets |
+| [`hyprwire-core`](hyprwire-core) | Wire format, message types, protocol traits (`no_std + alloc`) |
+| [`hyprwire-scanner`](hyprwire-scanner) | codegen, turns protocol XML into Rust bindings |
+| [`hyprwire-protocols`](hyprwire-protocols) | Protocol definitions (placeholder, waiting for [hyprwm/hyprwire-protocols#1](https://github.com/hyprwm/hyprwire-protocols/pull/1)) |
+
 ## Examples
-
-The repository is organized as a Cargo workspace with:
-
-- [`hyprwire/`](hyprwire)
-- [`hyprwire-scanner/`](hyprwire-scanner)
-- [`hyprwire-protocols/`](hyprwire-protocols)
-
-`hyprwire-protocols` is currently a placeholder crate, waiting for
-https://github.com/hyprwm/hyprwire-protocols/pull/1.
 
 You can check out examples in:
 

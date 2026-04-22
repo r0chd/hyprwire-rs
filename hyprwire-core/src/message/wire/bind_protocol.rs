@@ -1,5 +1,7 @@
+extern crate alloc;
+
 use crate::{message, types};
-use std::borrow;
+use alloc::{borrow, str, vec};
 
 #[derive(Debug)]
 pub struct BindProtocol<'a> {
@@ -11,7 +13,7 @@ pub struct BindProtocol<'a> {
 
 impl<'a> BindProtocol<'a> {
     pub fn new(protocol: &'a str, seq: u32, version: u32) -> Self {
-        let mut data = Vec::new();
+        let mut data = vec::Vec::new();
 
         data.push(message::MessageType::BindProtocol as u8);
         data.push(types::MessageMagic::TypeUint as u8);
@@ -83,7 +85,7 @@ impl<'a> BindProtocol<'a> {
         let (protocol_len, var_int_len) = message::parse_var_int(data, needle);
         needle += var_int_len;
 
-        let protocol = std::str::from_utf8(
+        let protocol = str::from_utf8(
             data.get(needle..needle + protocol_len)
                 .ok_or(message::Error::UnexpectedEof)?,
         )

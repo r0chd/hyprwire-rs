@@ -1,5 +1,7 @@
+extern crate alloc;
+
 use crate::message;
-use std::sync;
+use alloc::sync;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
