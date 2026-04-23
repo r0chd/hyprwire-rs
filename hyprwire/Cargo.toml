@@ -32,12 +32,14 @@ path = "examples/calloop/server.rs"
 
 [dependencies]
 log = { version = "0.4.29", default-features = false, optional = true }
-nix = { version = "0.31.1", features = [
-  "poll",
-  "socket",
-  "uio",
-], default-features = false }
 hyprwire-core = { path = "../hyprwire-core" }
+rustix = { version = "1.1.4", features = [
+  "fs",
+  "net",
+  "event",
+  "std",
+], default-features = false }
+polling = "3.11.0"
 
 [features]
 log = ["dep:log"]
@@ -51,6 +53,11 @@ env_logger = { version = "0.11.9", default-features = false }
 insta = "1"
 log = { version = "0.4.29", default-features = false }
 criterion = { version = "0.8", features = ["html_reports"] }
+nix = { version = "0.31.1", features = [
+  "poll",
+  "socket",
+  "uio",
+], default-features = false }
 
 [[bench]]
 name = "single_client"

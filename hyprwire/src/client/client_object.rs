@@ -7,7 +7,7 @@ use std::{any, cell, rc, sync};
 
 pub struct ClientObject {
     client: rc::Weak<client_socket::ClientSocket>,
-    pub(crate) state: rc::Rc<crate::SharedState>,
+    pub(crate) state: rc::Rc<crate::ConnectionState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     pub(crate) id: cell::Cell<u32>,
     pub(crate) version: cell::Cell<u32>,
@@ -57,7 +57,7 @@ impl Drop for ClientObject {
 impl ClientObject {
     pub fn new(
         client_socket: rc::Weak<client_socket::ClientSocket>,
-        state: rc::Rc<crate::SharedState>,
+        state: rc::Rc<crate::ConnectionState>,
     ) -> Self {
         Self {
             destroyed: cell::Cell::new(false),

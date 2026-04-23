@@ -74,7 +74,7 @@ impl hyprwire::Dispatch<my_manager_v1::Object> for App {
 
 fn main() -> io::Result<()> {
     // Connect to the server.
-    let mut client = client::Client::open(path::Path::new("/tmp/test-hw.sock"))?;
+    let mut client = client::Client::connect("/tmp/test-hw.sock")?;
     let mut app = App::default();
 
     // Register the generated client-side implementation so incoming events

@@ -20,11 +20,11 @@ impl Client {
     ///
     /// # Errors
     /// Returns any I/O error produced while opening the Unix socket.
-    pub fn open<P>(path: P) -> io::Result<Self>
+    pub fn connect<P>(path: P) -> io::Result<Self>
     where
         P: AsRef<path::Path>,
     {
-        Ok(Self(client_socket::ClientSocket::open(path)?))
+        Ok(Self(client_socket::ClientSocket::connect(path)?))
     }
 
     /// Creates a client from an already-connected Unix socket file descriptor.

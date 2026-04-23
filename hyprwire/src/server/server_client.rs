@@ -1,20 +1,19 @@
 use super::server_object;
-use crate::SharedState;
+use crate::ConnectionState;
 use crate::implementation::object::Object;
 use crate::{steady_millis, trace};
 use hyprwire_core::message::Message;
 use hyprwire_core::message::wire::{fatal_protocol_error, generic_protocol_message, new_object};
-use nix::sys::socket;
-use nix::sys::socket::sockopt;
-use std::hash::{Hash, Hasher};
+use rustix::net;
+use rustix::net::sockopt;
 use std::os::fd::AsRawFd;
-use std::{cell, ops, rc};
+use std::{cell, hash, ops, rc};
 
 /// A handle to a connected client managed by a [`super::Server`].
 #[derive(Clone, Debug)]
 pub struct ServerClient {
     pub(crate) id: u32,
-    pub(crate) creds: rc::Rc<cell::OnceCell<socket::UnixCredentials>>,
+    pub(crate) creds: rc::Rc<cell::OnceCell<net::UCred>>,
 }
 
 impl PartialEq for ServerClient {
@@ -25,8 +24,8 @@ impl PartialEq for ServerClient {
 
 impl Eq for ServerClient {}
 
-impl Hash for ServerClient {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl hash::Hash for ServerClient {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
     }
 }
@@ -40,7 +39,7 @@ impl ServerClient {
 
     /// Returns the peer process id reported by the Unix socket credentials.
     #[must_use]
-    pub fn creds(&self) -> &socket::UnixCredentials {
+    pub fn creds(&self) -> &net::UCred {
         // SAFETY: creds are set on first dispatch
         // objects can only be created by client and
         // servers can bind them only from callbacks
@@ -56,18 +55,18 @@ impl ServerClient {
 /// metadata about the peer connection.
 pub(crate) struct ServerClientState {
     pub(crate) id: u32,
-    pub(crate) creds: rc::Rc<cell::OnceCell<socket::UnixCredentials>>,
+    pub(crate) creds: rc::Rc<cell::OnceCell<net::UCred>>,
     pub(crate) first_poll_done: cell::Cell<bool>,
     pub(crate) version: cell::Cell<u32>,
     pub(crate) max_id: cell::Cell<u32>,
-    pub(crate) state: rc::Rc<SharedState>,
+    pub(crate) state: rc::Rc<ConnectionState>,
     pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
     pub(crate) objects: cell::RefCell<Vec<rc::Rc<server_object::ServerObject>>>,
     self_ref: rc::Weak<Self>,
 }
 
 impl ServerClientState {
-    pub(crate) fn new(id: u32, state: rc::Rc<SharedState>) -> rc::Rc<Self> {
+    pub(crate) fn new(id: u32, state: rc::Rc<ConnectionState>) -> rc::Rc<Self> {
         rc::Rc::new_cyclic(|weak_self| Self {
             id,
             creds: rc::Rc::new(cell::OnceCell::new()),
@@ -94,7 +93,7 @@ impl ServerClientState {
         }
         self.first_poll_done.set(true);
 
-        match socket::getsockopt(&self.state.stream, sockopt::PeerCredentials) {
+        match sockopt::socket_peercred(&self.state.stream) {
             Ok(cred) => {
                 // SAFETY: dispatch_first_poll can only run once
                 self.creds.set(cred).unwrap();
@@ -103,7 +102,7 @@ impl ServerClientState {
                         "[hw] trace: [{} @ {:.3}] peer pid: {}",
                         self.state.stream.as_raw_fd(),
                         steady_millis(),
-                        cred.pid()
+                        cred.pid
                     )
                 }
             }

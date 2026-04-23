@@ -9,18 +9,18 @@ use hyprwire_core::message::wire::{
     bind_protocol, generic_protocol_message, hello, roundtrip_request,
 };
 use hyprwire_core::types::ProtocolSpec;
-use nix::{errno, poll, sys};
 use std::os::fd;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net;
-use std::{cell, io, ops, path, rc, time};
+use std::{cell, io, mem, ops, path, rc, time};
 
 pub struct ClientSocket {
+    poller: polling::Poller,
     impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
     server_specs: cell::RefCell<Vec<server_spec::AdvertisedSpec>>,
     objects: cell::RefCell<Vec<rc::Rc<client_object::ClientObject>>>,
     handshake_begin: time::Instant,
-    pub(crate) state: rc::Rc<crate::SharedState>,
+    pub(crate) state: rc::Rc<crate::ConnectionState>,
     pub(crate) handshake_done: cell::Cell<bool>,
     pub(crate) last_ackd_roundtrip_seq: cell::Cell<u32>,
     last_sent_roundtrip_seq: cell::Cell<u32>,
@@ -33,12 +33,17 @@ pub struct ClientSocket {
 const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
-    fn new(stream: net::UnixStream) -> rc::Rc<Self> {
-        let state = rc::Rc::new(crate::SharedState::new(
+    fn new(stream: net::UnixStream) -> io::Result<rc::Rc<Self>> {
+        let poller = polling::Poller::new()?;
+        unsafe { poller.add(&stream, polling::Event::readable(0))? };
+
+        let state = rc::Rc::new(crate::ConnectionState::new(
             stream,
             rc::Rc::new(cell::RefCell::new(Vec::new())),
         ));
+
         let client_socket = rc::Rc::new_cyclic(|weak_self| Self {
+            poller,
             last_ackd_roundtrip_seq: cell::Cell::new(0),
             last_sent_roundtrip_seq: cell::Cell::new(0),
             seq: cell::Cell::new(0),
@@ -53,16 +58,16 @@ impl ClientSocket {
         });
         state.send_message(&hello::Hello::new());
 
-        client_socket
+        Ok(client_socket)
     }
 
-    pub fn open<P>(path: P) -> io::Result<rc::Rc<Self>>
+    pub fn connect<P>(path: P) -> io::Result<rc::Rc<Self>>
     where
         P: AsRef<path::Path>,
     {
         let stream = net::UnixStream::connect(path)?;
         stream.set_nonblocking(true)?;
-        Ok(Self::new(stream))
+        Self::new(stream)
     }
 
     pub fn from_fd<F>(fd: F) -> io::Result<rc::Rc<Self>>
@@ -71,7 +76,7 @@ impl ClientSocket {
     {
         let stream = net::UnixStream::from(fd.into());
         stream.set_nonblocking(true)?;
-        Ok(Self::new(stream))
+        Self::new(stream)
     }
 
     pub fn add_implementation(
@@ -247,22 +252,18 @@ impl ClientSocket {
             let max_ms = HANDSHAKE_MAX_MS.saturating_sub(elapsed_ms);
 
             let timeout = if block {
-                #[allow(clippy::cast_possible_truncation)]
-                let max_ms_i32 = max_ms as i32;
-                poll::PollTimeout::try_from(max_ms_i32).unwrap_or(poll::PollTimeout::ZERO)
+                time::Duration::from_millis(max_ms)
             } else {
-                poll::PollTimeout::ZERO
+                time::Duration::ZERO
             };
 
-            let mut pfd = [poll::PollFd::new(
-                self.state.stream.as_fd(),
-                poll::PollFlags::POLLIN,
-            )];
-
-            let ready = poll::poll(&mut pfd, timeout)
-                .map_err(|e| crate::Error::Io(io::Error::from_raw_os_error(e as i32)))?;
-
-            if ready == 0 {
+            let mut events = polling::Events::new();
+            if self
+                .poller
+                .wait(&mut events, Some(timeout))
+                .map_err(crate::Error::Io)?
+                == 0
+            {
                 if block {
                     self.disconnect_on_error();
                     return Err(crate::Error::HandshakeTimeout);
@@ -270,42 +271,25 @@ impl ClientSocket {
                 return Ok(());
             }
 
-            // peek to check for HUP (0 bytes = connection closed)
-            let mut peek_buf = [0u8; 1];
-            match sys::socket::recv(
-                self.state.stream.as_raw_fd(),
-                &mut peek_buf,
-                sys::socket::MsgFlags::MSG_PEEK,
-            ) {
-                Ok(0) => {
-                    if block {
-                        return Err(crate::Error::ConnectionClosed);
-                    }
-                    return Ok(());
-                }
-                Err(e) => {
-                    return Err(crate::Error::Io(io::Error::from_raw_os_error(e as i32)));
-                }
-                Ok(_) => {}
-            }
+            self.poller
+                .modify(&self.state.stream, polling::Event::readable(0))
+                .map_err(crate::Error::Io)?;
         }
 
         if self.handshake_done.get() {
             let timeout = if block {
-                poll::PollTimeout::NONE
+                None
             } else {
-                poll::PollTimeout::ZERO
+                Some(time::Duration::ZERO)
             };
 
-            let mut pfd = [poll::PollFd::new(
-                self.state.stream.as_fd(),
-                poll::PollFlags::POLLIN,
-            )];
-
-            let ready = poll::poll(&mut pfd, timeout)
-                .map_err(|e| crate::Error::Io(io::Error::from_raw_os_error(e as i32)))?;
-
-            if ready == 0 {
+            let mut events = polling::Events::new();
+            if self
+                .poller
+                .wait(&mut events, timeout)
+                .map_err(crate::Error::Io)?
+                == 0
+            {
                 if block {
                     return Err(crate::Error::ConnectionClosed);
                 }
@@ -313,24 +297,9 @@ impl ClientSocket {
                 return Ok(());
             }
 
-            // peek to check for HUP (0 bytes = connection closed)
-            let mut peek_buf = [0u8; 1];
-            match sys::socket::recv(
-                self.state.stream.as_raw_fd(),
-                &mut peek_buf,
-                sys::socket::MsgFlags::MSG_PEEK,
-            ) {
-                Ok(0) => {
-                    if block {
-                        return Err(crate::Error::ConnectionClosed);
-                    }
-                    return Ok(());
-                }
-                Err(errno::Errno::ECONNRESET) | Err(_) => {
-                    return Err(crate::Error::ConnectionClosed);
-                }
-                Ok(_) => {}
-            }
+            self.poller
+                .modify(&self.state.stream, polling::Event::readable(0))
+                .map_err(crate::Error::Io)?;
         }
 
         // dispatch
@@ -358,7 +327,7 @@ impl ClientSocket {
             return Err(crate::Error::from(e));
         }
 
-        let pending = std::mem::take(&mut *self.pending_outgoing.borrow_mut());
+        let pending = mem::take(&mut *self.pending_outgoing.borrow_mut());
         for mut msg in pending {
             let seq = msg.depends_on_seq();
             let obj_id = self.object_for_seq(seq).map(|obj| obj.id.get());

@@ -47,7 +47,7 @@ impl bench_protocol_v1::s::BenchProtocolV1Handler for ServerApp {
 struct ClientApp;
 
 fn client_lifecycle(socket_path: &path::Path) -> hyprwire::Result<()> {
-    let mut socket = client::Client::open(socket_path).map_err(hyprwire::Error::Io)?;
+    let mut socket = client::Client::connect(socket_path).map_err(hyprwire::Error::Io)?;
     let mut app = ClientApp;
 
     socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();

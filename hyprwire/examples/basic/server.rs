@@ -97,7 +97,7 @@ impl hyprwire::Dispatch<my_object_v1::MyObjectV1> for App {
 
 impl test_protocol_v1::TestProtocolV1Handler for App {
     fn bind(&mut self, object: my_manager_v1::MyManagerV1) {
-        println!("{:?}", object.client().unwrap().creds().pid());
+        println!("{:?}", object.client().unwrap().creds().pid);
         object.client();
         println!("Object bound XD");
         object.send_send_message("Hello manager");

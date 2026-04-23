@@ -10,7 +10,7 @@ use std::{any, cell, rc, sync};
 
 pub(crate) struct ServerObject {
     pub(crate) client: rc::Weak<server_client::ServerClientState>,
-    pub(crate) state: rc::Rc<crate::SharedState>,
+    pub(crate) state: rc::Rc<crate::ConnectionState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
     pub(crate) destroyed: cell::Cell<bool>,
     object_data: cell::RefCell<Option<Box<dyn object::ObjectData>>>,
@@ -30,7 +30,7 @@ impl Drop for ServerObject {
 impl ServerObject {
     pub fn new(
         client: rc::Weak<server_client::ServerClientState>,
-        state: rc::Rc<crate::SharedState>,
+        state: rc::Rc<crate::ConnectionState>,
     ) -> Self {
         Self {
             object_data: cell::RefCell::new(None),

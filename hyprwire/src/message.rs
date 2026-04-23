@@ -15,7 +15,7 @@ pub enum Role<'a> {
 }
 
 impl<'a> Role<'a> {
-    fn state(&self) -> &crate::SharedState {
+    fn state(&self) -> &crate::ConnectionState {
         match self {
             Self::Client(client) => &client.state,
             Self::Server(client) => &client.state,

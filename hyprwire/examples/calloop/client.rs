@@ -58,7 +58,7 @@ fn main() {
         .init();
 
     let path = socket_path();
-    let mut socket = client::Client::open(&path).unwrap();
+    let mut socket = client::Client::connect(&path).unwrap();
     let mut state = App::default();
 
     socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();

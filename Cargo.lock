@@ -397,6 +397,8 @@ dependencies = [
  "insta",
  "log",
  "nix",
+ "polling",
+ "rustix",
 ]
 
 [[package]]

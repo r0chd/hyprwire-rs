@@ -1,9 +1,8 @@
 use crate::trace;
-use nix::errno;
-use nix::sys::socket;
-use std::io;
-use std::os::fd::AsRawFd;
-use std::os::unix::net;
+use rustix::net;
+use std::os::fd::OwnedFd;
+use std::os::{fd, unix};
+use std::{io, mem};
 
 pub(crate) struct SocketRawParsedMessage {
     pub(crate) data: Box<[u8]>,
@@ -11,7 +10,7 @@ pub(crate) struct SocketRawParsedMessage {
 }
 
 impl SocketRawParsedMessage {
-    pub(crate) fn read_from_socket(stream: &net::UnixStream) -> nix::Result<Self> {
+    pub(crate) fn read_from_socket(stream: &unix::net::UnixStream) -> io::Result<Self> {
         const BUFFER_SIZE: usize = 8192;
         const MAX_FDS_PER_MSG: usize = 255;
 
@@ -21,29 +20,32 @@ impl SocketRawParsedMessage {
         loop {
             let mut buffer = [0u8; BUFFER_SIZE];
             let mut iov = [io::IoSliceMut::new(&mut buffer)];
-            let mut cmsg_buf = nix::cmsg_space!([i32; MAX_FDS_PER_MSG]);
+            let mut cmsg_space = vec![
+                mem::MaybeUninit::<u8>::uninit();
+                rustix::cmsg_space!(ScmRights(MAX_FDS_PER_MSG))
+            ];
+            let mut cmsg_buf = net::RecvAncillaryBuffer::new(&mut cmsg_space);
 
-            let msg = socket::recvmsg::<()>(
-                stream.as_raw_fd(),
-                &mut iov,
-                Some(&mut cmsg_buf),
-                socket::MsgFlags::empty(),
-            )?;
+            let msg = net::recvmsg(stream, &mut iov, &mut cmsg_buf, net::RecvFlags::empty())
+                .map_err(io::Error::from)?;
 
             let bytes_received = msg.bytes;
             if bytes_received == 0 {
                 break;
             }
 
-            for cmsg in msg.cmsgs().map_err(|_| errno::Errno::ENOBUFS)? {
-                if let socket::ControlMessageOwned::ScmRights(received_fds) = cmsg {
+            for cmsg in cmsg_buf.drain() {
+                if let net::RecvAncillaryMessage::ScmRights(received_fds) = cmsg {
                     trace! {
                         crate::log_debug!(
                             "[hw] trace: SocketRawParsedMessage::read_from_socket: got {} fds on the control wire",
                             received_fds.len()
                         )
                     }
-                    fds.extend(received_fds);
+                    fds.extend(received_fds.map(|fd: OwnedFd| {
+                        use fd::IntoRawFd;
+                        fd.into_raw_fd()
+                    }));
                 }
             }
 

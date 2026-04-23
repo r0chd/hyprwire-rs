@@ -4,7 +4,6 @@ use hyprwire_core::types;
 use std::{any, rc};
 
 pub trait ObjectData {
-    /// Dispatch an incoming method call.
     fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any);
 
     fn destroyed(&self) {}

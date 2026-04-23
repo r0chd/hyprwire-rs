@@ -38,19 +38,18 @@ use std::{
 };
 
 use implementation::object as impl_object;
-use nix::{errno, poll, sys};
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::AsRawFd;
 use std::os::unix::net;
 use std::{cell, io, rc, sync, time};
 
-pub(crate) struct SharedState {
+pub(crate) struct ConnectionState {
     pub(crate) error: cell::Cell<bool>,
     pub(crate) stream: net::UnixStream,
     pub(crate) impls:
         rc::Rc<cell::RefCell<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
-impl SharedState {
+impl ConnectionState {
     pub(crate) fn new(
         stream: net::UnixStream,
         impls: rc::Rc<cell::RefCell<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
@@ -67,22 +66,30 @@ impl SharedState {
 
         let buf = message.data();
         let iov = [io::IoSlice::new(buf)];
-        let cmsg = [sys::socket::ControlMessage::ScmRights(message.fds())];
+        let fds = message.fds();
+        let borrowed: Vec<rustix::fd::BorrowedFd<'_>> = fds
+            .iter()
+            .map(|&fd| unsafe { rustix::fd::BorrowedFd::borrow_raw(fd) })
+            .collect();
+        let mut space =
+            vec![std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(fds.len()))];
+        let mut ancillary = rustix::net::SendAncillaryBuffer::new(&mut space);
+        ancillary.push(rustix::net::SendAncillaryMessage::ScmRights(&borrowed));
+
         loop {
-            match sys::socket::sendmsg::<()>(
-                self.stream.as_raw_fd(),
+            match rustix::net::sendmsg(
+                &self.stream,
                 &iov,
-                &cmsg,
-                sys::socket::MsgFlags::empty(),
-                None,
+                &mut ancillary,
+                rustix::net::SendFlags::empty(),
             ) {
                 Ok(_) => break,
-                Err(errno::Errno::EAGAIN) => {
-                    let mut pfd = [poll::PollFd::new(
-                        self.stream.as_fd(),
-                        poll::PollFlags::POLLOUT | poll::PollFlags::POLLWRBAND,
+                Err(e) if e == rustix::io::Errno::AGAIN => {
+                    let mut pfd = [rustix::event::PollFd::new(
+                        &self.stream,
+                        rustix::event::PollFlags::OUT,
                     )];
-                    if let Err(e) = poll::poll(&mut pfd, poll::PollTimeout::NONE) {
+                    if let Err(e) = rustix::event::poll(&mut pfd, None) {
                         crate::log_error!(
                             "[{} @ {:.3}] poll error during send_message: {e}",
                             self.stream.as_raw_fd(),
@@ -91,9 +98,7 @@ impl SharedState {
                         break;
                     }
                 }
-                Err(_) => {
-                    break;
-                }
+                Err(_) => break,
             }
         }
     }
@@ -114,7 +119,7 @@ impl SharedState {
 ///     hyprwire::include_protocol!("test_protocol_v1");
 /// }
 ///
-/// let mut client = hyprwire::client::Client::open("/tmp/test-hw.sock").unwrap();
+/// let mut client = hyprwire::client::Client::connect("/tmp/test-hw.sock").unwrap();
 /// client.add_implementation::<test_protocol_v1::client::TestProtocolV1Impl>();
 /// ```
 #[macro_export]
