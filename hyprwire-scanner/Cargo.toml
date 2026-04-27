@@ -15,7 +15,7 @@ quote = "1"
 proc-macro2 = "1"
 prettyplease = "0.2"
 syn = { version = "2", features = ["full"] }
-hyprwire-core = { path = "../hyprwire-core" }
+hyprwire-core = { version = "0.3.0", path = "../hyprwire-core" }
 
 [dev-dependencies]
 insta = "1"

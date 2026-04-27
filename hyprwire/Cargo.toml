@@ -32,7 +32,7 @@ path = "examples/calloop/server.rs"
 
 [dependencies]
 log = { version = "0.4.29", default-features = false, optional = true }
-hyprwire-core = { path = "../hyprwire-core" }
+hyprwire-core = { version = "0.3.0", path = "../hyprwire-core" }
 rustix = { version = "1.1.4", features = [
   "fs",
   "net",
@@ -45,7 +45,7 @@ polling = "3.11.0"
 log = ["dep:log"]
 
 [build-dependencies]
-hyprwire-scanner = { path = "../hyprwire-scanner" }
+hyprwire-scanner = { version = "0.3.0", path = "../hyprwire-scanner" }
 
 [dev-dependencies]
 calloop = "0.14.4"

@@ -2,7 +2,7 @@
 source: hyprwire-scanner/tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.2.9. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.3.0. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:

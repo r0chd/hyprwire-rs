@@ -53,18 +53,18 @@ mod test_protocol_v1 {
     pub use client::*;
 }
 
-use std::{path, io};
+use std::error;
 use hyprwire::client;
 use test_protocol_v1::my_manager_v1;
 
 #[derive(Default)]
 struct App;
 
-impl hyprwire::Dispatch<my_manager_v1::Object> for App {
+impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
     fn event(
         &mut self,
-        _object: &my_manager_v1::Object,
-        event: <my_manager_v1::Object as hyprwire::Object>::Event<'_>,
+        _object: &my_manager_v1::MyManagerV1,
+        event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
     ) {
         if let my_manager_v1::Event::SendMessage { message } = event {
             println!("server says {message}");
@@ -72,7 +72,7 @@ impl hyprwire::Dispatch<my_manager_v1::Object> for App {
     }
 }
 
-fn main() -> io::Result<()> {
+fn main() -> Result<(), Box<dyn error::Error>> {
     // Connect to the server.
     let mut client = client::Client::connect("/tmp/test-hw.sock")?;
     let mut app = App::default();
@@ -91,7 +91,7 @@ fn main() -> io::Result<()> {
 
     // Bind the protocol's root object.
     let manager = client
-        .bind::<my_manager_v1::Object, App>(&server_spec, server_spec.spec_ver(), &mut app)?;
+        .bind::<my_manager_v1::MyManagerV1, App>(&server_spec, server_spec.spec_ver(), &mut app)?;
 
     manager.send_send_message("hello");
 
@@ -115,18 +115,18 @@ mod test_protocol_v1 {
     pub use server::*;
 }
 
-use std::path;
+use std::{error, path};
 use hyprwire::server::Server;
 use test_protocol_v1::my_manager_v1;
 
 #[derive(Default)]
 struct App;
 
-impl hyprwire::Dispatch<my_manager_v1::Object> for App {
+impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
     fn event(
         &mut self,
-        _object: &my_manager_v1::Object,
-        event: <my_manager_v1::Object as hyprwire::Object>::Event<'_>,
+        _object: &my_manager_v1::MyManagerV1,
+        event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
     ) {
         if let my_manager_v1::Event::SendMessage { message } = event {
             println!("client says {message}");
@@ -135,12 +135,12 @@ impl hyprwire::Dispatch<my_manager_v1::Object> for App {
 }
 
 impl test_protocol_v1::TestProtocolV1Handler for App {
-    fn bind(&mut self, object: my_manager_v1::Object) {
+    fn bind(&mut self, object: my_manager_v1::MyManagerV1) {
         object.send_send_message("hello from server");
     }
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Box<dyn error::Error>> {
     let mut app = App;
 
     // Create a listening server socket.
@@ -150,8 +150,9 @@ fn main() -> std::io::Result<()> {
     server.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut app);
 
     // Block and dispatch client requests forever.
-    while server.dispatch_events(&mut app, true) {}
-    Ok(())
+    loop {
+        server.dispatch_events(&mut app, true)?;
+    }
 }
 ```
 

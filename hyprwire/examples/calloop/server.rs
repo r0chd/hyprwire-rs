@@ -116,8 +116,7 @@ fn main() {
 
     let mut event_loop = calloop::EventLoop::try_new().unwrap();
 
-    let fd_wrapper =
-        unsafe { generic::FdWrapper::new(socket.extract_loop_fd().unwrap().as_raw_fd()) };
+    let fd_wrapper = unsafe { generic::FdWrapper::new(socket.extract_loop_fd().as_raw_fd()) };
     let source = generic::Generic::new(
         fd_wrapper,
         calloop::Interest {

@@ -137,7 +137,7 @@ fn main() -> io::Result<()> {
 
     loop {
         let (loop_ready, shutdown_ready) = {
-            let loop_fd = socket.extract_loop_fd()?;
+            let loop_fd = socket.extract_loop_fd();
             let mut pfds = [
                 poll::PollFd::new(loop_fd, poll::PollFlags::POLLIN),
                 poll::PollFd::new(shutdown_read.as_fd(), poll::PollFlags::POLLIN),

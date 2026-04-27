@@ -1,11 +1,14 @@
 use super::server_client;
-use crate::{implementation, message, socket, steady_millis, trace};
+use crate::implementation::server;
+use crate::{message, socket, steady_millis, trace};
 use hyprwire_core::message::wire::{fatal_protocol_error, roundtrip_done};
-use rustix::event;
+use polling::AsSource;
 use std::os::fd;
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::AsRawFd;
 use std::os::unix::net;
-use std::{cell, fs, io, path, rc, sync, thread};
+use std::{cell, fs, io, path, rc, time};
+
+const LISTENER_KEY: usize = 0;
 
 /// Server-side entry point for accepting clients and dispatching Hyprwire
 /// protocol traffic.
@@ -14,21 +17,13 @@ use std::{cell, fs, io, path, rc, sync, thread};
 /// a listener and accept already-connected client file descriptors via
 /// [`ServerSocket::add_client`].
 pub struct ServerSocket {
+    // `poller` must be declared before `server` and `clients`: struct fields
+    // drop in declaration order, and the poller's kernel registrations must be
+    // released before the streams they reference.
+    poller: polling::Poller,
     server: Option<net::UnixListener>,
-    export_fd: Option<net::UnixStream>,
-    export_write_fd: Option<net::UnixStream>,
-    wakeup_fd: net::UnixStream,
-    wakeup_write_fd: net::UnixStream,
-    exit_fd: net::UnixStream,
-    exit_write_fd: net::UnixStream,
-    is_empty_listener: bool,
-    impls: rc::Rc<cell::RefCell<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+    impls: rc::Rc<cell::RefCell<Vec<Box<dyn server::ProtocolImplementations>>>>,
     clients: Vec<rc::Rc<server_client::ServerClientState>>,
-    poll_thread: Option<thread::JoinHandle<()>>,
-    poll_mtx: sync::Arc<sync::Mutex<()>>,
-    export_poll_mtx: sync::Arc<sync::Mutex<bool>>,
-    export_poll_cv: sync::Arc<sync::Condvar>,
-    thread_client_fds: sync::Arc<sync::Mutex<Vec<net::UnixStream>>>,
     next_client_id: u32,
 }
 
@@ -47,12 +42,7 @@ impl ServerSocket {
     where
         P: AsRef<path::Path>,
     {
-        let wake_pipes = net::UnixStream::pair()?;
-        let exit_pipes = net::UnixStream::pair()?;
-
-        let poll_mtx = sync::Arc::new(sync::Mutex::new(()));
-        let export_poll_mtx = sync::Arc::new(sync::Mutex::new(false));
-        let export_poll_cv = sync::Arc::new(sync::Condvar::new());
+        let poller = polling::Poller::new()?;
 
         if fs::exists(path)? {
             match net::UnixStream::connect(path) {
@@ -64,126 +54,44 @@ impl ServerSocket {
             }
         }
 
-        let socket = net::UnixListener::bind(path)?;
-        socket.set_nonblocking(true)?;
-        let mut this = Self {
-            server: Some(socket),
-            export_fd: None,
-            export_write_fd: None,
-            wakeup_fd: wake_pipes.0,
-            wakeup_write_fd: wake_pipes.1,
-            exit_fd: exit_pipes.0,
-            exit_write_fd: exit_pipes.1,
-            is_empty_listener: false,
+        let listener = net::UnixListener::bind(path)?;
+        listener.set_nonblocking(true)?;
+
+        unsafe { poller.add(&listener, polling::Event::readable(LISTENER_KEY))? };
+
+        Ok(Self {
+            poller,
+            server: Some(listener),
             impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
             clients: Vec::new(),
-            poll_thread: None,
-            poll_mtx,
-            export_poll_mtx,
-            export_poll_cv,
-            thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
             next_client_id: 1,
-        };
-
-        this.recheck_pollfds()?;
-        Ok(this)
+        })
     }
 
-    /// Opens a Hyprwire server socket.
+    /// Opens a Hyprwire server socket without a listener.
     ///
-    /// Starts server without a listener and can be used only
-    /// with clients added through [`ServerSocket::add_client`].
+    /// Such a server accepts only pre-connected client file descriptors added
+    /// through [`ServerSocket::add_client`].
     ///
     /// # Errors
-    /// Returns an error if socket creation fails.
+    /// Returns an error if poller creation fails.
     pub fn detached() -> io::Result<Self> {
-        let wake_pipes = net::UnixStream::pair()?;
-        let exit_pipes = net::UnixStream::pair()?;
-
-        let poll_mtx = sync::Arc::new(sync::Mutex::new(()));
-        let export_poll_mtx = sync::Arc::new(sync::Mutex::new(false));
-        let export_poll_cv = sync::Arc::new(sync::Condvar::new());
-
-        let mut this = Self {
+        Ok(Self {
+            poller: polling::Poller::new()?,
             server: None,
-            export_fd: None,
-            export_write_fd: None,
-            wakeup_fd: wake_pipes.0,
-            wakeup_write_fd: wake_pipes.1,
-            exit_fd: exit_pipes.0,
-            exit_write_fd: exit_pipes.1,
-            is_empty_listener: true,
             impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
             clients: Vec::new(),
-            poll_thread: None,
-            poll_mtx,
-            export_poll_mtx,
-            export_poll_cv,
-            thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
             next_client_id: 1,
-        };
-
-        this.recheck_pollfds()?;
-        Ok(this)
+        })
     }
 
     /// Registers a protocol implementation on the server.
     pub fn add_implementation<I, H>(&mut self, version: u32, handler: &mut H)
     where
-        I: implementation::server::Construct<H> + 'static,
+        I: server::Construct<H> + 'static,
     {
         let implementation = I::new(version, handler);
         self.impls.borrow_mut().push(Box::new(implementation));
-    }
-
-    pub(crate) fn dispatch_pending<D: 'static>(&mut self, dispatch: &mut D) -> io::Result<bool> {
-        let revents: Vec<event::PollFlags> = {
-            let mut pollfds = build_pollfds(
-                self.server.as_ref(),
-                &self.exit_fd,
-                &self.wakeup_fd,
-                &self.clients,
-                self.is_empty_listener,
-            );
-            event::poll(&mut pollfds, Some(&event::Timespec::default()))?;
-            pollfds.iter().map(|p| p.revents()).collect()
-        };
-
-        if self.dispatch_new_connections(&revents)? {
-            return self.dispatch_pending(dispatch);
-        }
-
-        self.dispatch_existing_connections(dispatch, &revents)
-    }
-
-    fn clear_fd(fd: &net::UnixStream) {
-        let mut buf = [0u8; 128];
-        let mut pfd = [event::PollFd::new(fd, event::PollFlags::IN)];
-
-        loop {
-            _ = event::poll(&mut pfd, Some(&event::Timespec::default()));
-
-            if pfd[0].revents() == event::PollFlags::IN {
-                let _ = io::Read::read(&mut &*fd, &mut buf);
-                continue;
-            }
-
-            break;
-        }
-    }
-
-    fn clear_exit_fd(&self) {
-        Self::clear_fd(&self.exit_fd);
-    }
-
-    fn clear_wakeup_fd(&self) {
-        Self::clear_fd(&self.wakeup_fd);
-    }
-
-    fn clear_event_fd(&self) {
-        if let Some(fd) = &self.export_fd {
-            Self::clear_fd(fd);
-        }
     }
 
     fn dispatch_client<D: 'static>(
@@ -231,95 +139,7 @@ impl ServerSocket {
         }
     }
 
-    pub(crate) fn dispatch_existing_connections<D: 'static>(
-        &mut self,
-        dispatch: &mut D,
-        revents: &[event::PollFlags],
-    ) -> io::Result<bool> {
-        let mut had_any = false;
-        let mut needs_poll_recheck = false;
-
-        let internal_fds = self.internal_fds();
-
-        for i in internal_fds..revents.len() {
-            let Some(&revents) = revents.get(i) else {
-                continue;
-            };
-
-            let has_input = revents.contains(event::PollFlags::IN);
-            let has_hangup = revents.contains(event::PollFlags::HUP);
-
-            if !has_input && !has_hangup {
-                continue;
-            }
-
-            let client_idx = i - internal_fds;
-
-            if has_input {
-                Self::dispatch_client(&self.clients[client_idx], dispatch);
-                had_any = true;
-            }
-
-            if has_hangup {
-                had_any = true;
-                self.clients[client_idx].state.error.set(true);
-                let _ = self.clients[client_idx]
-                    .state
-                    .stream
-                    .shutdown(std::net::Shutdown::Both);
-                self.clients[client_idx].destroy_objects_for_disconnect(dispatch);
-                needs_poll_recheck = true;
-                trace! {
-                    crate::log_debug!(
-                        "[hw] trace: [{} @ {:.3}] Dropping client (hangup)",
-                        self.clients[client_idx].state.stream.as_raw_fd(),
-                        steady_millis(),
-                    )
-                }
-                continue;
-            }
-
-            if self.clients[client_idx].state.error.get() {
-                self.clients[client_idx].destroy_objects_for_disconnect(dispatch);
-                needs_poll_recheck = true;
-                trace! {
-                    crate::log_debug!(
-                        "[hw] trace: [{} @ {:.3}] Dropping client (protocol error)",
-                        self.clients[client_idx].state.stream.as_raw_fd(),
-                        steady_millis(),
-                    )
-                }
-            }
-        }
-
-        if needs_poll_recheck {
-            self.clients.retain(|c| !c.state.error.get());
-            self.recheck_pollfds()?;
-        }
-
-        Ok(had_any)
-    }
-
-    fn internal_fds(&self) -> usize {
-        if self.is_empty_listener { 2 } else { 3 }
-    }
-
-    pub(crate) fn dispatch_new_connections(
-        &mut self,
-        revents: &[event::PollFlags],
-    ) -> io::Result<bool> {
-        if self.is_empty_listener {
-            return Ok(false);
-        }
-
-        let Some(&server_revents) = revents.first() else {
-            return Ok(false);
-        };
-
-        if !server_revents.contains(event::PollFlags::IN) {
-            return Ok(false);
-        }
-
+    fn accept_one(&mut self) -> io::Result<bool> {
         let Some(server) = self.server.as_ref() else {
             return Ok(false);
         };
@@ -340,25 +160,80 @@ impl ServerSocket {
             stream,
             rc::Rc::clone(&self.impls),
         ));
-        let client =
-            server_client::ServerClientState::new(self.next_client_id, rc::Rc::clone(&state));
+        let client_id = self.next_client_id;
+        let client = server_client::ServerClientState::new(client_id, rc::Rc::clone(&state));
+
+        unsafe {
+            self.poller.add(
+                &client.state.stream,
+                polling::Event::readable(client_id as usize),
+            )?;
+        }
+
         self.next_client_id += 1;
-
         self.clients.push(client);
-        self.recheck_pollfds()?;
-
         Ok(true)
     }
 
-    fn recheck_pollfds(&mut self) -> io::Result<()> {
-        let mut cfds = self.thread_client_fds.lock().unwrap();
-        let mut new_cfds = Vec::with_capacity(self.clients.len());
-        for c in &self.clients {
-            new_cfds.push(c.state.stream.try_clone()?);
-        }
-        *cfds = new_cfds;
+    fn dispatch_pending<D: 'static>(&mut self, dispatch: &mut D, block: bool) -> io::Result<bool> {
+        let mut events = polling::Events::new();
+        let timeout = if block {
+            None
+        } else {
+            Some(time::Duration::ZERO)
+        };
+        self.poller.wait(&mut events, timeout)?;
 
-        Ok(())
+        if events.is_empty() {
+            return Ok(false);
+        }
+
+        let mut dead: Vec<u32> = Vec::new();
+
+        for ev in events.iter() {
+            if ev.key == LISTENER_KEY {
+                let _ = self.accept_one()?;
+
+                if let Some(server) = self.server.as_ref() {
+                    self.poller
+                        .modify(server, polling::Event::readable(LISTENER_KEY))?;
+                }
+
+                continue;
+            }
+
+            let id = ev.key as u32;
+            let Some(client) = self.clients.iter().find(|c| c.id == id).map(rc::Rc::clone) else {
+                continue;
+            };
+
+            Self::dispatch_client(&client, dispatch);
+
+            if client.state.error.get() {
+                dead.push(id);
+            } else {
+                self.poller
+                    .modify(&client.state.stream, polling::Event::readable(id as usize))?;
+            }
+        }
+
+        for id in dead {
+            let Some(idx) = self.clients.iter().position(|c| c.id == id) else {
+                continue;
+            };
+            let client = self.clients.remove(idx);
+            client.destroy_objects_for_disconnect(dispatch);
+            let _ = self.poller.delete(&client.state.stream);
+            trace! {
+                crate::log_debug!(
+                    "[hw] trace: [{} @ {:.3}] Dropping client",
+                    client.state.stream.as_raw_fd(),
+                    steady_millis(),
+                )
+            }
+        }
+
+        Ok(true)
     }
 
     /// Processes pending protocol traffic for connected clients.
@@ -366,41 +241,18 @@ impl ServerSocket {
     /// Pass the dispatch state that receives generated event callbacks. If
     /// `block` is `true`, this call waits until at least one event source
     /// becomes ready before dispatching work.
-    ///
-    /// # Panics
-    /// Panics if an internal synchronization mutex has been poisoned by a
-    /// panic in another thread while coordinating poll/export state.
     pub fn dispatch_events<D: 'static>(&mut self, state: &mut D, block: bool) -> crate::Result<()> {
-        let mtx = sync::Arc::clone(&self.poll_mtx);
-        let poll_guard = mtx.lock().unwrap();
-
-        while self.dispatch_pending(state).map_err(crate::Error::Io)? {}
-
-        self.clear_event_fd();
-        self.clear_exit_fd();
-        self.clear_wakeup_fd();
-
-        if block {
-            let mut pollfds = build_pollfds(
-                self.server.as_ref(),
-                &self.exit_fd,
-                &self.wakeup_fd,
-                &self.clients,
-                self.is_empty_listener,
-            );
-
-            let _ = event::poll(&mut pollfds, None);
-            while self.dispatch_pending(state).map_err(crate::Error::Io)? {}
+        let mut first = true;
+        loop {
+            let do_block = block && first;
+            let any = self
+                .dispatch_pending(state, do_block)
+                .map_err(crate::Error::Io)?;
+            first = false;
+            if !any {
+                break;
+            }
         }
-
-        drop(poll_guard);
-
-        let export_mtx = sync::Arc::clone(&self.export_poll_mtx);
-        let export_cv = sync::Arc::clone(&self.export_poll_cv);
-        let mut poll_event = export_mtx.lock().unwrap();
-        *poll_event = false;
-        export_cv.notify_all();
-
         Ok(())
     }
 
@@ -419,17 +271,19 @@ impl ServerSocket {
         ));
         let client_id = self.next_client_id;
         let client = server_client::ServerClientState::new(client_id, rc::Rc::clone(&state));
-        self.next_client_id += 1;
 
-        self.clients.push(rc::Rc::clone(&client));
-        if let Err(e) = self.recheck_pollfds() {
-            self.clients.pop();
-            self.next_client_id -= 1;
+        // SAFETY: see `accept_one` — same drop-order argument.
+        if let Err(e) = unsafe {
+            self.poller.add(
+                &client.state.stream,
+                polling::Event::readable(client_id as usize),
+            )
+        } {
             return Err(crate::Error::Io(e));
         }
 
-        // wake up any poller
-        let _ = io::Write::write(&mut &self.wakeup_write_fd, b"x");
+        self.next_client_id += 1;
+        self.clients.push(rc::Rc::clone(&client));
 
         Ok(server_client::ServerClient {
             id: client_id,
@@ -449,17 +303,12 @@ impl ServerSocket {
             state.state.error.set(true);
             let _ = state.state.stream.shutdown(std::net::Shutdown::Both);
             state.destroy_objects_for_disconnect(dispatch);
+            let _ = self.poller.delete(&state.state.stream);
         }
 
         let before = self.clients.len();
         self.clients.retain(|c| c.id != client.id());
-        let removed = self.clients.len() < before;
-
-        if removed {
-            self.recheck_pollfds().map_err(crate::Error::Io)?;
-        }
-
-        Ok(removed)
+        Ok(self.clients.len() < before)
     }
 
     /// Returns a file descriptor that becomes readable when the server has
@@ -467,137 +316,10 @@ impl ServerSocket {
     ///
     /// This can be integrated into an external event loop. When the returned
     /// descriptor is readable, call [`ServerSocket::dispatch_events`] to accept
-    /// new clients and process pending protocol traffic.
-    ///
-    /// # Errors
-    /// Returns an error if creating the internal wakeup pipe for exported loop
-    /// integration fails.
-    ///
-    /// # Panics
-    /// Panics if an internal synchronization mutex has been poisoned by a
-    /// panic in another thread while coordinating poll/export state.
-    pub fn extract_loop_fd(&mut self) -> io::Result<fd::BorrowedFd<'_>> {
-        if self.export_fd.is_none() {
-            let export_pipes = net::UnixStream::pair()?;
-
-            let thread_exit_fd = self.exit_fd.try_clone()?;
-            let thread_wakeup_fd = self.wakeup_fd.try_clone()?;
-            let thread_export_write_fd = export_pipes.1.try_clone()?;
-            let thread_server_fd: Option<net::UnixListener> = self
-                .server
-                .as_ref()
-                .map(net::UnixListener::try_clone)
-                .transpose()?;
-
-            self.export_fd = Some(export_pipes.0);
-            self.export_write_fd = Some(export_pipes.1);
-
-            self.recheck_pollfds()?;
-
-            let poll_mtx = sync::Arc::clone(&self.poll_mtx);
-            let export_poll_mtx = sync::Arc::clone(&self.export_poll_mtx);
-            let export_poll_cv = sync::Arc::clone(&self.export_poll_cv);
-            let is_empty_listener = self.is_empty_listener;
-            let client_fds = sync::Arc::clone(&self.thread_client_fds);
-
-            let exit_raw = thread_exit_fd.as_raw_fd();
-
-            self.poll_thread = Some(thread::spawn(move || {
-                let exit_fd = thread_exit_fd;
-                let wakeup_fd = thread_wakeup_fd;
-                let export_write_fd = thread_export_write_fd;
-                let server_fd = thread_server_fd;
-
-                loop {
-                    let cfds = client_fds.lock().unwrap();
-                    let mut pollfds: Vec<event::PollFd<'_>> = Vec::new();
-
-                    {
-                        let _guard = poll_mtx.lock().unwrap();
-
-                        if !is_empty_listener && let Some(ref listener) = server_fd {
-                            pollfds.push(event::PollFd::new(listener, event::PollFlags::IN));
-                        }
-
-                        pollfds.push(event::PollFd::new(&exit_fd, event::PollFlags::IN));
-                        pollfds.push(event::PollFd::new(&wakeup_fd, event::PollFlags::IN));
-
-                        for stream in cfds.iter() {
-                            pollfds.push(event::PollFd::new(stream, event::PollFlags::IN));
-                        }
-                    }
-
-                    let _ = event::poll(&mut pollfds, None);
-
-                    // check exit fd
-                    let should_exit = pollfds.iter().any(|pfd| {
-                        pfd.revents().contains(event::PollFlags::IN)
-                            && pfd.as_fd().as_raw_fd() == exit_raw
-                    });
-
-                    drop(pollfds);
-                    drop(cfds);
-
-                    if should_exit {
-                        return;
-                    }
-
-                    {
-                        let mut poll_event = export_poll_mtx.lock().unwrap();
-                        *poll_event = true;
-                        let _ = io::Write::write(&mut &export_write_fd, b"x");
-
-                        let result = export_poll_cv.wait_timeout_while(
-                            poll_event,
-                            std::time::Duration::from_secs(5),
-                            |event| *event,
-                        );
-                        if let Ok((guard, timeout)) = result
-                            && timeout.timed_out()
-                            && *guard
-                        {}
-                    }
-                }
-            }));
-        }
-
-        Ok(self.export_fd.as_ref().unwrap().as_fd())
+    /// new clients and process pending protocol traffic. The fd is the
+    /// underlying [`polling::Poller`] source (epollfd on Linux, kqueuefd on
+    /// BSD/macOS), which is itself pollable.
+    pub fn extract_loop_fd(&self) -> fd::BorrowedFd<'_> {
+        self.poller.source()
     }
-}
-
-impl Drop for ServerSocket {
-    fn drop(&mut self) {
-        if self.poll_thread.is_some() {
-            let _ = io::Write::write(&mut &self.exit_write_fd, b"x");
-        }
-        if let Some(thread) = self.poll_thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
-fn build_pollfds<'a>(
-    server: Option<&'a net::UnixListener>,
-    exit_fd: &'a net::UnixStream,
-    wakeup_fd: &'a net::UnixStream,
-    clients: &'a [rc::Rc<server_client::ServerClientState>],
-    is_empty_listener: bool,
-) -> Vec<event::PollFd<'a>> {
-    let mut pollfds = Vec::new();
-
-    if !is_empty_listener && let Some(s) = server {
-        pollfds.push(event::PollFd::new(s, event::PollFlags::IN));
-    }
-
-    pollfds.push(event::PollFd::new(exit_fd, event::PollFlags::IN));
-    pollfds.push(event::PollFd::new(wakeup_fd, event::PollFlags::IN));
-
-    for client in clients {
-        pollfds.push(event::PollFd::new(
-            &client.state.stream,
-            event::PollFlags::IN,
-        ));
-    }
-
-    pollfds
 }
