@@ -128,7 +128,7 @@ fn main() -> io::Result<()> {
     drop(shutdown_write);
 
     // Server
-    let mut socket = server::Server::open(Some(&socket_path))?;
+    let mut socket = server::Server::bind(&socket_path)?;
     let mut app = ServerApp;
     socket.add_implementation::<bench_protocol_v1::s::BenchProtocolV1Impl, _>(
         BENCH_PROTOCOL_VERSION,

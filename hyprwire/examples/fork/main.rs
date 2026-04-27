@@ -1,6 +1,9 @@
+use hyprwire_core::types::ProtocolSpec;
 use nix::libc;
+use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net;
-use std::process;
+use std::{fs, process};
 
 const TEST_PROTOCOL_VERSION: u32 = 1;
 
@@ -11,12 +14,8 @@ mod server_socket {
         pub use spec::*;
     }
 
-    use super::TEST_PROTOCOL_VERSION;
+    use super::*;
     use hyprwire::server;
-    use std::io::Read;
-    use std::os::fd::AsRawFd;
-    use std::os::unix::net;
-    use std::{fs, path};
     use test_protocol_v1::{my_manager_v1, my_object_v1};
 
     #[derive(Default)]
@@ -113,8 +112,7 @@ mod server_socket {
     }
 
     pub fn main(client_fd: net::UnixStream) -> hyprwire::Result<()> {
-        let mut socket =
-            server::Server::open::<path::PathBuf>(None).map_err(hyprwire::Error::Io)?;
+        let mut socket = server::Server::detached().map_err(hyprwire::Error::Io)?;
         let mut app = App::default();
         socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(
             TEST_PROTOCOL_VERSION,
@@ -138,11 +136,8 @@ mod client_socket {
         pub use spec::*;
     }
 
+    use super::*;
     use hyprwire::client;
-    use hyprwire_core::types::ProtocolSpec;
-    use std::io::Write;
-    use std::os::fd::AsRawFd;
-    use std::os::unix::net;
     use test_protocol_v1::{my_manager_v1, my_object_v1};
 
     #[derive(Default)]

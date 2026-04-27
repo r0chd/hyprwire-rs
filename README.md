@@ -144,7 +144,7 @@ fn main() -> std::io::Result<()> {
     let mut app = App;
 
     // Create a listening server socket.
-    let mut server = Server::open(Some(path::Path::new("/tmp/test-hw.sock")))?;
+    let mut server = Server::bind(path::Path::new("/tmp/test-hw.sock"))?;
 
     // Register the generated server-side implementation.
     server.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut app);

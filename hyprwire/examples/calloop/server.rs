@@ -110,7 +110,7 @@ fn main() {
         .init();
 
     let path = socket_path();
-    let mut socket = server::Server::open(Some(&path)).unwrap();
+    let mut socket = server::Server::bind(&path).unwrap();
     let mut state = App::default();
     socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut state);
 

@@ -33,17 +33,17 @@ pub struct ServerSocket {
 }
 
 impl ServerSocket {
-    /// Opens a Hyprwire server socket.
+    /// Opens a Hyprwire server socket listening on the given Unix socket path.
     ///
-    /// If `path` is `Some`, the server listens on that Unix socket path. If it
-    /// is `None`, the server starts without a listener and can be used only
-    /// with clients added through [`ServerSocket::add_client`].
+    /// To create a server without a listener (accepting only pre-connected
+    /// client file descriptors via [`ServerSocket::add_client`]), use
+    /// [`ServerSocket::detached`] instead.
     ///
     /// # Errors
     /// Returns an error if socket creation fails, the socket path cannot be
-    /// prepared or bound, or an existing live server is already listening on
-    /// the requested path.
-    pub fn open<P>(path: Option<&P>) -> io::Result<Self>
+    /// bound, or an existing live server is already listening on the
+    /// requested path.
+    pub fn bind<P>(path: &P) -> io::Result<Self>
     where
         P: AsRef<path::Path>,
     {
@@ -54,60 +54,73 @@ impl ServerSocket {
         let export_poll_mtx = sync::Arc::new(sync::Mutex::new(false));
         let export_poll_cv = sync::Arc::new(sync::Condvar::new());
 
-        let mut this = match path.as_ref() {
-            Some(path) => {
-                if fs::exists(path)? {
-                    match net::UnixStream::connect(path) {
-                        Ok(_) => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::AddrInUse,
-                                "socket is alive",
-                            ));
-                        }
-                        Err(e) if e.kind() != io::ErrorKind::ConnectionRefused => return Err(e),
-                        _ => fs::remove_file(path)?,
-                    }
+        if fs::exists(path)? {
+            match net::UnixStream::connect(path) {
+                Ok(_) => {
+                    return Err(io::Error::new(io::ErrorKind::AddrInUse, "socket is alive"));
                 }
-
-                let socket = net::UnixListener::bind(path)?;
-                socket.set_nonblocking(true)?;
-                Self {
-                    server: Some(socket),
-                    export_fd: None,
-                    export_write_fd: None,
-                    wakeup_fd: wake_pipes.0,
-                    wakeup_write_fd: wake_pipes.1,
-                    exit_fd: exit_pipes.0,
-                    exit_write_fd: exit_pipes.1,
-                    is_empty_listener: false,
-                    impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
-                    clients: Vec::new(),
-                    poll_thread: None,
-                    poll_mtx,
-                    export_poll_mtx,
-                    export_poll_cv,
-                    thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
-                    next_client_id: 1,
-                }
+                Err(e) if e.kind() != io::ErrorKind::ConnectionRefused => return Err(e),
+                _ => fs::remove_file(path)?,
             }
-            None => Self {
-                server: None,
-                export_fd: None,
-                export_write_fd: None,
-                wakeup_fd: wake_pipes.0,
-                wakeup_write_fd: wake_pipes.1,
-                exit_fd: exit_pipes.0,
-                exit_write_fd: exit_pipes.1,
-                is_empty_listener: true,
-                impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
-                clients: Vec::new(),
-                poll_thread: None,
-                poll_mtx,
-                export_poll_mtx,
-                export_poll_cv,
-                thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
-                next_client_id: 1,
-            },
+        }
+
+        let socket = net::UnixListener::bind(path)?;
+        socket.set_nonblocking(true)?;
+        let mut this = Self {
+            server: Some(socket),
+            export_fd: None,
+            export_write_fd: None,
+            wakeup_fd: wake_pipes.0,
+            wakeup_write_fd: wake_pipes.1,
+            exit_fd: exit_pipes.0,
+            exit_write_fd: exit_pipes.1,
+            is_empty_listener: false,
+            impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
+            clients: Vec::new(),
+            poll_thread: None,
+            poll_mtx,
+            export_poll_mtx,
+            export_poll_cv,
+            thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
+            next_client_id: 1,
+        };
+
+        this.recheck_pollfds()?;
+        Ok(this)
+    }
+
+    /// Opens a Hyprwire server socket.
+    ///
+    /// Starts server without a listener and can be used only
+    /// with clients added through [`ServerSocket::add_client`].
+    ///
+    /// # Errors
+    /// Returns an error if socket creation fails.
+    pub fn detached() -> io::Result<Self> {
+        let wake_pipes = net::UnixStream::pair()?;
+        let exit_pipes = net::UnixStream::pair()?;
+
+        let poll_mtx = sync::Arc::new(sync::Mutex::new(()));
+        let export_poll_mtx = sync::Arc::new(sync::Mutex::new(false));
+        let export_poll_cv = sync::Arc::new(sync::Condvar::new());
+
+        let mut this = Self {
+            server: None,
+            export_fd: None,
+            export_write_fd: None,
+            wakeup_fd: wake_pipes.0,
+            wakeup_write_fd: wake_pipes.1,
+            exit_fd: exit_pipes.0,
+            exit_write_fd: exit_pipes.1,
+            is_empty_listener: true,
+            impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
+            clients: Vec::new(),
+            poll_thread: None,
+            poll_mtx,
+            export_poll_mtx,
+            export_poll_cv,
+            thread_client_fds: sync::Arc::new(sync::Mutex::new(Vec::new())),
+            next_client_id: 1,
         };
 
         this.recheck_pollfds()?;

@@ -6,7 +6,7 @@ use std::io;
 use std::io::Write;
 use std::os::fd::AsFd;
 use std::os::unix::net;
-use std::{path, process};
+use std::process;
 
 const BENCH_PROTOCOL_VERSION: u32 = 1;
 const CLIENTS: usize = 100;
@@ -185,7 +185,7 @@ fn main() -> io::Result<()> {
 
     // Server
 
-    let mut socket = server::Server::open::<&path::Path>(None)?;
+    let mut socket = server::Server::detached()?;
     let mut app = ServerApp;
     socket.add_implementation::<bench_protocol_v1::s::BenchProtocolV1Impl, _>(
         BENCH_PROTOCOL_VERSION,

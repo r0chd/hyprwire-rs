@@ -111,7 +111,7 @@ fn main() {
         .init();
 
     let path = socket_path();
-    let mut sock = server::Server::open(Some(&path)).unwrap();
+    let mut sock = server::Server::bind(&path).unwrap();
     let mut app = App::default();
     sock.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut app);
 

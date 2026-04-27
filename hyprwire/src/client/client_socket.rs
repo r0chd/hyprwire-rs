@@ -9,8 +9,9 @@ use hyprwire_core::message::wire::{
     bind_protocol, generic_protocol_message, hello, roundtrip_request,
 };
 use hyprwire_core::types::ProtocolSpec;
+use polling::AsSource;
 use std::os::fd;
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::AsRawFd;
 use std::os::unix::net;
 use std::{cell, io, mem, ops, path, rc, time};
 
@@ -201,7 +202,7 @@ impl ClientSocket {
     }
 
     pub fn extract_loop_fd(&self) -> fd::BorrowedFd<'_> {
-        self.state.stream.as_fd()
+        self.poller.source()
     }
 
     pub fn server_specs(&self, specs: &[Box<str>]) {
