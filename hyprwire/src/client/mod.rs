@@ -117,8 +117,11 @@ impl Client {
         state: &mut D,
     ) -> crate::Result<O> {
         let obj = self.0.bind_protocol(spec, version)?;
+        // Install event handlers before waiting so events that arrive in the same
+        // socket read with NewObject are dispatched rather than dropped.
+        let typed = O::from_object::<D>(rc::Rc::clone(&obj) as rc::Rc<dyn object::Object>);
         self.0.wait_for_object(&obj, state)?;
-        Ok(O::from_object::<D>(obj))
+        Ok(typed)
     }
 
     #[must_use]
