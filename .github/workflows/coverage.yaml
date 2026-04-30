@@ -18,8 +18,8 @@ jobs:
       - name: Run tests with coverage
         run: |
           nix develop .#ci --command bash -c '
-            RUSTFLAGS="-C instrument-coverage" \
-            LLVM_PROFILE_FILE="coverage-%p-%m.profraw" \
+            export RUSTFLAGS="-C instrument-coverage"
+            export LLVM_PROFILE_FILE="target/coverage/%p-%m.profraw"
             cargo test --workspace
           '
 
@@ -32,6 +32,7 @@ jobs:
               -t lcov \
               --branch \
               --ignore-not-existing \
+              --ignore "**/examples/**" \
               -o coverage.lcov
           '
 

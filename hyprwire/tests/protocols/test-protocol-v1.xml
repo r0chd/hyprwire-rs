@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="integration_test_protocol_v1" version="1">
+  <copyright>
+    Integration test protocol for full wire coverage.
+  </copyright>
+
+  <!-- ===================== -->
+  <!-- ENUMS -->
+  <!-- ===================== -->
+
+  <enum name="test_enum">
+    <value idx="0" name="hello"/>
+    <value idx="4" name="world"/>
+  </enum>
+
+  <enum name="test_error_enum">
+    <value idx="0" name="oh_no"/>
+    <value idx="1" name="important_error" description="important error!!"/>
+  </enum>
+
+  <!-- ===================== -->
+  <!-- MANAGER OBJECT -->
+  <!-- ===================== -->
+
+  <object name="integration_manager_v1" version="1">
+    <description summary="integration test manager">
+      Root object used to test full protocol capabilities.
+    </description>
+
+    <!-- ===================== -->
+    <!-- STRING / BASIC TYPES -->
+    <!-- ===================== -->
+
+    <c2s name="send_message">
+      <arg name="message" type="varchar"/>
+    </c2s>
+
+    <c2s name="send_uint">
+      <arg name="value" type="uint"/>
+    </c2s>
+
+    <c2s name="send_int">
+      <arg name="value" type="int"/>
+    </c2s>
+
+    <c2s name="send_float">
+      <arg name="value" type="f32"/>
+    </c2s>
+
+    <c2s name="send_fd">
+      <arg name="value" type="fd"/>
+    </c2s>
+
+    <!-- ===================== -->
+    <!-- ARRAYS -->
+    <!-- ===================== -->
+
+    <c2s name="send_array_uint">
+      <arg name="values" type="array uint"/>
+    </c2s>
+
+    <c2s name="send_array_string">
+      <arg name="values" type="array varchar"/>
+    </c2s>
+
+    <c2s name="send_array_fd">
+      <arg name="values" type="array fd"/>
+    </c2s>
+
+    <!-- ===================== -->
+    <!-- MIXED ARG / END PARSING TEST -->
+    <!-- ===================== -->
+
+    <c2s name="send_start">
+      <arg name="cmd" type="array varchar"/>
+      <arg name="env" type="array varchar"/>
+    </c2s>
+
+    <c2s name="send_mixed">
+      <arg name="a" type="uint"/>
+      <arg name="b" type="varchar"/>
+      <arg name="c" type="fd"/>
+      <arg name="d" type="array uint"/>
+    </c2s>
+
+    <!-- ===================== -->
+    <!-- ENUMS -->
+    <!-- ===================== -->
+
+    <c2s name="send_enum">
+      <arg name="value" type="enum" interface="test_enum"/>
+    </c2s>
+
+    <!-- ===================== -->
+    <!-- OBJECT CREATION -->
+    <!-- ===================== -->
+
+    <c2s name="make_object">
+      <returns iface="integration_object_v1"/>
+    </c2s>
+
+    <!-- ===================== -->
+    <!-- SERVER -> CLIENT -->
+    <!-- ===================== -->
+
+    <s2c name="recv_array_uint">
+      <arg name="values" type="array uint"/>
+    </s2c>
+
+    <s2c name="recv_message">
+      <arg name="message" type="varchar"/>
+    </s2c>
+
+    <!-- ===================== -->
+    <!-- ERROR PATH -->
+    <!-- ===================== -->
+
+    <s2c name="report_error">
+      <arg name="code" type="enum" interface="test_error_enum"/>
+      <arg name="message" type="varchar"/>
+    </s2c>
+
+  </object>
+
+  <!-- ===================== -->
+  <!-- CHILD OBJECT -->
+  <!-- ===================== -->
+
+  <object name="integration_object_v1" version="1">
+    <description summary="child test object">
+      Object used for lifecycle and nested dispatch testing.
+    </description>
+
+    <c2s name="ping">
+      <arg name="value" type="uint"/>
+    </c2s>
+
+    <s2c name="pong">
+      <arg name="value" type="uint"/>
+    </s2c>
+
+    <!-- nested object creation -->
+    <c2s name="make_object">
+      <returns iface="integration_object_v1"/>
+    </c2s>
+
+    <!-- enum usage -->
+    <c2s name="send_enum">
+      <arg name="value" type="enum" interface="test_enum"/>
+    </c2s>
+
+    <!-- mixed stress call -->
+    <c2s name="complex_call">
+      <arg name="e" type="enum" interface="test_enum"/>
+      <arg name="msg" type="varchar"/>
+      <arg name="nums" type="array uint"/>
+    </c2s>
+
+    <!-- destructor -->
+    <c2s name="destroy" destructor="true"/>
+
+  </object>
+
+</protocol>
