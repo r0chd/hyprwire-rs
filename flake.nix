@@ -23,6 +23,12 @@
             import nixpkgs {
               inherit system;
               overlays = [ rust-overlay.overlays.default ];
+              config.allowUnfreePredicate =
+                pkg:
+                builtins.elem (nixpkgs.lib.getName pkg) [
+                  "codecov-cli"
+                  "test-results-parser"
+                ];
             }
           )
         );
@@ -63,6 +69,7 @@
                   cargo-deny
                   cargo-udeps
                   grcov
+                  codecov-cli
                   ;
                 inherit rustToolchain;
               };
