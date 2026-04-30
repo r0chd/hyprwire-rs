@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/gh/r0chd/hyprwire-rs/graph/badge.svg?token=HBCVE7N7IV)](https://codecov.io/gh/r0chd/hyprwire-rs)
+
 # hyprwire
 
 `hyprwire-rs` is a pure Rust implementation of Hyprwire wire protocol.
