@@ -8,7 +8,11 @@
   };
 
   outputs =
-    { nixpkgs, rust-overlay, ... }:
+    {
+      nixpkgs,
+      rust-overlay,
+      ...
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -23,12 +27,7 @@
             import nixpkgs {
               inherit system;
               overlays = [ rust-overlay.overlays.default ];
-              config.allowUnfreePredicate =
-                pkg:
-                builtins.elem (nixpkgs.lib.getName pkg) [
-                  "codecov-cli"
-                  "test-results-parser"
-                ];
+              config.allowUnfree = true;
             }
           )
         );
@@ -41,42 +40,12 @@
             extensions = [
               "rust-analyzer"
               "rust-src"
-              "llvm-tools"
             ];
           };
         in
         {
-          default = pkgs.mkShell (
-            pkgs.lib.fix (finalAttrs: {
-              buildInputs = builtins.attrValues {
-                inherit (pkgs)
-                  cargo-insta
-                  nixd
-                  ;
-                inherit rustToolchain;
-              };
-              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath finalAttrs.buildInputs;
-              RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
-            })
-          );
-
-          ci = pkgs.mkShell (
-            pkgs.lib.fix (finalAttrs: {
-              buildInputs = builtins.attrValues {
-                inherit (pkgs)
-                  curl
-                  cargo-audit
-                  cargo-deny
-                  cargo-udeps
-                  grcov
-                  codecov-cli
-                  ;
-                inherit rustToolchain;
-              };
-              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath finalAttrs.buildInputs;
-              RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
-            })
-          );
+          default = import ./nix/shell.nix { inherit pkgs rustToolchain; };
+          ci = import ./nix/ci.nix { inherit pkgs rustToolchain; };
         }
       );
 
@@ -90,22 +59,7 @@
             ];
           };
         in
-        pkgs.writeShellApplication {
-          name = "nix3-fmt-wrapper";
-          runtimeInputs = builtins.attrValues {
-            inherit (pkgs)
-              nixfmt
-              taplo
-              fd
-              ;
-            inherit rustToolchain;
-          };
-          text = ''
-            fd "$@" -t f -e nix -x nixfmt -q '{}'
-            fd "$@" -t f -e toml -x taplo format '{}'
-            cargo fmt
-          '';
-        }
+        import ./nix/formatter.nix { inherit pkgs rustToolchain; }
       );
     };
 }
