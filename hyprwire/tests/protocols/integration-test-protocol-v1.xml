@@ -109,12 +109,52 @@
     <!-- SERVER -> CLIENT -->
     <!-- ===================== -->
 
+    <s2c name="recv_message">
+      <arg name="message" type="varchar"/>
+    </s2c>
+
+    <s2c name="recv_uint">
+      <arg name="value" type="uint"/>
+    </s2c>
+
+    <s2c name="recv_int">
+      <arg name="value" type="int"/>
+    </s2c>
+
+    <s2c name="recv_float">
+      <arg name="value" type="f32"/>
+    </s2c>
+
+    <s2c name="recv_fd">
+      <arg name="value" type="fd"/>
+    </s2c>
+
     <s2c name="recv_array_uint">
       <arg name="values" type="array uint"/>
     </s2c>
 
-    <s2c name="recv_message">
-      <arg name="message" type="varchar"/>
+    <s2c name="recv_array_string">
+      <arg name="values" type="array varchar"/>
+    </s2c>
+
+    <s2c name="recv_array_fd">
+      <arg name="values" type="array fd"/>
+    </s2c>
+
+    <s2c name="recv_start">
+      <arg name="cmd" type="array varchar"/>
+      <arg name="env" type="array varchar"/>
+    </s2c>
+
+    <s2c name="recv_mixed">
+      <arg name="a" type="uint"/>
+      <arg name="b" type="varchar"/>
+      <arg name="c" type="fd"/>
+      <arg name="d" type="array uint"/>
+    </s2c>
+
+    <s2c name="recv_enum">
+      <arg name="value" type="enum" interface="test_enum"/>
     </s2c>
 
     <!-- ===================== -->

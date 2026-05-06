@@ -1101,6 +1101,7 @@ pub mod client {
 #[allow(clippy::all, dead_code)]
 mod spec {
     #[derive(serde::Deserialize)]
+    #[non_exhaustive]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[repr(u32)]
     pub enum MyEnum {
@@ -1108,6 +1109,7 @@ mod spec {
         World = 4u32,
     }
     #[derive(serde::Deserialize)]
+    #[non_exhaustive]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[repr(u32)]
     pub enum MyErrorEnum {

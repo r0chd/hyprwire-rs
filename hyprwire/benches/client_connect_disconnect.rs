@@ -93,7 +93,7 @@ fn client_process_main(
     Ok(())
 }
 
-fn main() -> io::Result<()> {
+fn main() -> hyprwire::Result<()> {
     let socket_path = path::PathBuf::from(format!(
         "/tmp/hyprwire-bench-{}-{}",
         process::id(),
@@ -107,7 +107,7 @@ fn main() -> io::Result<()> {
 
     let pid = unsafe { libc::fork() };
     if pid < 0 {
-        return Err(io::Error::other("fork failed"));
+        return Err(io::Error::other("fork failed").into());
     }
 
     if pid == 0 {
@@ -143,7 +143,7 @@ fn main() -> io::Result<()> {
                 poll::PollFd::new(shutdown_read.as_fd(), poll::PollFlags::POLLIN),
             ];
 
-            let _ = poll::poll(&mut pfds, poll::PollTimeout::NONE)?;
+            let _ = poll::poll(&mut pfds, poll::PollTimeout::NONE).map_err(io::Error::from)?;
             let loop_ready = pfds[0]
                 .revents()
                 .is_some_and(|revents| revents.contains(poll::PollFlags::POLLIN));

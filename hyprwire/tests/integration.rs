@@ -1,7 +1,8 @@
 use hyprwire::{client, server};
 use nix::poll;
+use std::io::{Read, Write};
+use std::os::fd::OwnedFd;
 use std::os::unix::net;
-use std::process;
 
 const INTEGRATION_TESTS_PROTOCOL_VERSION: u32 = 1;
 
@@ -21,46 +22,43 @@ mod server_main {
     impl hyprwire::Dispatch<integration_manager_v1::IntegrationManagerV1> for ServerApp {
         fn event(
             &mut self,
-            _object: &integration_manager_v1::IntegrationManagerV1,
+            object: &integration_manager_v1::IntegrationManagerV1,
             event: <integration_manager_v1::IntegrationManagerV1 as hyprwire::Object>::Event<'_>,
         ) {
             match event {
                 integration_manager_v1::Event::SendMessage { message } => {
+                    object.send_recv_message(&message);
                     self.message = Some(message);
                 }
                 integration_manager_v1::Event::SendUint { value } => {
-                    _ = value;
+                    object.send_recv_uint(value);
                 }
                 integration_manager_v1::Event::SendInt { value } => {
-                    _ = value;
+                    object.send_recv_int(value);
                 }
                 integration_manager_v1::Event::SendFloat { value } => {
-                    _ = value;
+                    object.send_recv_float(value);
                 }
                 integration_manager_v1::Event::SendFd { value } => {
-                    _ = value;
+                    object.send_recv_fd(value);
                 }
                 integration_manager_v1::Event::SendArrayUint { values } => {
-                    _ = values;
+                    object.send_recv_array_uint(&values);
                 }
                 integration_manager_v1::Event::SendArrayString { values } => {
-                    _ = values;
+                    object.send_recv_array_string(&values);
                 }
                 integration_manager_v1::Event::SendArrayFd { values } => {
-                    _ = values;
+                    object.send_recv_array_fd(&values);
                 }
                 integration_manager_v1::Event::SendStart { cmd, env } => {
-                    _ = cmd;
-                    _ = env;
+                    object.send_recv_start(&cmd, &env);
                 }
                 integration_manager_v1::Event::SendMixed { a, b, c, d } => {
-                    _ = a;
-                    _ = b;
-                    _ = c;
-                    _ = d;
+                    object.send_recv_mixed(a, &b, c, &d);
                 }
                 integration_manager_v1::Event::SendEnum { value } => {
-                    _ = value;
+                    object.send_recv_enum(value);
                 }
                 integration_manager_v1::Event::MakeObject { seq } => {
                     _ = seq;
@@ -118,11 +116,25 @@ mod client_main {
     mod integration_tests_v1 {
         hyprwire::include_protocol!("integration_test_protocol_v1");
         pub use client::*;
+        pub use spec::TestEnum;
     }
     use super::*;
     use integration_tests_v1::integration_manager_v1;
 
-    struct ClientApp;
+    #[derive(Default)]
+    struct ClientApp {
+        received_message: Option<String>,
+        received_uint: Option<u32>,
+        received_int: Option<i32>,
+        received_float: Option<f32>,
+        received_fd: Option<OwnedFd>,
+        received_array_uint: Option<Vec<u32>>,
+        received_array_string: Option<Vec<String>>,
+        received_array_fd: Option<Vec<OwnedFd>>,
+        received_start: Option<(Vec<String>, Vec<String>)>,
+        received_mixed: Option<(u32, String, OwnedFd, Vec<u32>)>,
+        received_enum: Option<integration_tests_v1::TestEnum>,
+    }
 
     impl hyprwire::Dispatch<integration_manager_v1::IntegrationManagerV1> for ClientApp {
         fn event(
@@ -131,15 +143,56 @@ mod client_main {
             event: <integration_manager_v1::IntegrationManagerV1 as hyprwire::Object>::Event<'_>,
         ) {
             match event {
-                integration_tests_v1::client::integration_manager_v1::Event::RecvArrayUint {
-                    values,
-                } => {
-                    _ = values;
-                }
                 integration_tests_v1::client::integration_manager_v1::Event::RecvMessage {
                     message,
                 } => {
-                    _ = message;
+                    self.received_message = Some(message);
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvUint { value } => {
+                    self.received_uint = Some(value);
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvInt { value } => {
+                    self.received_int = Some(value);
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvFloat {
+                    value,
+                } => {
+                    self.received_float = Some(value);
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvFd { value } => {
+                    self.received_fd = Some(value);
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvArrayUint {
+                    values,
+                } => {
+                    self.received_array_uint = Some(values);
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvArrayString {
+                    values,
+                } => {
+                    self.received_array_string = Some(values);
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvArrayFd {
+                    values,
+                } => {
+                    self.received_array_fd = Some(values);
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvStart {
+                    cmd,
+                    env,
+                } => {
+                    self.received_start = Some((cmd, env));
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvMixed {
+                    a,
+                    b,
+                    c,
+                    d,
+                } => {
+                    self.received_mixed = Some((a, b, c, d));
+                }
+                integration_tests_v1::client::integration_manager_v1::Event::RecvEnum { value } => {
+                    self.received_enum = Some(value);
                 }
                 integration_tests_v1::client::integration_manager_v1::Event::ReportError {
                     code,
@@ -152,9 +205,21 @@ mod client_main {
         }
     }
 
+    fn socket_pair_with_data(data: &[u8]) -> (net::UnixStream, net::UnixStream) {
+        let (local, remote) = net::UnixStream::pair().unwrap();
+        (&local).write_all(data).unwrap();
+        (local, remote)
+    }
+
+    fn read_exact_from_fd(fd: OwnedFd, n: usize) -> Vec<u8> {
+        let mut buf = vec![0u8; n];
+        std::fs::File::from(fd).read_exact(&mut buf).unwrap();
+        buf
+    }
+
     pub fn main(client_stream: net::UnixStream) -> hyprwire::Result<()> {
         let mut socket = client::Client::from_fd(client_stream)?;
-        let mut app = ClientApp;
+        let mut app = ClientApp::default();
 
         socket.add_implementation::<integration_tests_v1::IntegrationTestProtocolV1Impl>();
         socket.wait_for_handshake(&mut app)?;
@@ -169,8 +234,92 @@ mod client_main {
             &mut app,
         )?;
 
+        // varchar
         manager.send_send_message("Hello!");
         socket.roundtrip(&mut app)?;
+        assert_eq!(app.received_message.take().as_deref(), Some("Hello!"));
+
+        // uint
+        manager.send_send_uint(0xDEAD_BEEF);
+        socket.roundtrip(&mut app)?;
+        assert_eq!(app.received_uint.take(), Some(0xDEAD_BEEF));
+
+        // int
+        manager.send_send_int(-42);
+        socket.roundtrip(&mut app)?;
+        assert_eq!(app.received_int.take(), Some(-42));
+
+        // f32
+        manager.send_send_float(1.5);
+        socket.roundtrip(&mut app)?;
+        assert_eq!(app.received_float.take(), Some(1.5f32));
+
+        // fd
+        let (local_a, remote_a) = socket_pair_with_data(b"fdtest");
+        manager.send_send_fd(remote_a);
+        socket.roundtrip(&mut app)?;
+        assert_eq!(
+            read_exact_from_fd(app.received_fd.take().unwrap(), 6),
+            b"fdtest"
+        );
+        drop(local_a);
+
+        // array uint
+        manager.send_send_array_uint(&[1, 2, 3, 4, 5]);
+        socket.roundtrip(&mut app)?;
+        assert_eq!(app.received_array_uint.take(), Some(vec![1, 2, 3, 4, 5]));
+
+        // array string
+        manager.send_send_array_string(&["foo", "bar", "baz"]);
+        socket.roundtrip(&mut app)?;
+        assert_eq!(
+            app.received_array_string.take(),
+            Some(vec![
+                "foo".to_string(),
+                "bar".to_string(),
+                "baz".to_string()
+            ])
+        );
+
+        // array fd
+        let (local_b, remote_b) = socket_pair_with_data(b"fd0");
+        let (local_c, remote_c) = socket_pair_with_data(b"fd1");
+        manager.send_send_array_fd(&[remote_b, remote_c]);
+        socket.roundtrip(&mut app)?;
+        let fds = app.received_array_fd.take().unwrap();
+        assert_eq!(fds.len(), 2);
+        assert_eq!(
+            read_exact_from_fd(fds.into_iter().next().unwrap(), 3),
+            b"fd0"
+        );
+        drop(local_b);
+        drop(local_c);
+
+        // send_start (two varchar arrays)
+        manager.send_send_start(&["bash", "-c", "echo"], &["HOME=/tmp", "PATH=/bin"]);
+        socket.roundtrip(&mut app)?;
+        let (cmd, env) = app.received_start.take().unwrap();
+        assert_eq!(cmd, ["bash", "-c", "echo"]);
+        assert_eq!(env, ["HOME=/tmp", "PATH=/bin"]);
+
+        // mixed (uint + varchar + fd + array uint)
+        let (local_d, remote_d) = socket_pair_with_data(b"mix");
+        manager.send_send_mixed(77, "hello", remote_d, &[10, 20, 30]);
+        socket.roundtrip(&mut app)?;
+        let (a, b, c, d) = app.received_mixed.take().unwrap();
+        assert_eq!(a, 77);
+        assert_eq!(b, "hello");
+        assert_eq!(read_exact_from_fd(c, 3), b"mix");
+        assert_eq!(d, [10, 20, 30]);
+        drop(local_d);
+
+        // enum
+        manager.send_send_enum(integration_tests_v1::TestEnum::World);
+        socket.roundtrip(&mut app)?;
+        assert_eq!(
+            app.received_enum.take(),
+            Some(integration_tests_v1::TestEnum::World)
+        );
 
         manager.send_shutdown();
         socket.roundtrip(&mut app)?;
@@ -183,35 +332,11 @@ mod client_main {
 fn integration_protocol_roundtrip() -> hyprwire::Result<()> {
     let (server_stream, client_stream) = net::UnixStream::pair()?;
 
-    let pid = unsafe { nix::libc::fork() };
-    if pid < 0 {
-        return Err(std::io::Error::other("fork failed").into());
-    }
+    let server = std::thread::spawn(move || server_main::main(server_stream));
 
-    if pid == 0 {
-        drop(client_stream);
+    client_main::main(client_stream)?;
 
-        if let Err(err) = server_main::main(server_stream) {
-            eprintln!("server error: {err}");
-            process::exit(1);
-        }
-
-        process::exit(0);
-    }
-
-    drop(server_stream);
-
-    if let Err(err) = client_main::main(client_stream) {
-        eprintln!("client error: {err}");
-    }
-
-    let mut status = 0;
-    unsafe { nix::libc::waitpid(pid, &mut status, 0) };
-
-    assert!(
-        nix::libc::WIFEXITED(status) && nix::libc::WEXITSTATUS(status) == 0,
-        "server process exited with status {status}"
-    );
+    server.join().expect("server thread panicked")?;
 
     Ok(())
 }

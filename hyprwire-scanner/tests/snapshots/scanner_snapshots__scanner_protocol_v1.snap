@@ -1100,12 +1100,14 @@ pub mod client {
 }
 #[allow(clippy::all, dead_code)]
 mod spec {
+    #[non_exhaustive]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[repr(u32)]
     pub enum MyEnum {
         Hello = 0u32,
         World = 4u32,
     }
+    #[non_exhaustive]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[repr(u32)]
     pub enum MyErrorEnum {

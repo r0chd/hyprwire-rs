@@ -618,6 +618,7 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
                 .collect();
             quote! {
                 #(#enum_attributes)*
+                #[non_exhaustive]
                 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
                 #[repr(u32)]
                 pub enum #ident {

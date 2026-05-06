@@ -8,8 +8,8 @@ pkgs.mkShell (
         ;
       inherit (pkgs)
         rust-analyzer-unwrapped
+        cargo-insta
         nixd
-        npins
         ;
     };
 
