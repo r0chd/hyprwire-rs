@@ -58,6 +58,12 @@ impl error::Error for Error {
     }
 }
 
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
 impl From<message::Error> for Error {
     fn from(e: message::Error) -> Self {
         match e {

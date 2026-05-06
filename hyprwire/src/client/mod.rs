@@ -6,7 +6,7 @@ use crate::implementation::client::ProtocolImplementations;
 use crate::implementation::object;
 use hyprwire_core::types;
 use std::os::fd;
-use std::{io, path, rc};
+use std::{path, rc};
 
 /// Client-side entry point for connecting to a Hyprwire server and dispatching
 /// protocol events.
@@ -20,7 +20,7 @@ impl Client {
     ///
     /// # Errors
     /// Returns any I/O error produced while opening the Unix socket.
-    pub fn connect<P>(path: P) -> io::Result<Self>
+    pub fn connect<P>(path: P) -> crate::Result<Self>
     where
         P: AsRef<path::Path>,
     {
@@ -33,7 +33,7 @@ impl Client {
     ///
     /// # Errors
     /// Failed to move the socket into or out of nonblocking mode
-    pub fn from_fd<F>(fd: F) -> io::Result<Self>
+    pub fn from_fd<F>(fd: F) -> crate::Result<Self>
     where
         F: Into<fd::OwnedFd>,
     {

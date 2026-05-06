@@ -50,7 +50,7 @@ fn client_process_main(
     server_stream: net::UnixStream,
     mut shutdown_write: net::UnixStream,
 ) -> hyprwire::Result<()> {
-    let mut socket = client::Client::from_fd(server_stream).map_err(hyprwire::Error::Io)?;
+    let mut socket = client::Client::from_fd(server_stream)?;
     let mut app = ClientApp;
 
     socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
@@ -123,13 +123,13 @@ fn client_process_main(
     Ok(())
 }
 
-fn main() -> io::Result<()> {
+fn main() -> hyprwire::Result<()> {
     let (server_stream, client_stream) = net::UnixStream::pair()?;
     let (shutdown_read, shutdown_write) = net::UnixStream::pair()?;
 
     let pid = unsafe { libc::fork() };
     if pid < 0 {
-        return Err(io::Error::other("fork failed"));
+        return Err(io::Error::other("fork failed").into());
     }
 
     if pid == 0 {
@@ -165,7 +165,7 @@ fn main() -> io::Result<()> {
                 poll::PollFd::new(shutdown_read.as_fd(), poll::PollFlags::POLLIN),
             ];
 
-            let _ = poll::poll(&mut pfds, poll::PollTimeout::NONE)?;
+            let _ = poll::poll(&mut pfds, poll::PollTimeout::NONE).map_err(io::Error::from)?;
             let loop_ready = pfds[0]
                 .revents()
                 .is_some_and(|revents| revents.contains(poll::PollFlags::POLLIN));

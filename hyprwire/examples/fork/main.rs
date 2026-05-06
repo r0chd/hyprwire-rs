@@ -112,7 +112,7 @@ mod server_socket {
     }
 
     pub fn main(client_fd: net::UnixStream) -> hyprwire::Result<()> {
-        let mut socket = server::Server::detached().map_err(hyprwire::Error::Io)?;
+        let mut socket = server::Server::detached()?;
         let mut app = App::default();
         socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(
             TEST_PROTOCOL_VERSION,
@@ -183,7 +183,7 @@ mod client_socket {
     }
 
     pub fn main(server_fd: net::UnixStream) -> hyprwire::Result<()> {
-        let mut socket = client::Client::from_fd(server_fd).map_err(hyprwire::Error::Io)?;
+        let mut socket = client::Client::from_fd(server_fd)?;
         let mut app = App::default();
         socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
         socket.wait_for_handshake(&mut app)?;

@@ -10,7 +10,7 @@ pub(crate) struct SocketRawParsedMessage {
 }
 
 impl SocketRawParsedMessage {
-    pub(crate) fn read_from_socket(stream: &unix::net::UnixStream) -> io::Result<Self> {
+    pub(crate) fn read_from_socket(stream: &unix::net::UnixStream) -> crate::Result<Self> {
         const BUFFER_SIZE: usize = 8192;
         const MAX_FDS_PER_MSG: usize = 255;
 

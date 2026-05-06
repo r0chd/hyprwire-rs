@@ -19,11 +19,6 @@ jobs:
       - name: Checkout code
         uses: https://code.forgejo.org/actions/checkout@v4
 
-      - name: Enable flakes
-        run: |
-          mkdir -p /etc/nix
-          echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
-
       - name: Run tests
         run: nix-shell -A shell-ci --run "cargo test"
 

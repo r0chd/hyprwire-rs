@@ -61,7 +61,7 @@ fn client_process_main(
     let mut specs = Vec::with_capacity(server_streams.len());
 
     for stream in server_streams {
-        let mut socket = client::Client::from_fd(stream).map_err(hyprwire::Error::Io)?;
+        let mut socket = client::Client::from_fd(stream)?;
 
         socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
         socket.wait_for_handshake(&mut app)?;
@@ -151,7 +151,7 @@ fn client_process_main(
     Ok(())
 }
 
-fn main() -> io::Result<()> {
+fn main() -> hyprwire::Result<()> {
     let mut server_streams = Vec::with_capacity(CLIENTS);
     let mut client_streams = Vec::with_capacity(CLIENTS);
 
@@ -165,7 +165,7 @@ fn main() -> io::Result<()> {
 
     let pid = unsafe { libc::fork() };
     if pid < 0 {
-        return Err(io::Error::other("fork failed"));
+        return Err(io::Error::other("fork failed").into());
     }
 
     if pid == 0 {
@@ -204,7 +204,7 @@ fn main() -> io::Result<()> {
                 poll::PollFd::new(shutdown_read.as_fd(), poll::PollFlags::POLLIN),
             ];
 
-            let _ = poll::poll(&mut pfds, poll::PollTimeout::NONE)?;
+            let _ = poll::poll(&mut pfds, poll::PollTimeout::NONE).map_err(io::Error::from)?;
             let loop_ready = pfds[0]
                 .revents()
                 .is_some_and(|revents| revents.contains(poll::PollFlags::POLLIN));

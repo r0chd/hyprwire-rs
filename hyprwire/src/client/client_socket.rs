@@ -13,7 +13,7 @@ use polling::AsSource;
 use std::os::fd;
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
-use std::{cell, io, mem, ops, path, rc, time};
+use std::{cell, mem, ops, path, rc, time};
 
 pub struct ClientSocket {
     poller: polling::Poller,
@@ -34,7 +34,7 @@ pub struct ClientSocket {
 const HANDSHAKE_MAX_MS: u64 = 5000;
 
 impl ClientSocket {
-    fn new(stream: net::UnixStream) -> io::Result<rc::Rc<Self>> {
+    fn new(stream: net::UnixStream) -> crate::Result<rc::Rc<Self>> {
         let poller = polling::Poller::new()?;
         unsafe { poller.add(&stream, polling::Event::readable(0))? };
 
@@ -62,7 +62,7 @@ impl ClientSocket {
         Ok(client_socket)
     }
 
-    pub fn connect<P>(path: P) -> io::Result<rc::Rc<Self>>
+    pub fn connect<P>(path: P) -> crate::Result<rc::Rc<Self>>
     where
         P: AsRef<path::Path>,
     {
@@ -71,7 +71,7 @@ impl ClientSocket {
         Self::new(stream)
     }
 
-    pub fn from_fd<F>(fd: F) -> io::Result<rc::Rc<Self>>
+    pub fn from_fd<F>(fd: F) -> crate::Result<rc::Rc<Self>>
     where
         F: Into<fd::OwnedFd>,
     {
@@ -259,12 +259,7 @@ impl ClientSocket {
             };
 
             let mut events = polling::Events::new();
-            if self
-                .poller
-                .wait(&mut events, Some(timeout))
-                .map_err(crate::Error::Io)?
-                == 0
-            {
+            if self.poller.wait(&mut events, Some(timeout))? == 0 {
                 if block {
                     self.disconnect_on_error();
                     return Err(crate::Error::HandshakeTimeout);
@@ -273,8 +268,7 @@ impl ClientSocket {
             }
 
             self.poller
-                .modify(&self.state.stream, polling::Event::readable(0))
-                .map_err(crate::Error::Io)?;
+                .modify(&self.state.stream, polling::Event::readable(0))?;
         }
 
         if self.handshake_done.get() {
@@ -285,12 +279,7 @@ impl ClientSocket {
             };
 
             let mut events = polling::Events::new();
-            if self
-                .poller
-                .wait(&mut events, timeout)
-                .map_err(crate::Error::Io)?
-                == 0
-            {
+            if self.poller.wait(&mut events, timeout)? == 0 {
                 if block {
                     return Err(crate::Error::ConnectionClosed);
                 }
@@ -299,8 +288,7 @@ impl ClientSocket {
             }
 
             self.poller
-                .modify(&self.state.stream, polling::Event::readable(0))
-                .map_err(crate::Error::Io)?;
+                .modify(&self.state.stream, polling::Event::readable(0))?;
         }
 
         // dispatch

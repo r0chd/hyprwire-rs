@@ -38,7 +38,7 @@ impl ServerSocket {
     /// Returns an error if socket creation fails, the socket path cannot be
     /// bound, or an existing live server is already listening on the
     /// requested path.
-    pub fn bind<P>(path: &P) -> io::Result<Self>
+    pub fn bind<P>(path: &P) -> crate::Result<Self>
     where
         P: AsRef<path::Path>,
     {
@@ -47,9 +47,11 @@ impl ServerSocket {
         if fs::exists(path)? {
             match net::UnixStream::connect(path) {
                 Ok(_) => {
-                    return Err(io::Error::new(io::ErrorKind::AddrInUse, "socket is alive"));
+                    return Err(io::Error::new(io::ErrorKind::AddrInUse, "socket is alive").into());
                 }
-                Err(e) if e.kind() != io::ErrorKind::ConnectionRefused => return Err(e),
+                Err(e) if e.kind() != io::ErrorKind::ConnectionRefused => {
+                    return Err(e.into());
+                }
                 _ => fs::remove_file(path)?,
             }
         }
@@ -75,7 +77,7 @@ impl ServerSocket {
     ///
     /// # Errors
     /// Returns an error if poller creation fails.
-    pub fn detached() -> io::Result<Self> {
+    pub fn detached() -> crate::Result<Self> {
         Ok(Self {
             poller: polling::Poller::new()?,
             server: None,
@@ -139,7 +141,7 @@ impl ServerSocket {
         }
     }
 
-    fn accept_one(&mut self) -> io::Result<bool> {
+    fn accept_one(&mut self) -> crate::Result<bool> {
         let Some(server) = self.server.as_ref() else {
             return Ok(false);
         };
@@ -175,7 +177,11 @@ impl ServerSocket {
         Ok(true)
     }
 
-    fn dispatch_pending<D: 'static>(&mut self, dispatch: &mut D, block: bool) -> io::Result<bool> {
+    fn dispatch_pending<D: 'static>(
+        &mut self,
+        dispatch: &mut D,
+        block: bool,
+    ) -> crate::Result<bool> {
         let mut events = polling::Events::new();
         let timeout = if block {
             None
@@ -245,9 +251,7 @@ impl ServerSocket {
         let mut first = true;
         loop {
             let do_block = block && first;
-            let any = self
-                .dispatch_pending(state, do_block)
-                .map_err(crate::Error::Io)?;
+            let any = self.dispatch_pending(state, do_block)?;
             first = false;
             if !any {
                 break;
@@ -279,7 +283,7 @@ impl ServerSocket {
                 polling::Event::readable(client_id as usize),
             )
         } {
-            return Err(crate::Error::Io(e));
+            return Err(e.into());
         }
 
         self.next_client_id += 1;

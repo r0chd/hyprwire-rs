@@ -4,7 +4,7 @@ fn main() {
         .compile(&[
             "examples/protocols/protocol-v1.xml",
             "benches/protocols/bench-protocol-v1.xml",
-            "tests/protocols/test-protocol-v1.xml",
+            "tests/protocols/integration-test-protocol-v1.xml",
         ])
         .unwrap();
 }
