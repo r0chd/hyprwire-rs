@@ -14,6 +14,9 @@ pub enum Error {
     /// Client and server could not agree on a compatible protocol version.
     VersionNegotiationFailed,
 
+    /// The server does not advertise the requested protocol.
+    ProtocolNotFound,
+
     /// The requested bind version exceeds the maximum version supported by the
     /// spec.
     VersionOutOfRange {
@@ -34,6 +37,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ConnectionClosed => write!(f, "connection closed"),
+            Self::ProtocolNotFound => write!(f, "server does not advertise the requested protocol"),
             Self::HandshakeTimeout => write!(f, "handshake timed out"),
             Self::VersionNegotiationFailed => {
                 write!(f, "version negotiation failed: no common protocol version")

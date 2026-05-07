@@ -1,5 +1,6 @@
 use hyprwire::{client, server};
 use nix::poll;
+use std::fs;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net;
@@ -12,7 +13,7 @@ mod server_main {
         pub use server::*;
     }
     use super::*;
-    use integration_tests_v1::integration_manager_v1;
+    use integration_tests_v1::{integration_manager_v1, integration_object_v1};
 
     pub struct ServerApp {
         pub message: Option<String>,
@@ -60,9 +61,7 @@ mod server_main {
                 integration_manager_v1::Event::SendEnum { value } => {
                     object.send_recv_enum(value);
                 }
-                integration_manager_v1::Event::MakeObject { seq } => {
-                    _ = seq;
-                }
+                integration_manager_v1::Event::MakeObject { .. } => {}
                 integration_manager_v1::Event::Shutdown => {
                     self.should_exit = true;
                 }
@@ -83,8 +82,8 @@ mod server_main {
 
         socket
             .add_implementation::<server_main::integration_tests_v1::IntegrationTestProtocolV1Impl, _>(
-                INTEGRATION_TESTS_PROTOCOL_VERSION,
                 &mut app,
+                INTEGRATION_TESTS_PROTOCOL_VERSION,
             );
 
         socket.add_client(server_stream).expect("add_client failed");
@@ -110,6 +109,8 @@ mod server_main {
 
         Ok(())
     }
+
+    hyprwire::delegate_noop!(ServerApp: integration_object_v1::IntegrationObjectV1);
 }
 
 mod client_main {
@@ -213,51 +214,49 @@ mod client_main {
 
     fn read_exact_from_fd(fd: OwnedFd, n: usize) -> Vec<u8> {
         let mut buf = vec![0u8; n];
-        std::fs::File::from(fd).read_exact(&mut buf).unwrap();
+        fs::File::from(fd).read_exact(&mut buf).unwrap();
         buf
     }
 
     pub fn main(client_stream: net::UnixStream) -> hyprwire::Result<()> {
         let mut socket = client::Client::from_fd(client_stream)?;
+        let event_queue = socket.new_event_queue();
+        let qh = event_queue.handle();
         let mut app = ClientApp::default();
 
         socket.add_implementation::<integration_tests_v1::IntegrationTestProtocolV1Impl>();
-        socket.wait_for_handshake(&mut app)?;
-
-        let spec = socket
-            .get_spec::<integration_tests_v1::IntegrationTestProtocolV1Impl>()
-            .unwrap();
+        event_queue.wait_for_handshake(&mut app)?;
 
         let manager = socket.bind::<integration_manager_v1::IntegrationManagerV1, ClientApp>(
-            &spec,
-            INTEGRATION_TESTS_PROTOCOL_VERSION,
+            &qh,
             &mut app,
+            INTEGRATION_TESTS_PROTOCOL_VERSION,
         )?;
 
         // varchar
         manager.send_send_message("Hello!");
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         assert_eq!(app.received_message.take().as_deref(), Some("Hello!"));
 
         // uint
         manager.send_send_uint(0xDEAD_BEEF);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         assert_eq!(app.received_uint.take(), Some(0xDEAD_BEEF));
 
         // int
         manager.send_send_int(-42);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         assert_eq!(app.received_int.take(), Some(-42));
 
         // f32
         manager.send_send_float(1.5);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         assert_eq!(app.received_float.take(), Some(1.5f32));
 
         // fd
         let (local_a, remote_a) = socket_pair_with_data(b"fdtest");
         manager.send_send_fd(remote_a);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         assert_eq!(
             read_exact_from_fd(app.received_fd.take().unwrap(), 6),
             b"fdtest"
@@ -266,12 +265,12 @@ mod client_main {
 
         // array uint
         manager.send_send_array_uint(&[1, 2, 3, 4, 5]);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         assert_eq!(app.received_array_uint.take(), Some(vec![1, 2, 3, 4, 5]));
 
         // array string
         manager.send_send_array_string(&["foo", "bar", "baz"]);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         assert_eq!(
             app.received_array_string.take(),
             Some(vec![
@@ -285,7 +284,7 @@ mod client_main {
         let (local_b, remote_b) = socket_pair_with_data(b"fd0");
         let (local_c, remote_c) = socket_pair_with_data(b"fd1");
         manager.send_send_array_fd(&[remote_b, remote_c]);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         let fds = app.received_array_fd.take().unwrap();
         assert_eq!(fds.len(), 2);
         assert_eq!(
@@ -297,7 +296,7 @@ mod client_main {
 
         // send_start (two varchar arrays)
         manager.send_send_start(&["bash", "-c", "echo"], &["HOME=/tmp", "PATH=/bin"]);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         let (cmd, env) = app.received_start.take().unwrap();
         assert_eq!(cmd, ["bash", "-c", "echo"]);
         assert_eq!(env, ["HOME=/tmp", "PATH=/bin"]);
@@ -305,7 +304,7 @@ mod client_main {
         // mixed (uint + varchar + fd + array uint)
         let (local_d, remote_d) = socket_pair_with_data(b"mix");
         manager.send_send_mixed(77, "hello", remote_d, &[10, 20, 30]);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         let (a, b, c, d) = app.received_mixed.take().unwrap();
         assert_eq!(a, 77);
         assert_eq!(b, "hello");
@@ -315,14 +314,14 @@ mod client_main {
 
         // enum
         manager.send_send_enum(integration_tests_v1::TestEnum::World);
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
         assert_eq!(
             app.received_enum.take(),
             Some(integration_tests_v1::TestEnum::World)
         );
 
         manager.send_shutdown();
-        socket.roundtrip(&mut app)?;
+        event_queue.roundtrip(&mut app)?;
 
         Ok(())
     }

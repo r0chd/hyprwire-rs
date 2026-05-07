@@ -8,6 +8,7 @@ use hyprwire_core::message::wire::{
     handshake_protocols, hello, new_object, roundtrip_done, roundtrip_request,
 };
 use std::os::fd::AsRawFd;
+use std::sync::atomic;
 
 pub enum Role<'a> {
     Client(&'a client_socket::ClientSocket),
@@ -61,7 +62,7 @@ pub fn handle_message<D: 'static>(
                         "server at fd {} core protocol error: version negotiation failed",
                         client.state.stream.as_raw_fd()
                     );
-                    client.state.error.set(true);
+                    client.state.error.store(true, atomic::Ordering::Relaxed);
                     return Err(message::Error::VersionNegotiationFailed);
                 }
 
@@ -88,7 +89,7 @@ pub fn handle_message<D: 'static>(
                 }
 
                 client.server_specs(msg.protocols());
-                client.handshake_done.set(true);
+                client.handshake_done.store(true, atomic::Ordering::Relaxed);
 
                 Ok(msg.data().len())
             }
@@ -150,7 +151,7 @@ pub fn handle_message<D: 'static>(
                     msg.error_id(),
                     msg.error_msg()
                 );
-                client.state.error.set(true);
+                client.state.error.store(true, atomic::Ordering::Relaxed);
 
                 Ok(msg.data().len())
             }
@@ -167,7 +168,9 @@ pub fn handle_message<D: 'static>(
                     crate::log_debug!("[hw] trace: [{} @ {:.3}] <- {}", client.state.stream.as_raw_fd(), steady_millis(), msg.parse_data())
                 }
 
-                client.last_ackd_roundtrip_seq.set(msg.seq());
+                client
+                    .last_ackd_roundtrip_seq
+                    .store(msg.seq(), atomic::Ordering::Relaxed);
 
                 Ok(msg.data().len())
             }
@@ -202,12 +205,15 @@ pub fn handle_message<D: 'static>(
                     crate::log_debug!("[hw] trace: [{} @ {:.3}] <- {}", client.state.stream.as_raw_fd(), steady_millis(), msg.parse_data())
                 }
 
-                client.version.set(msg.version());
+                client
+                    .version
+                    .store(msg.version(), atomic::Ordering::Relaxed);
 
                 let protocol_names = client
                     .state
                     .impls
-                    .borrow()
+                    .read()
+                    .unwrap()
                     .iter()
                     .map(|imp| {
                         format!(
@@ -280,7 +286,9 @@ pub fn handle_message<D: 'static>(
                     crate::log_debug!("[hw] trace: [{} @ {:.3}] <- {}", client.state.stream.as_raw_fd(), steady_millis(), msg.parse_data())
                 }
 
-                client.scheduled_roundtrip_seq.set(msg.seq());
+                client
+                    .scheduled_roundtrip_seq
+                    .store(msg.seq(), atomic::Ordering::Relaxed);
 
                 Ok(msg.data().len())
             }
@@ -300,7 +308,7 @@ pub fn handle_message<D: 'static>(
                 | message::MessageType::RoundtripDone,
             ) => {
                 let state = role.state();
-                state.error.set(true);
+                state.error.store(true, atomic::Ordering::Relaxed);
 
                 crate::log_error!(
                     "{} at fd {} core protocol error: invalid message recvd ({message})",

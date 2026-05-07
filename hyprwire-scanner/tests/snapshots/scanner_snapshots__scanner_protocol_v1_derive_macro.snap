@@ -2,7 +2,7 @@
 source: hyprwire-scanner/tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.3.1. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.4.0. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:
@@ -20,31 +20,31 @@ pub mod server {
         ///
         /// This object is an example manager object for the protocol
         pub struct MyManagerV1 {
-            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+            pub(super) object: sync::Arc<dyn hyprwire::implementation::object::Object>,
         }
         impl std::fmt::Debug for MyManagerV1 {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct("Object")
-                    .field("object", &rc::Rc::as_ptr(&self.object))
+                    .field("object", &sync::Arc::as_ptr(&self.object))
                     .finish()
             }
         }
         impl Clone for MyManagerV1 {
             fn clone(&self) -> Self {
                 Self {
-                    object: rc::Rc::clone(&self.object),
+                    object: sync::Arc::clone(&self.object),
                 }
             }
         }
         impl PartialEq for MyManagerV1 {
             fn eq(&self, other: &Self) -> bool {
-                rc::Rc::ptr_eq(&self.object, &other.object)
+                sync::Arc::ptr_eq(&self.object, &other.object)
             }
         }
         impl Eq for MyManagerV1 {}
         impl std::hash::Hash for MyManagerV1 {
             fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                rc::Rc::as_ptr(&self.object).hash(state);
+                sync::Arc::as_ptr(&self.object).hash(state);
             }
         }
         ///Incoming events for `my_manager_v1::MyManagerV1`.
@@ -78,7 +78,7 @@ pub mod server {
             /// Make a test object
             ///
             /// Makes a test object
-            MakeObject { seq: u32 },
+            MakeObject { my_object_v1: super::my_object_v1::MyObjectV1 },
         }
         struct MyManagerV1ObjectData<D> {
             object: *const dyn hyprwire::implementation::object::Object,
@@ -87,7 +87,8 @@ pub mod server {
         unsafe impl<D> Send for MyManagerV1ObjectData<D> {}
         unsafe impl<D> Sync for MyManagerV1ObjectData<D> {}
         impl<
-            D: hyprwire::Dispatch<my_manager_v1::MyManagerV1> + 'static,
+            D: hyprwire::Dispatch<my_manager_v1::MyManagerV1>
+                + hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
         > hyprwire::implementation::object::ObjectData for MyManagerV1ObjectData<D> {
             fn dispatch(
                 &self,
@@ -99,9 +100,9 @@ pub mod server {
                 let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
                 };
-                unsafe { rc::Rc::increment_strong_count(self.object) };
+                unsafe { sync::Arc::increment_strong_count(self.object) };
                 let __proxy = my_manager_v1::MyManagerV1 {
-                    object: unsafe { rc::Rc::from_raw(self.object) },
+                    object: unsafe { sync::Arc::from_raw(self.object) },
                 };
                 match __method {
                     0u32 => {
@@ -283,15 +284,23 @@ pub mod server {
                         let mut __needle: usize = 0;
                         let mut __fd_cursor: usize = 0;
                         __needle += 1;
-                        let seq = u32::from_le_bytes(
+                        let __seq = u32::from_le_bytes(
                             __data[__needle..__needle + 4].try_into().unwrap(),
                         );
                         __needle += 4;
+                        let Some(__raw_obj) = __proxy
+                            .object
+                            .create_object("my_object_v1", __seq) else {
+                            return;
+                        };
+                        let my_object_v1 = super::my_object_v1::MyObjectV1::new::<
+                            D,
+                        >(__raw_obj);
                         __dispatch
                             .event(
                                 &__proxy,
                                 my_manager_v1::Event::MakeObject {
-                                    seq,
+                                    my_object_v1,
                                 },
                             );
                     }
@@ -301,21 +310,23 @@ pub mod server {
         }
         impl hyprwire::Object for MyManagerV1 {
             type Event<'a> = Event;
+            type ProtocolImpl = ();
             const NAME: &str = "my_manager_v1";
             fn from_object<D: hyprwire::Dispatch<Self> + 'static>(
-                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+                object: sync::Arc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
-                Self::new::<D>(object)
+                Self { object }
             }
         }
         impl MyManagerV1 {
-            pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
-                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
-            ) -> Self {
+            pub fn new<
+                D: hyprwire::Dispatch<Self>
+                    + hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
+            >(object: sync::Arc<dyn hyprwire::implementation::object::Object>) -> Self {
                 let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyManagerV1ObjectData::<
                     D,
                 > {
-                    object: rc::Rc::as_ptr(&object),
+                    object: sync::Arc::as_ptr(&object),
                     _phantom: std::marker::PhantomData,
                 });
                 object.set_object_data(object_data);
@@ -326,21 +337,6 @@ pub mod server {
             }
             pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
                 self.object.server_client()
-            }
-            /// Make a test object
-            ///
-            /// Makes a test object
-            ///
-            /// Returns a new `my_object_v1` object.
-            pub fn make_object<
-                D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
-            >(&self, seq: u32) -> Option<super::my_object_v1::MyObjectV1> {
-                let obj = self.object.create_object("my_object_v1", seq)?;
-                Some(
-                    <super::my_object_v1::MyObjectV1 as hyprwire::Object>::from_object::<
-                        D,
-                    >(obj),
-                )
             }
             /// Send a text message
             ///
@@ -377,31 +373,31 @@ pub mod server {
         ///
         /// This object is an example object for the protocol
         pub struct MyObjectV1 {
-            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+            pub(super) object: sync::Arc<dyn hyprwire::implementation::object::Object>,
         }
         impl std::fmt::Debug for MyObjectV1 {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct("Object")
-                    .field("object", &rc::Rc::as_ptr(&self.object))
+                    .field("object", &sync::Arc::as_ptr(&self.object))
                     .finish()
             }
         }
         impl Clone for MyObjectV1 {
             fn clone(&self) -> Self {
                 Self {
-                    object: rc::Rc::clone(&self.object),
+                    object: sync::Arc::clone(&self.object),
                 }
             }
         }
         impl PartialEq for MyObjectV1 {
             fn eq(&self, other: &Self) -> bool {
-                rc::Rc::ptr_eq(&self.object, &other.object)
+                sync::Arc::ptr_eq(&self.object, &other.object)
             }
         }
         impl Eq for MyObjectV1 {}
         impl std::hash::Hash for MyObjectV1 {
             fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                rc::Rc::as_ptr(&self.object).hash(state);
+                sync::Arc::as_ptr(&self.object).hash(state);
             }
         }
         ///Incoming events for `my_object_v1::MyObjectV1`.
@@ -423,7 +419,7 @@ pub mod server {
             /// Make a test object
             ///
             /// Makes a test object from a test object
-            MakeObject { seq: u32 },
+            MakeObject { my_object_v1: super::my_object_v1::MyObjectV1 },
         }
         struct MyObjectV1ObjectData<D> {
             object: *const dyn hyprwire::implementation::object::Object,
@@ -432,7 +428,8 @@ pub mod server {
         unsafe impl<D> Send for MyObjectV1ObjectData<D> {}
         unsafe impl<D> Sync for MyObjectV1ObjectData<D> {}
         impl<
-            D: hyprwire::Dispatch<my_object_v1::MyObjectV1> + 'static,
+            D: hyprwire::Dispatch<my_object_v1::MyObjectV1>
+                + hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
         > hyprwire::implementation::object::ObjectData for MyObjectV1ObjectData<D> {
             fn dispatch(
                 &self,
@@ -444,9 +441,9 @@ pub mod server {
                 let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
                 };
-                unsafe { rc::Rc::increment_strong_count(self.object) };
+                unsafe { sync::Arc::increment_strong_count(self.object) };
                 let __proxy = my_object_v1::MyObjectV1 {
-                    object: unsafe { rc::Rc::from_raw(self.object) },
+                    object: unsafe { sync::Arc::from_raw(self.object) },
                 };
                 match __method {
                     0u32 => {
@@ -503,15 +500,23 @@ pub mod server {
                         let mut __needle: usize = 0;
                         let mut __fd_cursor: usize = 0;
                         __needle += 1;
-                        let seq = u32::from_le_bytes(
+                        let __seq = u32::from_le_bytes(
                             __data[__needle..__needle + 4].try_into().unwrap(),
                         );
                         __needle += 4;
+                        let Some(__raw_obj) = __proxy
+                            .object
+                            .create_object("my_object_v1", __seq) else {
+                            return;
+                        };
+                        let my_object_v1 = super::my_object_v1::MyObjectV1::new::<
+                            D,
+                        >(__raw_obj);
                         __dispatch
                             .event(
                                 &__proxy,
                                 my_object_v1::Event::MakeObject {
-                                    seq,
+                                    my_object_v1,
                                 },
                             );
                     }
@@ -521,21 +526,23 @@ pub mod server {
         }
         impl hyprwire::Object for MyObjectV1 {
             type Event<'a> = Event;
+            type ProtocolImpl = ();
             const NAME: &str = "my_object_v1";
             fn from_object<D: hyprwire::Dispatch<Self> + 'static>(
-                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+                object: sync::Arc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
-                Self::new::<D>(object)
+                Self { object }
             }
         }
         impl MyObjectV1 {
-            pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
-                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
-            ) -> Self {
+            pub fn new<
+                D: hyprwire::Dispatch<Self>
+                    + hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
+            >(object: sync::Arc<dyn hyprwire::implementation::object::Object>) -> Self {
                 let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyObjectV1ObjectData::<
                     D,
                 > {
-                    object: rc::Rc::as_ptr(&object),
+                    object: sync::Arc::as_ptr(&object),
                     _phantom: std::marker::PhantomData,
                 });
                 object.set_object_data(object_data);
@@ -546,21 +553,6 @@ pub mod server {
             }
             pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
                 self.object.server_client()
-            }
-            /// Make a test object
-            ///
-            /// Makes a test object from a test object
-            ///
-            /// Returns a new `my_object_v1` object.
-            pub fn make_object<
-                D: hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
-            >(&self, seq: u32) -> Option<super::my_object_v1::MyObjectV1> {
-                let obj = self.object.create_object("my_object_v1", seq)?;
-                Some(
-                    <super::my_object_v1::MyObjectV1 as hyprwire::Object>::from_object::<
-                        D,
-                    >(obj),
-                )
             }
             /// Send a text message
             ///
@@ -592,10 +584,13 @@ pub mod server {
         protocol: super::spec::TestProtocolV1ProtocolSpec,
         impls: Vec<hyprwire::implementation::server::ObjectImplementation<'static>>,
     }
+    unsafe impl Send for TestProtocolV1Impl {}
+    unsafe impl Sync for TestProtocolV1Impl {}
     impl TestProtocolV1Impl {
         pub fn new<
             D: TestProtocolV1Handler + hyprwire::Dispatch<my_manager_v1::MyManagerV1>
-                + 'static,
+                + hyprwire::Dispatch<my_object_v1::MyObjectV1>
+                + hyprwire::Dispatch<my_object_v1::MyObjectV1> + 'static,
         >(version: u32, handler: &mut D) -> Self {
             let handler = handler as *mut dyn TestProtocolV1Handler;
             Self {
@@ -627,7 +622,8 @@ pub mod server {
     impl<D> hyprwire::implementation::server::Construct<D> for TestProtocolV1Impl
     where
         D: TestProtocolV1Handler + hyprwire::Dispatch<my_manager_v1::MyManagerV1>
-            + 'static,
+            + hyprwire::Dispatch<my_object_v1::MyObjectV1>
+            + hyprwire::Dispatch<my_object_v1::MyObjectV1> + 'static,
     {
         fn new(version: u32, handler: &mut D) -> Self {
             Self::new(version, handler)
@@ -639,35 +635,36 @@ pub mod client {
     use std::{os::fd::*, rc, sync};
     pub mod my_manager_v1 {
         use super::*;
+        pub type ProtocolImpl = super::TestProtocolV1Impl;
         /// manager object
         ///
         /// This object is an example manager object for the protocol
         pub struct MyManagerV1 {
-            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+            pub(super) object: sync::Arc<dyn hyprwire::implementation::object::Object>,
         }
         impl std::fmt::Debug for MyManagerV1 {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct("Object")
-                    .field("object", &rc::Rc::as_ptr(&self.object))
+                    .field("object", &sync::Arc::as_ptr(&self.object))
                     .finish()
             }
         }
         impl Clone for MyManagerV1 {
             fn clone(&self) -> Self {
                 Self {
-                    object: rc::Rc::clone(&self.object),
+                    object: sync::Arc::clone(&self.object),
                 }
             }
         }
         impl PartialEq for MyManagerV1 {
             fn eq(&self, other: &Self) -> bool {
-                rc::Rc::ptr_eq(&self.object, &other.object)
+                sync::Arc::ptr_eq(&self.object, &other.object)
             }
         }
         impl Eq for MyManagerV1 {}
         impl std::hash::Hash for MyManagerV1 {
             fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                rc::Rc::as_ptr(&self.object).hash(state);
+                sync::Arc::as_ptr(&self.object).hash(state);
             }
         }
         ///Incoming events for `my_manager_v1::MyManagerV1`.
@@ -702,9 +699,9 @@ pub mod client {
                 let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
                 };
-                unsafe { rc::Rc::increment_strong_count(self.object) };
+                unsafe { sync::Arc::increment_strong_count(self.object) };
                 let __proxy = my_manager_v1::MyManagerV1 {
-                    object: unsafe { rc::Rc::from_raw(self.object) },
+                    object: unsafe { sync::Arc::from_raw(self.object) },
                 };
                 match __method {
                     0u32 => {
@@ -762,21 +759,22 @@ pub mod client {
         }
         impl hyprwire::Object for MyManagerV1 {
             type Event<'a> = Event;
+            type ProtocolImpl = super::TestProtocolV1Impl;
             const NAME: &str = "my_manager_v1";
             fn from_object<D: hyprwire::Dispatch<Self> + 'static>(
-                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+                object: sync::Arc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyManagerV1 {
             pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
-                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+                object: sync::Arc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyManagerV1ObjectData::<
                     D,
                 > {
-                    object: rc::Rc::as_ptr(&object),
+                    object: sync::Arc::as_ptr(&object),
                     _phantom: std::marker::PhantomData,
                 });
                 object.set_object_data(object_data);
@@ -913,35 +911,36 @@ pub mod client {
     }
     pub mod my_object_v1 {
         use super::*;
+        pub type ProtocolImpl = super::TestProtocolV1Impl;
         /// test object
         ///
         /// This object is an example object for the protocol
         pub struct MyObjectV1 {
-            pub(super) object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+            pub(super) object: sync::Arc<dyn hyprwire::implementation::object::Object>,
         }
         impl std::fmt::Debug for MyObjectV1 {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.debug_struct("Object")
-                    .field("object", &rc::Rc::as_ptr(&self.object))
+                    .field("object", &sync::Arc::as_ptr(&self.object))
                     .finish()
             }
         }
         impl Clone for MyObjectV1 {
             fn clone(&self) -> Self {
                 Self {
-                    object: rc::Rc::clone(&self.object),
+                    object: sync::Arc::clone(&self.object),
                 }
             }
         }
         impl PartialEq for MyObjectV1 {
             fn eq(&self, other: &Self) -> bool {
-                rc::Rc::ptr_eq(&self.object, &other.object)
+                sync::Arc::ptr_eq(&self.object, &other.object)
             }
         }
         impl Eq for MyObjectV1 {}
         impl std::hash::Hash for MyObjectV1 {
             fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                rc::Rc::as_ptr(&self.object).hash(state);
+                sync::Arc::as_ptr(&self.object).hash(state);
             }
         }
         ///Incoming events for `my_object_v1::MyObjectV1`.
@@ -972,9 +971,9 @@ pub mod client {
                 let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
                 };
-                unsafe { rc::Rc::increment_strong_count(self.object) };
+                unsafe { sync::Arc::increment_strong_count(self.object) };
                 let __proxy = my_object_v1::MyObjectV1 {
-                    object: unsafe { rc::Rc::from_raw(self.object) },
+                    object: unsafe { sync::Arc::from_raw(self.object) },
                 };
                 match __method {
                     0u32 => {
@@ -1005,21 +1004,22 @@ pub mod client {
         }
         impl hyprwire::Object for MyObjectV1 {
             type Event<'a> = Event;
+            type ProtocolImpl = super::TestProtocolV1Impl;
             const NAME: &str = "my_object_v1";
             fn from_object<D: hyprwire::Dispatch<Self> + 'static>(
-                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+                object: sync::Arc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 Self::new::<D>(object)
             }
         }
         impl MyObjectV1 {
             pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
-                object: rc::Rc<dyn hyprwire::implementation::object::Object>,
+                object: sync::Arc<dyn hyprwire::implementation::object::Object>,
             ) -> Self {
                 let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyObjectV1ObjectData::<
                     D,
                 > {
-                    object: rc::Rc::as_ptr(&object),
+                    object: sync::Arc::as_ptr(&object),
                     _phantom: std::marker::PhantomData,
                 });
                 object.set_object_data(object_data);

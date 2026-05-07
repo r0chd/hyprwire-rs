@@ -6,7 +6,8 @@ use polling::AsSource;
 use std::os::fd;
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
-use std::{cell, fs, io, path, rc, time};
+use std::sync::atomic;
+use std::{fs, io, path, sync, time};
 
 const LISTENER_KEY: usize = 0;
 
@@ -22,8 +23,8 @@ pub struct ServerSocket {
     // released before the streams they reference.
     poller: polling::Poller,
     server: Option<net::UnixListener>,
-    impls: rc::Rc<cell::RefCell<Vec<Box<dyn server::ProtocolImplementations>>>>,
-    clients: Vec<rc::Rc<server_client::ServerClientState>>,
+    impls: sync::Arc<sync::RwLock<Vec<Box<dyn server::ProtocolImplementations>>>>,
+    clients: Vec<sync::Arc<server_client::ServerClientState>>,
     next_client_id: u32,
 }
 
@@ -64,7 +65,7 @@ impl ServerSocket {
         Ok(Self {
             poller,
             server: Some(listener),
-            impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
+            impls: sync::Arc::default(),
             clients: Vec::new(),
             next_client_id: 1,
         })
@@ -81,26 +82,26 @@ impl ServerSocket {
         Ok(Self {
             poller: polling::Poller::new()?,
             server: None,
-            impls: rc::Rc::new(cell::RefCell::new(Vec::new())),
+            impls: sync::Arc::default(),
             clients: Vec::new(),
             next_client_id: 1,
         })
     }
 
     /// Registers a protocol implementation on the server.
-    pub fn add_implementation<I, H>(&mut self, version: u32, handler: &mut H)
+    pub fn add_implementation<I, H>(&mut self, handler: &mut H, version: u32)
     where
         I: server::Construct<H> + 'static,
     {
         let implementation = I::new(version, handler);
-        self.impls.borrow_mut().push(Box::new(implementation));
+        self.impls.write().unwrap().push(Box::new(implementation));
     }
 
     fn dispatch_client<D: 'static>(
-        client: &rc::Rc<server_client::ServerClientState>,
+        client: &sync::Arc<server_client::ServerClientState>,
         dispatch: &mut D,
     ) {
-        let state = rc::Rc::clone(&client.state);
+        let state = sync::Arc::clone(&client.state);
 
         let mut data = {
             if let Ok(d) = socket::SocketRawParsedMessage::read_from_socket(&state.stream) {
@@ -111,14 +112,14 @@ impl ServerSocket {
                     u32::MAX,
                     "fatal: invalid message on wire",
                 ));
-                state.error.set(true);
+                state.error.store(true, atomic::Ordering::Relaxed);
                 let _ = state.stream.shutdown(std::net::Shutdown::Both);
                 return;
             }
         };
 
         if data.data.is_empty() {
-            state.error.set(true);
+            state.error.store(true, atomic::Ordering::Relaxed);
             let _ = state.stream.shutdown(std::net::Shutdown::Both);
             return;
         }
@@ -129,15 +130,19 @@ impl ServerSocket {
                 u32::MAX,
                 "fatal: failed to handle message on wire",
             ));
-            state.error.set(true);
+            state.error.store(true, atomic::Ordering::Relaxed);
             let _ = state.stream.shutdown(std::net::Shutdown::Both);
             return;
         }
 
-        let scheduled_seq = client.scheduled_roundtrip_seq.get();
+        let scheduled_seq = client
+            .scheduled_roundtrip_seq
+            .load(atomic::Ordering::Relaxed);
         if scheduled_seq > 0 {
             state.send_message(&roundtrip_done::RoundtripDone::new(scheduled_seq));
-            client.scheduled_roundtrip_seq.set(0);
+            client
+                .scheduled_roundtrip_seq
+                .store(0, atomic::Ordering::Relaxed);
         }
     }
 
@@ -158,12 +163,12 @@ impl ServerSocket {
             return Ok(false);
         }
 
-        let state = rc::Rc::new(crate::ConnectionState::new(
+        let state = sync::Arc::new(crate::ConnectionState::new(
             stream,
-            rc::Rc::clone(&self.impls),
+            sync::Arc::clone(&self.impls),
         ));
         let client_id = self.next_client_id;
-        let client = server_client::ServerClientState::new(client_id, rc::Rc::clone(&state));
+        let client = server_client::ServerClientState::new(client_id, state);
 
         unsafe {
             self.poller.add(
@@ -209,13 +214,18 @@ impl ServerSocket {
             }
 
             let id = ev.key as u32;
-            let Some(client) = self.clients.iter().find(|c| c.id == id).map(rc::Rc::clone) else {
+            let Some(client) = self
+                .clients
+                .iter()
+                .find(|c| c.id == id)
+                .map(sync::Arc::clone)
+            else {
                 continue;
             };
 
             Self::dispatch_client(&client, dispatch);
 
-            if client.state.error.get() {
+            if client.state.error.load(atomic::Ordering::Relaxed) {
                 dead.push(id);
             } else {
                 self.poller
@@ -269,12 +279,12 @@ impl ServerSocket {
     {
         let stream = net::UnixStream::from(fd.into());
         _ = stream.set_nonblocking(true);
-        let state = rc::Rc::new(crate::ConnectionState::new(
+        let state = sync::Arc::new(crate::ConnectionState::new(
             stream,
-            rc::Rc::clone(&self.impls),
+            sync::Arc::clone(&self.impls),
         ));
         let client_id = self.next_client_id;
-        let client = server_client::ServerClientState::new(client_id, rc::Rc::clone(&state));
+        let client = server_client::ServerClientState::new(client_id, state);
 
         // SAFETY: see `accept_one` — same drop-order argument.
         if let Err(e) = unsafe {
@@ -287,7 +297,7 @@ impl ServerSocket {
         }
 
         self.next_client_id += 1;
-        self.clients.push(rc::Rc::clone(&client));
+        self.clients.push(sync::Arc::clone(&client));
 
         Ok(server_client::ServerClient {
             id: client_id,
@@ -304,7 +314,7 @@ impl ServerSocket {
         dispatch: &mut D,
     ) -> crate::Result<bool> {
         for state in self.clients.iter().filter(|c| c.id == client.id()) {
-            state.state.error.set(true);
+            state.state.error.store(true, atomic::Ordering::Relaxed);
             let _ = state.state.stream.shutdown(std::net::Shutdown::Both);
             state.destroy_objects_for_disconnect(dispatch);
             let _ = self.poller.delete(&state.state.stream);

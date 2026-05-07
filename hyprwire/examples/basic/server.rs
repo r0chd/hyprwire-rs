@@ -27,7 +27,7 @@ struct App {
 impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
     fn event(
         &mut self,
-        object: &my_manager_v1::MyManagerV1,
+        _object: &my_manager_v1::MyManagerV1,
         event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
     ) {
         match event {
@@ -59,12 +59,9 @@ impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
                 let conct: Vec<String> = message.iter().map(|v| v.to_string()).collect();
                 println!("Got uint array message: \"{}\"", conct.join(", "));
             }
-            my_manager_v1::Event::MakeObject { seq } => {
-                let obj = object
-                    .make_object::<Self>(seq)
-                    .expect("failed to create object");
-                obj.send_send_message("Hello object");
-                self.object = Some(obj);
+            my_manager_v1::Event::MakeObject { my_object_v1 } => {
+                my_object_v1.send_send_message("Hello object");
+                self.object = Some(my_object_v1);
             }
         }
     }
@@ -113,7 +110,7 @@ fn main() {
     let path = socket_path();
     let mut sock = server::Server::bind(&path).unwrap();
     let mut app = App::default();
-    sock.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut app);
+    sock.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(&mut app, 1);
 
     while sock.dispatch_events(&mut app, true).is_ok() {}
 }

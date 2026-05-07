@@ -76,7 +76,9 @@ impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     // Connect to the server.
-    let mut client = client::Client::connect("/tmp/test-hw.sock")?;
+    let mut socket = client::Client::connect("/tmp/test-hw.sock")?;
+    let event_queue = socket.new_event_queue();
+
     let mut app = App::default();
 
     // Register the generated client-side implementation so incoming events
@@ -86,19 +88,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     // Finish protocol negotiation.
     client.wait_for_handshake(&mut app)?;
 
-    // Look up the protocol advertised by the server.
-    let server_spec = client
-        .get_spec::<test_protocol_v1::TestProtocolV1Impl>()
-        .expect("protocol unsupported");
-
-    // Bind the protocol's root object.
-    let manager = client
-        .bind::<my_manager_v1::MyManagerV1, App>(&server_spec, server_spec.spec_ver(), &mut app)?;
+    let manager = socket
+        .bind::<my_manager_v1::MyManagerV1, _>(&qh, &mut app, 1)?;
 
     manager.send_send_message("hello");
 
     // Dispatch server events into `app`.
-    client.dispatch_events(&mut app, true)?;
+    event_queue.dispatch_events(&mut app, true)?;
+
     Ok(())
 }
 ```

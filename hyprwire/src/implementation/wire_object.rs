@@ -4,6 +4,7 @@ use hyprwire_core::message;
 use hyprwire_core::message::wire::generic_protocol_message;
 use hyprwire_core::types;
 use std::os::fd::AsRawFd;
+use std::sync::atomic;
 
 pub trait WireObject: object::Object {
     fn set_version(&self, version: u32);
@@ -61,11 +62,7 @@ pub trait WireObject: object::Object {
             return Ok(0);
         }
 
-        let method_params = method.params;
-        let method_returns_type = method.returns_type;
-        let method_destructor = method.destructor;
-
-        if method_destructor {
+        if method.destructor {
             self.mark_destroyed();
         }
 
@@ -84,25 +81,25 @@ pub trait WireObject: object::Object {
 
         let mut return_seq: u32 = 0;
 
-        if !method_returns_type.is_empty() {
+        if !method.returns_type.is_empty() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    crate::log_debug!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.state.stream.as_raw_fd(), steady_millis(), id, method_returns_type);
+                    crate::log_debug!("[hw] trace: [{} @ {:.3}] -- call {}: returnsType has {}", client.0.state.stream.as_raw_fd(), steady_millis(), id, method.returns_type);
                 }
             }
 
             data.push(types::MessageMagic::TypeSeq as u8);
             if let Some(client) = self.client_sock() {
-                return_seq = client.0.seq.get() + 1;
-                client.0.seq.set(return_seq);
+                return_seq = client.0.seq.load(atomic::Ordering::Relaxed) + 1;
+                client.0.seq.store(return_seq, atomic::Ordering::Relaxed);
             }
             data.extend_from_slice(&return_seq.to_le_bytes());
         }
 
         let mut arg_idx: usize = 0;
         let mut i: usize = 0;
-        while i < method_params.len() {
-            let Ok(param) = types::MessageMagic::try_from(method_params[i]) else {
+        while i < method.params.len() {
+            let Ok(param) = types::MessageMagic::try_from(method.params[i]) else {
                 break;
             };
 
@@ -154,7 +151,7 @@ pub trait WireObject: object::Object {
                 }
                 types::MessageMagic::TypeArray => {
                     i += 1;
-                    let Ok(arr_type) = types::MessageMagic::try_from(method_params[i]) else {
+                    let Ok(arr_type) = types::MessageMagic::try_from(method.params[i]) else {
                         break;
                     };
 
@@ -226,18 +223,21 @@ pub trait WireObject: object::Object {
         if self.id() == 0 && !self.server() {
             trace! {
                 if let Some(client) = self.client_sock() {
-                    crate::log_debug!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.state.stream.as_raw_fd(), steady_millis(), method_returns_type);
+                    crate::log_debug!("[hw] trace: [{} @ {:.3}] -- call: waiting on object of type {}", client.0.state.stream.as_raw_fd(), steady_millis(), method.returns_type);
                 }
             }
 
             let protocol_name = self.protocol_name();
             msg.set_depends_on_seq(self.seq());
-            if let Some(client) = self.client_sock() {
-                client.0.pending_outgoing.borrow_mut().push(msg);
+            let qh = self.queue_handle();
+            if let Some(qh) = &qh {
+                qh.enqueue(msg);
                 if return_seq != 0 {
-                    client
-                        .0
-                        .make_object(protocol_name, method_returns_type, return_seq)?;
+                    if let Some(client) = self.client_sock() {
+                        client
+                            .0
+                            .make_object(protocol_name, method.returns_type, return_seq, qh)?;
+                    }
                     return Ok(return_seq);
                 }
             }
@@ -246,9 +246,11 @@ pub trait WireObject: object::Object {
             if return_seq != 0 {
                 let protocol_name = self.protocol_name();
                 if let Some(client) = self.client_sock() {
+                    // always some for client
+                    let qh = self.queue_handle().unwrap();
                     client
                         .0
-                        .make_object(protocol_name, method_returns_type, return_seq)?;
+                        .make_object(protocol_name, method.returns_type, return_seq, &qh)?;
                     return Ok(return_seq);
                 }
             }

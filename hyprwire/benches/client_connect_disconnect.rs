@@ -48,25 +48,21 @@ struct ClientApp;
 
 fn client_lifecycle(socket_path: &path::Path) -> hyprwire::Result<()> {
     let mut socket = client::Client::connect(socket_path)?;
+    let event_queue = socket.new_event_queue();
+    let qh = event_queue.handle();
     let mut app = ClientApp;
 
     socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
-    socket.wait_for_handshake(&mut app)?;
-
-    let spec = socket
-        .get_spec::<bench_protocol_v1::c::BenchProtocolV1Impl>()
-        .ok_or(hyprwire::Error::ProtocolViolation(
-            hyprwire::core::message::Error::NoSpec,
-        ))?;
+    event_queue.wait_for_handshake(&mut app)?;
 
     let manager = socket.bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-        &spec,
-        BENCH_PROTOCOL_VERSION,
+        &qh,
         &mut app,
+        BENCH_PROTOCOL_VERSION,
     )?;
 
     manager.send_send_message(black_box("Hello!"));
-    socket.roundtrip(&mut app)?;
+    event_queue.roundtrip(&mut app)?;
 
     Ok(())
 }
@@ -113,7 +109,6 @@ fn main() -> hyprwire::Result<()> {
     if pid == 0 {
         drop(shutdown_read);
 
-        // Wait briefly for the server to bind the socket.
         while !socket_path.exists() {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
@@ -127,12 +122,11 @@ fn main() -> hyprwire::Result<()> {
 
     drop(shutdown_write);
 
-    // Server
     let mut socket = server::Server::bind(&socket_path)?;
     let mut app = ServerApp;
     socket.add_implementation::<bench_protocol_v1::s::BenchProtocolV1Impl, _>(
-        BENCH_PROTOCOL_VERSION,
         &mut app,
+        BENCH_PROTOCOL_VERSION,
     );
 
     loop {

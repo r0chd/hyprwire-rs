@@ -1,8 +1,8 @@
 use super::object;
 use hyprwire_core::types;
-use std::rc;
+use std::sync;
 
-type OnBind<'a> = Box<dyn Fn(rc::Rc<dyn object::Object>) + 'a>;
+type OnBind<'a> = Box<dyn Fn(sync::Arc<dyn object::Object>) + 'a>;
 
 pub struct ObjectImplementation<'a> {
     pub object_name: &'a str,
@@ -10,7 +10,7 @@ pub struct ObjectImplementation<'a> {
     pub on_bind: OnBind<'a>,
 }
 
-pub trait ProtocolImplementations {
+pub trait ProtocolImplementations: Send + Sync {
     fn protocol(&self) -> &dyn types::ProtocolSpec;
 
     fn implementation(&self) -> &[ObjectImplementation<'_>];

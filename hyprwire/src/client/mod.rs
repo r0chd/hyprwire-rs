@@ -1,19 +1,20 @@
 mod client_object;
 pub(crate) mod client_socket;
+pub(crate) mod event_queue;
 mod server_spec;
 
 use crate::implementation::client::ProtocolImplementations;
 use crate::implementation::object;
-use hyprwire_core::types;
 use std::os::fd;
-use std::{path, rc};
+use std::sync::atomic;
+use std::{path, sync};
 
 /// Client-side entry point for connecting to a Hyprwire server and dispatching
 /// protocol events.
 ///
 /// A `Client` can connect directly to a Unix socket path or take ownership of
 /// an already-connected Unix socket file descriptor.
-pub struct Client(pub(crate) rc::Rc<client_socket::ClientSocket>);
+pub struct Client(pub(crate) sync::Arc<client_socket::ClientSocket>);
 
 impl Client {
     /// Connects to a Hyprwire server over a Unix socket path.
@@ -40,48 +41,17 @@ impl Client {
         Ok(Self(client_socket::ClientSocket::from_fd(fd)?))
     }
 
+    /// Creates an [`EventQueue`][event_queue::EventQueue] backed by this client connection.
+    pub fn new_event_queue(&self) -> event_queue::EventQueue {
+        event_queue::EventQueue::new(sync::Arc::clone(&self.0))
+    }
+
     /// Registers a protocol implementation on the client.
     pub fn add_implementation<I>(&mut self)
     where
         I: ProtocolImplementations + 'static,
     {
         self.0.add_implementation(Box::new(I::new()));
-    }
-
-    /// Blocks until the initial Hyprwire handshake completes.
-    ///
-    /// Returns an error if the connection closes or the handshake fails.
-    ///
-    /// # Errors
-    /// Returns an error if the connection closes, the handshake times out, or
-    /// the server sends invalid handshake traffic.
-    pub fn wait_for_handshake<D: 'static>(&mut self, state: &mut D) -> crate::Result<()> {
-        self.0.wait_for_handshake(state)
-    }
-
-    /// Dispatches pending events from the server.
-    ///
-    /// `state` receives generated event callbacks. If `block` is `true`, this
-    /// call waits until new protocol traffic is available.
-    ///
-    /// # Errors
-    /// Returns an error if the connection closes, polling fails, or incoming
-    /// protocol traffic is malformed.
-    pub fn dispatch_events<D: 'static>(&self, state: &mut D, block: bool) -> crate::Result<()> {
-        self.0.dispatch_events(state, block)
-    }
-
-    /// Performs a roundtrip against the server.
-    ///
-    /// This sends a roundtrip request and blocks until the matching
-    /// acknowledgment is received, dispatching events into `state` while
-    /// waiting.
-    ///
-    /// # Errors
-    /// Returns an error if the connection closes or dispatching protocol
-    /// traffic fails while waiting for the roundtrip acknowledgment.
-    pub fn roundtrip<D: 'static>(&self, state: &mut D) -> crate::Result<()> {
-        self.0.roundtrip(state)
     }
 
     #[must_use]
@@ -97,30 +67,40 @@ impl Client {
     #[must_use]
     /// Returns `true` once the initial handshake has completed successfully.
     pub fn is_handshake_done(&self) -> bool {
-        self.0.handshake_done.get()
+        self.0.handshake_done.load(atomic::Ordering::Relaxed)
     }
 
     /// Binds a server-advertised protocol and returns its typed root object.
     ///
-    /// The provided `spec` must come from [`Client::get_spec`]. `version`
-    /// selects the protocol version to bind and must not exceed the version
-    /// advertised by the server for that spec.
+    /// The protocol is identified automatically from `O`'s associated
+    /// `ProtocolImpl` type. `version` must not exceed the version the server
+    /// advertises for that protocol.
     ///
     /// # Errors
-    /// Returns an error if the requested version is invalid, the connection
-    /// closes during binding, or the server does not complete object creation
-    /// successfully.
-    pub fn bind<O: crate::Object, D: crate::Dispatch<O> + 'static>(
+    /// Returns [`Error::ProtocolNotFound`][crate::Error::ProtocolNotFound] if
+    /// the server does not advertise the protocol, or an error if the requested
+    /// version is invalid, the connection closes, or object creation fails.
+    pub fn bind<O, D>(
         &self,
-        spec: &dyn types::ProtocolSpec,
-        version: u32,
+        qh: &event_queue::QueueHandle,
         state: &mut D,
-    ) -> crate::Result<O> {
-        let obj = self.0.bind_protocol(spec, version)?;
+        version: u32,
+    ) -> crate::Result<O>
+    where
+        O: crate::Object,
+        O::ProtocolImpl: ProtocolImplementations,
+        D: crate::Dispatch<O> + 'static,
+    {
+        let advertised = self
+            .0
+            .get_spec(O::ProtocolImpl::spec_name())
+            .ok_or(crate::Error::ProtocolNotFound)?;
+        let spec = server_spec::ServerSpec::<O::ProtocolImpl>::new(advertised.version());
+        let obj = self.0.bind_protocol(qh, &spec, version)?;
         // Install event handlers before waiting so events that arrive in the same
         // socket read with NewObject are dispatched rather than dropped.
-        let typed = O::from_object::<D>(rc::Rc::clone(&obj) as rc::Rc<dyn object::Object>);
-        self.0.wait_for_object(&obj, state)?;
+        let typed = O::from_object::<D>(sync::Arc::clone(&obj) as sync::Arc<dyn object::Object>);
+        self.0.wait_for_object(qh, &obj, state)?;
         Ok(typed)
     }
 
@@ -142,10 +122,10 @@ impl Client {
     ///
     /// This is a low-level helper primarily used by generated code and manual
     /// protocol integrations.
-    pub fn object_for_seq(&self, seq: u32) -> Option<rc::Rc<dyn object::Object>> {
+    pub fn object_for_seq(&self, seq: u32) -> Option<sync::Arc<dyn object::Object>> {
         self.0
             .object_for_seq(seq)
-            .map(|obj| obj as rc::Rc<dyn object::Object>)
+            .map(|obj| obj as sync::Arc<dyn object::Object>)
     }
 
     #[must_use]
@@ -153,9 +133,9 @@ impl Client {
     ///
     /// This is a low-level helper primarily used by generated code and manual
     /// protocol integrations.
-    pub fn object_for_id(&self, id: u32) -> Option<rc::Rc<dyn object::Object>> {
+    pub fn object_for_id(&self, id: u32) -> Option<sync::Arc<dyn object::Object>> {
         self.0
             .object_for_id(id)
-            .map(|obj| obj as rc::Rc<dyn object::Object>)
+            .map(|obj| obj as sync::Arc<dyn object::Object>)
     }
 }

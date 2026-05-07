@@ -6,7 +6,7 @@ pub struct ObjectImplementation<'a> {
     pub version: u32,
 }
 
-pub trait ProtocolImplementations {
+pub trait ProtocolImplementations: Send + Sync {
     fn new() -> Self
     where
         Self: Sized;

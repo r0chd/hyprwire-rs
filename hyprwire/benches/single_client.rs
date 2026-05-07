@@ -51,21 +51,17 @@ fn client_process_main(
     mut shutdown_write: net::UnixStream,
 ) -> hyprwire::Result<()> {
     let mut socket = client::Client::from_fd(server_stream)?;
+    let event_queue = socket.new_event_queue();
+    let qh = event_queue.handle();
     let mut app = ClientApp;
 
     socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
-    socket.wait_for_handshake(&mut app)?;
-
-    let spec = socket
-        .get_spec::<bench_protocol_v1::c::BenchProtocolV1Impl>()
-        .ok_or(hyprwire::Error::ProtocolViolation(
-            hyprwire::core::message::Error::NoSpec,
-        ))?;
+    event_queue.wait_for_handshake(&mut app)?;
 
     let manager = socket.bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-        &spec,
-        BENCH_PROTOCOL_VERSION,
+        &qh,
         &mut app,
+        BENCH_PROTOCOL_VERSION,
     )?;
 
     let long_message = make_lorem_ipsum(LONG_MESSAGE_TARGET_BYTES);
@@ -76,7 +72,7 @@ fn client_process_main(
     c.bench_function("client_send_message+roundtrip", |b| {
         b.iter(|| {
             manager.send_send_message(black_box("Hello!"));
-            socket.roundtrip(&mut app).unwrap();
+            event_queue.roundtrip(&mut app).unwrap();
         })
     });
 
@@ -85,12 +81,12 @@ fn client_process_main(
             manager.send_send_message(black_box("Hello!"));
         })
     });
-    socket.roundtrip(&mut app).unwrap();
+    event_queue.roundtrip(&mut app).unwrap();
 
     c.bench_function("client_send_message_long+roundtrip", |b| {
         b.iter(|| {
             manager.send_send_message(black_box(long_message.as_str()));
-            socket.roundtrip(&mut app).unwrap();
+            event_queue.roundtrip(&mut app).unwrap();
         })
     });
 
@@ -99,16 +95,16 @@ fn client_process_main(
             manager.send_send_message(black_box(long_message.as_str()));
         })
     });
-    socket.roundtrip(&mut app).unwrap();
+    event_queue.roundtrip(&mut app).unwrap();
 
     c.bench_function("client_bind_object", |b| {
         b.iter(|| {
             let _ = black_box(
                 socket
                     .bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-                        &spec,
-                        BENCH_PROTOCOL_VERSION,
+                        &qh,
                         &mut app,
+                        BENCH_PROTOCOL_VERSION,
                     )
                     .unwrap(),
             );
@@ -117,7 +113,6 @@ fn client_process_main(
 
     c.final_summary();
 
-    // Tell the server process to stop its event loop.
     let _ = shutdown_write.write_all(b"x");
 
     Ok(())
@@ -146,13 +141,11 @@ fn main() -> hyprwire::Result<()> {
     drop(client_stream);
     drop(shutdown_write);
 
-    // Server
-
     let mut socket = server::Server::detached()?;
     let mut app = ServerApp;
     socket.add_implementation::<bench_protocol_v1::s::BenchProtocolV1Impl, _>(
-        BENCH_PROTOCOL_VERSION,
         &mut app,
+        BENCH_PROTOCOL_VERSION,
     );
 
     socket.add_client(server_stream).expect("add_client failed");

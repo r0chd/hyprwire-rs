@@ -58,29 +58,27 @@ fn client_process_main(
 
     let mut clients = Vec::with_capacity(server_streams.len());
     let mut managers = Vec::with_capacity(server_streams.len());
-    let mut specs = Vec::with_capacity(server_streams.len());
+    let mut qhandles = Vec::with_capacity(server_streams.len());
+    let mut event_queues = Vec::with_capacity(server_streams.len());
 
     for stream in server_streams {
         let mut socket = client::Client::from_fd(stream)?;
+        let eq = socket.new_event_queue();
+        let qh = eq.handle();
 
         socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
-        socket.wait_for_handshake(&mut app)?;
-
-        let spec = socket
-            .get_spec::<bench_protocol_v1::c::BenchProtocolV1Impl>()
-            .ok_or(hyprwire::Error::ProtocolViolation(
-                hyprwire::core::message::Error::NoSpec,
-            ))?;
+        eq.wait_for_handshake(&mut app)?;
 
         let manager = socket.bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-            &spec,
-            BENCH_PROTOCOL_VERSION,
+            &qh,
             &mut app,
+            BENCH_PROTOCOL_VERSION,
         )?;
 
         managers.push(manager);
-        specs.push(spec);
+        qhandles.push(qh);
         clients.push(socket);
+        event_queues.push(eq);
     }
 
     let mut c = Criterion::default().configure_from_args();
@@ -93,15 +91,15 @@ fn client_process_main(
         })
     });
 
-    for socket in &clients {
-        socket.roundtrip(&mut app).unwrap();
+    for eq in &event_queues {
+        eq.roundtrip(&mut app).unwrap();
     }
 
     c.bench_function("multi_100_clients_send_message+roundtrip", |b| {
         b.iter(|| {
-            for (socket, manager) in clients.iter().zip(&managers) {
+            for (manager, eq) in managers.iter().zip(&event_queues) {
                 manager.send_send_message(black_box("Hello!"));
-                socket.roundtrip(&mut app).unwrap();
+                eq.roundtrip(&mut app).unwrap();
             }
         })
     });
@@ -114,28 +112,28 @@ fn client_process_main(
         })
     });
 
-    for socket in &clients {
-        socket.roundtrip(&mut app).unwrap();
+    for eq in &event_queues {
+        eq.roundtrip(&mut app).unwrap();
     }
 
     c.bench_function("multi_100_clients_send_message_long+roundtrip", |b| {
         b.iter(|| {
-            for (socket, manager) in clients.iter().zip(&managers) {
+            for (manager, eq) in managers.iter().zip(&event_queues) {
                 manager.send_send_message(black_box(long_message.as_str()));
-                socket.roundtrip(&mut app).unwrap();
+                eq.roundtrip(&mut app).unwrap();
             }
         })
     });
 
     c.bench_function("multi_100_clients_bind_object", |b| {
         b.iter(|| {
-            for (socket, spec) in clients.iter().zip(&specs) {
+            for (socket, qh) in clients.iter().zip(&qhandles) {
                 let _ = black_box(
                     socket
                         .bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-                            spec,
-                            BENCH_PROTOCOL_VERSION,
+                            qh,
                             &mut app,
+                            BENCH_PROTOCOL_VERSION,
                         )
                         .unwrap(),
                 );
@@ -145,7 +143,6 @@ fn client_process_main(
 
     c.final_summary();
 
-    // Tell the server process to stop its event loop.
     let _ = shutdown_write.write_all(b"x");
 
     Ok(())
@@ -170,7 +167,6 @@ fn main() -> hyprwire::Result<()> {
 
     if pid == 0 {
         drop(shutdown_read);
-
         drop(server_streams);
 
         if let Err(err) = client_process_main(client_streams, shutdown_write) {
@@ -183,13 +179,11 @@ fn main() -> hyprwire::Result<()> {
     drop(client_streams);
     drop(shutdown_write);
 
-    // Server
-
     let mut socket = server::Server::detached()?;
     let mut app = ServerApp;
     socket.add_implementation::<bench_protocol_v1::s::BenchProtocolV1Impl, _>(
-        BENCH_PROTOCOL_VERSION,
         &mut app,
+        BENCH_PROTOCOL_VERSION,
     );
 
     for server_stream in server_streams {

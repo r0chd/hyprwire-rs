@@ -58,10 +58,12 @@ fn main() {
 
     let path = socket_path();
     let mut socket = client::Client::connect(&path).unwrap();
+    let event_queue = socket.new_event_queue();
+    let qh = event_queue.handle();
     let mut state = App::default();
 
     socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
-    socket.wait_for_handshake(&mut state).unwrap();
+    event_queue.wait_for_handshake(&mut state).unwrap();
 
     let server_spec = socket
         .get_spec::<test_protocol_v1::TestProtocolV1Impl>()
@@ -73,7 +75,7 @@ fn main() {
     );
 
     let manager = socket
-        .bind::<my_manager_v1::MyManagerV1, App>(&server_spec, server_spec.spec_ver(), &mut state)
+        .bind::<my_manager_v1::MyManagerV1, _>(&qh, &mut state, server_spec.spec_ver())
         .unwrap();
 
     println!("Bound!");
@@ -100,7 +102,7 @@ fn main() {
     manager.send_send_message_array::<&str>(&[]);
     manager.send_send_message_array_uint(&[69, 420, 1337]);
 
-    socket.roundtrip(&mut state).unwrap();
+    event_queue.roundtrip(&mut state).unwrap();
 
     let obj = manager.send_make_object::<App>().unwrap();
 
@@ -108,7 +110,7 @@ fn main() {
     obj.send_send_enum(test_protocol_v1::MyEnum::World);
 
     loop {
-        if let Err(e) = socket.dispatch_events(&mut state, true) {
+        if let Err(e) = event_queue.dispatch_events(&mut state, true) {
             log::error!("{e}");
             break;
         }

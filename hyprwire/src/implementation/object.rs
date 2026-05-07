@@ -1,16 +1,21 @@
+use crate::client::event_queue;
 use crate::server::server_client;
 use crate::{client, server};
 use hyprwire_core::types;
-use std::{any, rc};
+use std::{any, sync};
 
-pub trait ObjectData {
+pub trait ObjectData: Send + Sync {
     fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any);
 
     fn destroyed(&self) {}
 }
 
-pub trait Object {
+pub trait Object: Send + Sync {
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32;
+
+    fn queue_handle(&self) -> Option<event_queue::QueueHandle> {
+        None
+    }
 
     fn client_sock(&self) -> Option<client::Client> {
         None
@@ -24,7 +29,7 @@ pub trait Object {
         None
     }
 
-    fn create_object(&self, _object_name: &str, _seq: u32) -> Option<rc::Rc<dyn Object>> {
+    fn create_object(&self, _object_name: &str, _seq: u32) -> Option<sync::Arc<dyn Object>> {
         None
     }
 

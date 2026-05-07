@@ -1,8 +1,8 @@
-use super::client_object;
+use super::{client_object, event_queue};
 use crate::client::server_spec;
 use crate::implementation::object::Object;
 use crate::implementation::wire_object::WireObject;
-use crate::{implementation, socket, steady_millis, trace};
+use crate::{implementation, steady_millis, trace};
 use hyprwire_core::message;
 use hyprwire_core::message::Message;
 use hyprwire_core::message::wire::{
@@ -13,48 +13,41 @@ use polling::AsSource;
 use std::os::fd;
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
-use std::{cell, mem, ops, path, rc, time};
+use std::sync::atomic;
+use std::{ops, path, sync, time};
 
 pub struct ClientSocket {
-    poller: polling::Poller,
-    impls: cell::RefCell<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
-    server_specs: cell::RefCell<Vec<server_spec::AdvertisedSpec>>,
-    objects: cell::RefCell<Vec<rc::Rc<client_object::ClientObject>>>,
-    handshake_begin: time::Instant,
-    pub(crate) state: rc::Rc<crate::ConnectionState>,
-    pub(crate) handshake_done: cell::Cell<bool>,
-    pub(crate) last_ackd_roundtrip_seq: cell::Cell<u32>,
-    last_sent_roundtrip_seq: cell::Cell<u32>,
-    pub(crate) seq: cell::Cell<u32>,
-    pub(crate) pending_outgoing:
-        cell::RefCell<Vec<generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>>>,
-    self_ref: rc::Weak<Self>,
+    pub(crate) poller: polling::Poller,
+    impls: sync::RwLock<Vec<Box<dyn implementation::client::ProtocolImplementations>>>,
+    server_specs: sync::RwLock<Vec<server_spec::AdvertisedSpec>>,
+    objects: sync::RwLock<Vec<sync::Arc<client_object::ClientObject>>>,
+    pub(crate) handshake_begin: time::Instant,
+    pub(crate) state: sync::Arc<crate::ConnectionState>,
+    pub(crate) handshake_done: atomic::AtomicBool,
+    pub(crate) last_ackd_roundtrip_seq: atomic::AtomicU32,
+    last_sent_roundtrip_seq: atomic::AtomicU32,
+    pub(crate) seq: atomic::AtomicU32,
+    self_ref: sync::Weak<Self>,
 }
 
-const HANDSHAKE_MAX_MS: u64 = 5000;
-
 impl ClientSocket {
-    fn new(stream: net::UnixStream) -> crate::Result<rc::Rc<Self>> {
+    fn new(stream: net::UnixStream) -> crate::Result<sync::Arc<Self>> {
         let poller = polling::Poller::new()?;
         unsafe { poller.add(&stream, polling::Event::readable(0))? };
 
-        let state = rc::Rc::new(crate::ConnectionState::new(
-            stream,
-            rc::Rc::new(cell::RefCell::new(Vec::new())),
-        ));
+        let state = sync::Arc::new(crate::ConnectionState::new(stream, sync::Arc::default()));
 
-        let client_socket = rc::Rc::new_cyclic(|weak_self| Self {
+        let client_socket = sync::Arc::new_cyclic(|weak_self| Self {
             poller,
-            last_ackd_roundtrip_seq: cell::Cell::new(0),
-            last_sent_roundtrip_seq: cell::Cell::new(0),
-            seq: cell::Cell::new(0),
-            impls: cell::RefCell::new(Vec::new()),
-            server_specs: cell::RefCell::new(Vec::new()),
-            state: rc::Rc::clone(&state),
-            objects: cell::RefCell::new(Vec::new()),
-            handshake_done: cell::Cell::new(false),
+            last_ackd_roundtrip_seq: atomic::AtomicU32::default(),
+            last_sent_roundtrip_seq: atomic::AtomicU32::default(),
+            seq: atomic::AtomicU32::default(),
+            impls: sync::RwLock::default(),
+            server_specs: sync::RwLock::default(),
+            state: sync::Arc::clone(&state),
+            objects: sync::RwLock::default(),
+            handshake_done: atomic::AtomicBool::default(),
             handshake_begin: time::Instant::now(),
-            pending_outgoing: cell::RefCell::new(Vec::new()),
             self_ref: weak_self.clone(),
         });
         state.send_message(&hello::Hello::new());
@@ -62,7 +55,7 @@ impl ClientSocket {
         Ok(client_socket)
     }
 
-    pub fn connect<P>(path: P) -> crate::Result<rc::Rc<Self>>
+    pub fn connect<P>(path: P) -> crate::Result<sync::Arc<Self>>
     where
         P: AsRef<path::Path>,
     {
@@ -71,7 +64,7 @@ impl ClientSocket {
         Self::new(stream)
     }
 
-    pub fn from_fd<F>(fd: F) -> crate::Result<rc::Rc<Self>>
+    pub fn from_fd<F>(fd: F) -> crate::Result<sync::Arc<Self>>
     where
         F: Into<fd::OwnedFd>,
     {
@@ -84,15 +77,21 @@ impl ClientSocket {
         &self,
         p_impl: Box<dyn implementation::client::ProtocolImplementations>,
     ) {
-        self.impls.borrow_mut().push(p_impl);
+        self.impls.write().unwrap().push(p_impl);
     }
 
-    pub fn wait_for_handshake<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
-        while !self.state.error.get() && !self.handshake_done.get() {
-            self.dispatch_events(dispatch, true)?;
+    pub fn wait_for_handshake<D: 'static>(
+        &self,
+        qh: &event_queue::QueueHandle,
+        dispatch: &mut D,
+    ) -> crate::Result<()> {
+        while !self.state.error.load(atomic::Ordering::Relaxed)
+            && !self.handshake_done.load(atomic::Ordering::Relaxed)
+        {
+            qh.dispatch_events(dispatch, true)?;
         }
 
-        if self.state.error.get() {
+        if self.state.error.load(atomic::Ordering::Relaxed) {
             return Err(crate::Error::ConnectionClosed);
         }
 
@@ -101,7 +100,8 @@ impl ClientSocket {
 
     pub fn get_spec(&self, name: &str) -> Option<server_spec::AdvertisedSpec> {
         self.server_specs
-            .borrow()
+            .read()
+            .unwrap()
             .iter()
             .find(|spec| spec.name() == name)
             .cloned()
@@ -109,9 +109,10 @@ impl ClientSocket {
 
     pub fn bind_protocol(
         &self,
+        qh: &event_queue::QueueHandle,
         spec: &dyn ProtocolSpec,
         version: u32,
-    ) -> crate::Result<rc::Rc<client_object::ClientObject>> {
+    ) -> crate::Result<sync::Arc<client_object::ClientObject>> {
         if version > spec.spec_ver() {
             crate::log_error!(
                 "version {} is larger than current spec ver of {}",
@@ -124,8 +125,11 @@ impl ClientSocket {
             });
         }
 
-        let mut object =
-            client_object::ClientObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
+        let mut object = client_object::ClientObject::new(
+            self.self_ref.clone(),
+            sync::Arc::clone(&self.state),
+            qh.downgrade(),
+        );
         let objects = spec.objects();
         if objects.is_empty() {
             return Err(crate::Error::ProtocolViolation(
@@ -133,14 +137,17 @@ impl ClientSocket {
             ));
         }
         object.spec = Some(std::sync::Arc::clone(&objects[0]));
-        let seq = self.seq.get() + 1;
-        self.seq.set(seq);
+        let seq = self.seq.load(atomic::Ordering::Relaxed) + 1;
+        self.seq.store(seq, atomic::Ordering::Relaxed);
         object.seq = seq;
-        object.version.set(version);
+        object.version.store(version, atomic::Ordering::Relaxed);
         object.protocol_name = spec.spec_name().to_string();
 
-        let object = rc::Rc::new(object);
-        self.objects.borrow_mut().push(rc::Rc::clone(&object));
+        let object = sync::Arc::new(object);
+        self.objects
+            .write()
+            .unwrap()
+            .push(sync::Arc::clone(&object));
 
         let bind_message = bind_protocol::BindProtocol::new(spec.spec_name(), seq, version);
         self.state.send_message(&bind_message);
@@ -150,14 +157,17 @@ impl ClientSocket {
 
     pub(crate) fn wait_for_object<D: 'static>(
         &self,
-        object: &rc::Rc<client_object::ClientObject>,
+        qh: &event_queue::QueueHandle,
+        object: &sync::Arc<client_object::ClientObject>,
         dispatch: &mut D,
     ) -> crate::Result<()> {
-        while object.id.get() == 0 && !self.state.error.get() {
-            self.dispatch_events(dispatch, true)?;
+        while object.id.load(atomic::Ordering::Relaxed) == 0
+            && !self.state.error.load(atomic::Ordering::Relaxed)
+        {
+            qh.dispatch_events(dispatch, true)?;
         }
 
-        if self.state.error.get() {
+        if self.state.error.load(atomic::Ordering::Relaxed) {
             return Err(crate::Error::ConnectionClosed);
         }
 
@@ -169,14 +179,19 @@ impl ClientSocket {
         protocol_name: &str,
         object_name: &str,
         seq: u32,
-    ) -> Result<rc::Rc<client_object::ClientObject>, message::Error> {
-        let mut object =
-            client_object::ClientObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
+        qh: &event_queue::QueueHandle,
+    ) -> Result<sync::Arc<client_object::ClientObject>, message::Error> {
+        let mut object = client_object::ClientObject::new(
+            self.self_ref.clone(),
+            sync::Arc::clone(&self.state),
+            qh.downgrade(),
+        );
         object.protocol_name = protocol_name.to_string();
 
         if let Some(obj) = self
             .impls
-            .borrow()
+            .read()
+            .unwrap()
             .iter()
             .find(|imp| imp.protocol().spec_name() == protocol_name)
             .and_then(|imp| {
@@ -196,8 +211,11 @@ impl ClientSocket {
         object.seq = seq;
         object.set_version(0); // TODO: client version doesn't matter that much, but for verification's sake we could fix this
 
-        let object = rc::Rc::new(object);
-        self.objects.borrow_mut().push(rc::Rc::clone(&object));
+        let object = sync::Arc::new(object);
+        self.objects
+            .write()
+            .unwrap()
+            .push(sync::Arc::clone(&object));
         Ok(object)
     }
 
@@ -206,7 +224,7 @@ impl ClientSocket {
     }
 
     pub fn server_specs(&self, specs: &[Box<str>]) {
-        let mut server_specs = self.server_specs.borrow_mut();
+        let mut server_specs = self.server_specs.write().unwrap();
         for spec in specs {
             let at_pos = spec.rfind('@').unwrap();
 
@@ -219,156 +237,57 @@ impl ClientSocket {
     }
 
     pub fn disconnect_on_error(&self) {
-        self.state.error.set(true);
+        self.state.error.store(true, atomic::Ordering::Relaxed);
         let _ = self.state.stream.shutdown(std::net::Shutdown::Both);
     }
 
-    pub fn roundtrip<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
-        if self.state.error.get() {
+    pub fn roundtrip<D: 'static>(
+        &self,
+        qh: &event_queue::QueueHandle,
+        dispatch: &mut D,
+    ) -> crate::Result<()> {
+        if self.state.error.load(atomic::Ordering::Relaxed) {
             return Err(crate::Error::ConnectionClosed);
         }
 
-        let next_seq = self.last_sent_roundtrip_seq.get() + 1;
-        self.last_sent_roundtrip_seq.set(next_seq);
+        let next_seq = self.last_sent_roundtrip_seq.load(atomic::Ordering::Relaxed) + 1;
+        self.last_sent_roundtrip_seq
+            .store(next_seq, atomic::Ordering::Relaxed);
         self.state
             .send_message(&roundtrip_request::RoundtripRequest::new(next_seq));
 
-        while self.last_ackd_roundtrip_seq.get() < next_seq {
-            self.dispatch_events(dispatch, true)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn dispatch_events<D: 'static>(&self, dispatch: &mut D, block: bool) -> crate::Result<()> {
-        if self.state.error.get() {
-            return Err(crate::Error::ConnectionClosed);
-        }
-
-        self.collect_orphaned_objects();
-
-        if !self.handshake_done.get() {
-            #[allow(clippy::cast_possible_truncation)]
-            let elapsed_ms = self.handshake_begin.elapsed().as_millis() as u64;
-            let max_ms = HANDSHAKE_MAX_MS.saturating_sub(elapsed_ms);
-
-            let timeout = if block {
-                time::Duration::from_millis(max_ms)
-            } else {
-                time::Duration::ZERO
-            };
-
-            let mut events = polling::Events::new();
-            if self.poller.wait(&mut events, Some(timeout))? == 0 {
-                if block {
-                    self.disconnect_on_error();
-                    return Err(crate::Error::HandshakeTimeout);
-                }
-                return Ok(());
-            }
-
-            self.poller
-                .modify(&self.state.stream, polling::Event::readable(0))?;
-        }
-
-        if self.handshake_done.get() {
-            let timeout = if block {
-                None
-            } else {
-                Some(time::Duration::ZERO)
-            };
-
-            let mut events = polling::Events::new();
-            if self.poller.wait(&mut events, timeout)? == 0 {
-                if block {
-                    return Err(crate::Error::ConnectionClosed);
-                }
-                self.collect_orphaned_objects();
-                return Ok(());
-            }
-
-            self.poller
-                .modify(&self.state.stream, polling::Event::readable(0))?;
-        }
-
-        // dispatch
-
-        let mut data = {
-            match socket::SocketRawParsedMessage::read_from_socket(&self.state.stream) {
-                Err(_) => {
-                    crate::log_error!("fatal: received malformed message from server");
-                    self.disconnect_on_error();
-                    return Err(crate::Error::ConnectionClosed);
-                }
-                Ok(data) => data,
-            }
-        };
-
-        if data.data.is_empty() {
-            return Err(crate::Error::ConnectionClosed);
-        }
-
-        if let Err(e) =
-            crate::message::handle_message(&mut data, &crate::message::Role::Client(self), dispatch)
-        {
-            crate::log_error!("fatal: failed to handle message on wire");
-            self.disconnect_on_error();
-            return Err(crate::Error::from(e));
-        }
-
-        let pending = mem::take(&mut *self.pending_outgoing.borrow_mut());
-        for mut msg in pending {
-            let seq = msg.depends_on_seq();
-            let obj_id = self.object_for_seq(seq).map(|obj| obj.id.get());
-
-            match obj_id {
-                None => continue,
-                Some(0) => {
-                    self.pending_outgoing.borrow_mut().push(msg);
-                    continue;
-                }
-                Some(id) => {
-                    msg.resolve_seq(id);
-                    trace! {
-                        crate::log_debug!("[hw] trace: [{} @ {:.3}] -> Handle deferred {}", self.state.stream.as_raw_fd(), steady_millis(), msg.parse_data())
-                    }
-                }
-            }
-
-            self.state.send_message(&msg);
-        }
-
-        self.collect_orphaned_objects();
-
-        if self.state.error.get() {
-            return Err(crate::Error::ConnectionClosed);
+        while self.last_ackd_roundtrip_seq.load(atomic::Ordering::Relaxed) < next_seq {
+            qh.dispatch_events(dispatch, true)?;
         }
 
         Ok(())
     }
 
     pub fn on_seq(&self, seq: u32, id: u32) {
-        let objects = self.objects.borrow();
+        let objects = self.objects.read().unwrap();
         if let Some(object) = objects.iter().find(|object| object.seq == seq) {
-            object.id.set(id);
+            object.id.store(id, atomic::Ordering::Relaxed);
         }
     }
 
     pub fn destroy_object(&self, id: u32) {
-        self.objects.borrow_mut().retain(|obj| obj.id.get() != id);
+        self.objects
+            .write()
+            .unwrap()
+            .retain(|obj| obj.id.load(atomic::Ordering::Relaxed) != id);
     }
 
     pub fn collect_orphaned_objects(&self) {
-        self.objects.borrow_mut().retain(|obj| {
-            if obj.id.get() == 0 {
+        self.objects.write().unwrap().retain(|obj| {
+            if obj.id.load(atomic::Ordering::Relaxed) == 0 {
                 return true;
             }
 
-            let should_remove = rc::Rc::strong_count(obj) <= 1;
+            let should_remove = sync::Arc::strong_count(obj) <= 1;
 
             if should_remove {
                 trace! {
-                    crate::log_debug!("[{} @ {:.3}] -> Cleaning up orphaned object {}", self.state.stream.as_raw_fd(), steady_millis(), obj.id.get())
+                    crate::log_debug!("[{} @ {:.3}] -> Cleaning up orphaned object {}", self.state.stream.as_raw_fd(), steady_millis(), obj.id.load(atomic::Ordering::Relaxed))
                 }
             }
 
@@ -383,10 +302,11 @@ impl ClientSocket {
     ) {
         let obj = self
             .objects
-            .borrow()
+            .read()
+            .unwrap()
             .iter()
-            .find(|obj| obj.id.get() == msg.object())
-            .map(rc::Rc::clone);
+            .find(|obj| obj.id.load(atomic::Ordering::Relaxed) == msg.object())
+            .map(sync::Arc::clone);
 
         if let Some(obj) = obj {
             obj.dispatch(msg.method(), msg.data_span(), msg.fds(), dispatch);
@@ -396,8 +316,8 @@ impl ClientSocket {
                 && let Some(method) = spec.s2c().get(msg.method() as usize)
                 && method.destructor
             {
-                obj.destroyed.set(true);
-                let id = obj.id.get();
+                obj.destroyed.store(true, atomic::Ordering::Relaxed);
+                let id = obj.id.load(atomic::Ordering::Relaxed);
                 if id != 0 {
                     self.destroy_object(id);
                 }
@@ -413,19 +333,21 @@ impl ClientSocket {
         }
     }
 
-    pub fn object_for_id(&self, id: u32) -> Option<rc::Rc<client_object::ClientObject>> {
+    pub fn object_for_id(&self, id: u32) -> Option<sync::Arc<client_object::ClientObject>> {
         self.objects
-            .borrow()
+            .read()
+            .unwrap()
             .iter()
-            .find(|object| object.id.get() == id)
-            .map(rc::Rc::clone)
+            .find(|object| object.id.load(atomic::Ordering::Relaxed) == id)
+            .map(sync::Arc::clone)
     }
 
-    pub fn object_for_seq(&self, seq: u32) -> Option<rc::Rc<client_object::ClientObject>> {
+    pub fn object_for_seq(&self, seq: u32) -> Option<sync::Arc<client_object::ClientObject>> {
         self.objects
-            .borrow()
+            .read()
+            .unwrap()
             .iter()
             .find(|object| object.seq == seq)
-            .map(rc::Rc::clone)
+            .map(sync::Arc::clone)
     }
 }

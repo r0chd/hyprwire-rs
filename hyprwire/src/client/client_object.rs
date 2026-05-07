@@ -1,38 +1,40 @@
+use super::event_queue;
 use crate::client::client_socket;
 use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, wire_object};
 use crate::{client, trace};
 use hyprwire_core::{message, types};
-use std::{any, cell, rc, sync};
+use std::sync::atomic;
+use std::{any, sync};
 
 pub struct ClientObject {
-    client: rc::Weak<client_socket::ClientSocket>,
-    pub(crate) state: rc::Rc<crate::ConnectionState>,
+    client: sync::Weak<client_socket::ClientSocket>,
+    pub(crate) state: sync::Arc<crate::ConnectionState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
-    pub(crate) id: cell::Cell<u32>,
-    pub(crate) version: cell::Cell<u32>,
+    pub(crate) id: atomic::AtomicU32,
+    pub(crate) version: atomic::AtomicU32,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
-    object_data: cell::RefCell<Option<Box<dyn object::ObjectData>>>,
-    pub(crate) destroyed: cell::Cell<bool>,
+    object_data: sync::RwLock<Option<Box<dyn object::ObjectData>>>,
+    pub(crate) destroyed: atomic::AtomicBool,
+    queue_handle: event_queue::WeakQueueHandle,
 }
 
 impl Drop for ClientObject {
     fn drop(&mut self) {
-        if !self.destroyed.get()
-            && self.id.get() != 0
+        if !self.destroyed.load(atomic::Ordering::Relaxed)
+            && self.id.load(atomic::Ordering::Relaxed) != 0
             && self.spec.is_some()
             && self.client.upgrade().is_some()
         {
             let methods = self.methods_out();
-            if let Some(destructor) = methods
-                .iter()
-                .find(|method| method.destructor && method.since <= self.version.get())
-            {
+            if let Some(destructor) = methods.iter().find(|method| {
+                method.destructor && method.since <= self.version.load(atomic::Ordering::Relaxed)
+            }) {
                 if !destructor.returns_type.is_empty() {
                     crate::log_debug!(
                         "can't auto-call destructor for object {}: method {} has returns type",
-                        self.id.get(),
+                        self.id.load(atomic::Ordering::Relaxed),
                         destructor.idx
                     );
                     return;
@@ -41,13 +43,13 @@ impl Drop for ClientObject {
                 if !destructor.params.is_empty() {
                     crate::log_debug!(
                         "can't auto-call destructor for object {}: method {} has params",
-                        self.id.get(),
+                        self.id.load(atomic::Ordering::Relaxed),
                         destructor.idx
                     );
                     return;
                 }
 
-                trace! {crate::log_debug!("auto-calling protocol destructor {} for object {}", destructor.idx, self.id.get())}
+                trace! {crate::log_debug!("auto-calling protocol destructor {} for object {}", destructor.idx, self.id.load(atomic::Ordering::Relaxed))}
                 _ = self.call(destructor.idx, &[]);
             }
         }
@@ -56,30 +58,32 @@ impl Drop for ClientObject {
 
 impl ClientObject {
     pub fn new(
-        client_socket: rc::Weak<client_socket::ClientSocket>,
-        state: rc::Rc<crate::ConnectionState>,
+        client_socket: sync::Weak<client_socket::ClientSocket>,
+        state: sync::Arc<crate::ConnectionState>,
+        queue_handle: event_queue::WeakQueueHandle,
     ) -> Self {
         Self {
-            destroyed: cell::Cell::new(false),
+            destroyed: atomic::AtomicBool::default(),
             client: client_socket,
             state,
             spec: None,
-            id: cell::Cell::new(0),
-            version: cell::Cell::new(0),
+            id: atomic::AtomicU32::default(),
+            version: atomic::AtomicU32::default(),
             seq: 0,
             protocol_name: String::new(),
-            object_data: cell::RefCell::new(None),
+            object_data: sync::RwLock::default(),
+            queue_handle,
         }
     }
 }
 
 impl object::Object for ClientObject {
     fn set_object_data(&self, data: Box<dyn object::ObjectData>) {
-        *self.object_data.borrow_mut() = Some(data);
+        *self.object_data.write().unwrap() = Some(data);
     }
 
     fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any) {
-        if let Some(object_data) = self.object_data.borrow().as_ref() {
+        if let Some(object_data) = self.object_data.read().unwrap().as_ref() {
             object_data.dispatch(method, data, fds, state);
         }
     }
@@ -90,12 +94,16 @@ impl object::Object for ClientObject {
             Err(e) => {
                 crate::log_error!(
                     "object {} (protocol {}) call error: {e}",
-                    self.id.get(),
+                    self.id.load(atomic::Ordering::Relaxed),
                     self.protocol_name
                 );
                 0
             }
         }
+    }
+
+    fn queue_handle(&self) -> Option<event_queue::QueueHandle> {
+        self.queue_handle.upgrade()
     }
 
     fn client_sock(&self) -> Option<client::Client> {
@@ -110,15 +118,15 @@ impl object::Object for ClientObject {
 
 impl wire_object::WireObject for ClientObject {
     fn set_version(&self, version: u32) {
-        self.version.set(version);
+        self.version.store(version, atomic::Ordering::Relaxed);
     }
 
     fn version(&self) -> u32 {
-        self.version.get()
+        self.version.load(atomic::Ordering::Relaxed)
     }
 
     fn id(&self) -> u32 {
-        self.id.get()
+        self.id.load(atomic::Ordering::Relaxed)
     }
 
     fn seq(&self) -> u32 {
@@ -141,11 +149,11 @@ impl wire_object::WireObject for ClientObject {
     }
 
     fn errd(&self) {
-        self.state.error.set(true);
+        self.state.error.store(true, atomic::Ordering::Relaxed);
     }
 
     fn mark_destroyed(&self) {
-        self.destroyed.set(true);
+        self.destroyed.store(true, atomic::Ordering::Relaxed);
     }
 
     fn send_message(&self, msg: &dyn message::Message) {

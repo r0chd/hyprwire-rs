@@ -3,50 +3,50 @@ use crate::implementation::object::Object;
 use crate::implementation::wire_object::WireObject;
 use crate::implementation::{object, wire_object};
 use crate::trace;
-use hyprwire_core::message;
 use hyprwire_core::message::wire::fatal_protocol_error;
-use hyprwire_core::types;
-use std::{any, cell, rc, sync};
+use hyprwire_core::{message, types};
+use std::sync::atomic;
+use std::{any, sync};
 
 pub(crate) struct ServerObject {
-    pub(crate) client: rc::Weak<server_client::ServerClientState>,
-    pub(crate) state: rc::Rc<crate::ConnectionState>,
+    pub(crate) client: sync::Weak<server_client::ServerClientState>,
+    pub(crate) state: sync::Arc<crate::ConnectionState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
-    pub(crate) destroyed: cell::Cell<bool>,
-    object_data: cell::RefCell<Option<Box<dyn object::ObjectData>>>,
-    pub(crate) id: cell::Cell<u32>,
-    pub(crate) version: cell::Cell<u32>,
+    pub(crate) destroyed: atomic::AtomicBool,
+    object_data: sync::RwLock<Option<Box<dyn object::ObjectData>>>,
+    pub(crate) id: atomic::AtomicU32,
+    pub(crate) version: atomic::AtomicU32,
     pub(crate) seq: u32,
     pub(crate) protocol_name: String,
 }
 
 impl Drop for ServerObject {
     fn drop(&mut self) {
-        trace! {crate::log_debug!("[hw] trace: destroying server object {}", self.id.get())}
+        trace! {crate::log_debug!("[hw] trace: destroying server object {}", self.id.load(atomic::Ordering::Relaxed))}
         self.destroy();
     }
 }
 
 impl ServerObject {
     pub fn new(
-        client: rc::Weak<server_client::ServerClientState>,
-        state: rc::Rc<crate::ConnectionState>,
+        client: sync::Weak<server_client::ServerClientState>,
+        state: sync::Arc<crate::ConnectionState>,
     ) -> Self {
         Self {
-            object_data: cell::RefCell::new(None),
+            object_data: sync::RwLock::default(),
             client,
             state,
             spec: None,
-            destroyed: cell::Cell::new(false),
-            id: cell::Cell::new(0),
-            version: cell::Cell::new(0),
+            destroyed: atomic::AtomicBool::new(false),
+            id: atomic::AtomicU32::new(0),
+            version: atomic::AtomicU32::new(0),
             seq: 0,
             protocol_name: String::new(),
         }
     }
 
     pub(crate) fn destroy_for_disconnect(&self, dispatch: &mut dyn any::Any) {
-        if self.destroyed.get() {
+        if self.destroyed.load(atomic::Ordering::Relaxed) {
             return;
         }
 
@@ -64,23 +64,23 @@ impl ServerObject {
     }
 
     fn destroy(&self) {
-        self.destroyed.set(true);
+        self.destroyed.store(true, atomic::Ordering::Relaxed);
     }
 }
 
 impl object::Object for ServerObject {
     fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any) {
-        if let Some(object_data) = self.object_data.borrow().as_ref() {
+        if let Some(object_data) = self.object_data.read().unwrap().as_ref() {
             object_data.dispatch(method, data, fds, state);
         }
     }
 
     fn set_object_data(&self, data: Box<dyn object::ObjectData>) {
-        *self.object_data.borrow_mut() = Some(data);
+        *self.object_data.write().unwrap() = Some(data);
     }
 
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32 {
-        if self.destroyed.get() {
+        if self.destroyed.load(atomic::Ordering::Relaxed) {
             return 0;
         }
 
@@ -89,7 +89,7 @@ impl object::Object for ServerObject {
             Err(e) => {
                 crate::log_error!(
                     "server object {} (protocol {}) call error: {e}",
-                    self.id.get(),
+                    self.id.load(atomic::Ordering::Relaxed),
                     self.protocol_name
                 );
                 0
@@ -97,14 +97,19 @@ impl object::Object for ServerObject {
         }
     }
 
-    fn create_object(&self, object_name: &str, seq: u32) -> Option<rc::Rc<dyn object::Object>> {
-        if self.destroyed.get() {
+    fn create_object(&self, object_name: &str, seq: u32) -> Option<sync::Arc<dyn object::Object>> {
+        if self.destroyed.load(atomic::Ordering::Relaxed) {
             return None;
         }
 
         let client = self.client.upgrade()?;
-        let obj = client.create_object(&self.protocol_name, object_name, self.version.get(), seq);
-        Some(obj as rc::Rc<dyn object::Object>)
+        let obj = client.create_object(
+            &self.protocol_name,
+            object_name,
+            self.version.load(atomic::Ordering::Relaxed),
+            seq,
+        );
+        Some(obj as sync::Arc<dyn object::Object>)
     }
 
     fn server_client(&self) -> Option<server_client::ServerClient> {
@@ -112,11 +117,15 @@ impl object::Object for ServerObject {
     }
 
     fn error(&self, error_id: u32, error_msg: &str) {
-        if self.destroyed.get() {
+        if self.destroyed.load(atomic::Ordering::Relaxed) {
             return;
         }
 
-        let msg = fatal_protocol_error::FatalProtocolError::new(self.id.get(), error_id, error_msg);
+        let msg = fatal_protocol_error::FatalProtocolError::new(
+            self.id.load(atomic::Ordering::Relaxed),
+            error_id,
+            error_msg,
+        );
         self.state.send_message(&msg);
         self.errd();
     }
@@ -124,15 +133,15 @@ impl object::Object for ServerObject {
 
 impl wire_object::WireObject for ServerObject {
     fn set_version(&self, version: u32) {
-        self.version.set(version);
+        self.version.store(version, atomic::Ordering::Relaxed);
     }
 
     fn version(&self) -> u32 {
-        self.version.get()
+        self.version.load(atomic::Ordering::Relaxed)
     }
 
     fn id(&self) -> u32 {
-        self.id.get()
+        self.id.load(atomic::Ordering::Relaxed)
     }
 
     fn seq(&self) -> u32 {
@@ -155,11 +164,11 @@ impl wire_object::WireObject for ServerObject {
     }
 
     fn errd(&self) {
-        self.state.error.set(true);
+        self.state.error.store(true, atomic::Ordering::Relaxed);
     }
 
     fn mark_destroyed(&self) {
-        self.destroyed.set(true);
+        self.destroyed.store(true, atomic::Ordering::Relaxed);
     }
 
     fn send_message(&self, msg: &dyn message::Message) {

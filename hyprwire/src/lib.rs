@@ -17,6 +17,7 @@ pub use error::Error;
 /// A `Result` type alias that uses [`Error`] as the error type.
 pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) mod helpers;
+pub use client::event_queue::{EventQueue, QueueHandle};
 pub use helpers::reset_trace_cache;
 /// Traits and low-level types used by generated client/server protocol
 /// bindings.
@@ -40,22 +41,25 @@ use std::{
 use implementation::object as impl_object;
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
-use std::{cell, io, rc, sync, time};
+use std::sync::atomic;
+use std::{io, sync, time};
 
 pub(crate) struct ConnectionState {
-    pub(crate) error: cell::Cell<bool>,
+    pub(crate) error: atomic::AtomicBool,
     pub(crate) stream: net::UnixStream,
     pub(crate) impls:
-        rc::Rc<cell::RefCell<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+        sync::Arc<sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
 impl ConnectionState {
     pub(crate) fn new(
         stream: net::UnixStream,
-        impls: rc::Rc<cell::RefCell<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+        impls: sync::Arc<
+            sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
+        >,
     ) -> Self {
         Self {
-            error: cell::Cell::new(false),
+            error: atomic::AtomicBool::new(false),
             stream,
             impls,
         }
@@ -135,9 +139,18 @@ pub trait Object: Sized {
     /// The event enum for this interface
     type Event<'a>;
 
+    /// The protocol implementation type this object belongs to.
+    /// For client objects this is the protocol's `ProtocolImpl`; for server objects it is `()`.
+    type ProtocolImpl: Default;
+
     const NAME: &str;
 
-    fn from_object<D: Dispatch<Self> + 'static>(object: rc::Rc<dyn impl_object::Object>) -> Self;
+    fn from_object<D: Dispatch<Self> + 'static>(object: sync::Arc<dyn impl_object::Object>)
+    -> Self;
+
+    fn protocol_impl() -> Self::ProtocolImpl {
+        Default::default()
+    }
 }
 
 /// Trait for receiving events from a Hyprwire interface.

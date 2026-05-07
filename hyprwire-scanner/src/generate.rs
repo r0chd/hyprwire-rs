@@ -33,7 +33,7 @@ impl std::ops::BitOrAssign for Targets {
 }
 
 fn raw_object_type() -> TokenStream {
-    quote! { rc::Rc<dyn hyprwire::implementation::object::Object> }
+    quote! { sync::Arc<dyn hyprwire::implementation::object::Object> }
 }
 
 #[derive(Clone)]
@@ -261,6 +261,8 @@ fn write_object_data_impl(
     obj_path: &TokenStream,
     event_path: &TokenStream,
     methods: &[Method],
+    is_server: bool,
+    extra_dispatch_bounds: &[TokenStream],
 ) -> TokenStream {
     let data_ident = format_ident!("{}ObjectData", snake_to_pascal(obj_name));
 
@@ -276,11 +278,24 @@ fn write_object_data_impl(
                 let mut __fd_cursor: usize = 0;
             };
 
-            let seq_parse = if m.returns.is_some() {
-                quote! {
-                    __needle += 1;
-                    let seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
-                    __needle += 4;
+            let seq_parse = if let Some(returned) = m.returns.as_deref() {
+                if is_server {
+                    let returned_mod_ident = raw_ident(returned);
+                    let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
+                    let returned_field_ident = raw_ident(returned);
+                    quote! {
+                        __needle += 1;
+                        let __seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
+                        __needle += 4;
+                        let Some(__raw_obj) = __proxy.object.create_object(#returned, __seq) else { return; };
+                        let #returned_field_ident = super::#returned_mod_ident::#returned_obj_ident::new::<D>(__raw_obj);
+                    }
+                } else {
+                    quote! {
+                        __needle += 1;
+                        let seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
+                        __needle += 4;
+                    }
                 }
             } else {
                 quote! {}
@@ -296,8 +311,13 @@ fn write_object_data_impl(
                 .collect();
 
             let mut event_fields: Vec<TokenStream> = Vec::new();
-            if m.returns.is_some() {
-                event_fields.push(quote! { seq, });
+            if let Some(returned) = m.returns.as_deref() {
+                if is_server {
+                    let returned_field_ident = raw_ident(returned);
+                    event_fields.push(quote! { #returned_field_ident, });
+                } else {
+                    event_fields.push(quote! { seq, });
+                }
             }
             for a in &m.args {
                 let aname = raw_ident(&a.name);
@@ -330,14 +350,14 @@ fn write_object_data_impl(
         unsafe impl<D> Send for #data_ident<D> {}
         unsafe impl<D> Sync for #data_ident<D> {}
 
-        impl<D: hyprwire::Dispatch<#obj_path> + 'static> hyprwire::implementation::object::ObjectData for #data_ident<D> {
+        impl<D: hyprwire::Dispatch<#obj_path> #(#extra_dispatch_bounds)* + 'static> hyprwire::implementation::object::ObjectData for #data_ident<D> {
             fn dispatch(&self, __method: u32, __data: &[u8], __fds: &[i32], __state: &mut dyn std::any::Any) {
                 let Some(__dispatch) = __state.downcast_mut::<D>() else {
                     return;
                 };
-                unsafe { rc::Rc::increment_strong_count(self.object) };
+                unsafe { sync::Arc::increment_strong_count(self.object) };
                 let __proxy = #obj_path {
-                    object: unsafe { rc::Rc::from_raw(self.object) },
+                    object: unsafe { sync::Arc::from_raw(self.object) },
                 };
 
                 match __method {
@@ -704,14 +724,32 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
     }
 }
 
-fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> TokenStream {
+fn write_event_enum(
+    event_ident: &proc_macro2::Ident,
+    methods: &[Method],
+    is_server: bool,
+) -> TokenStream {
     let variants: Vec<TokenStream> = methods
         .iter()
         .map(|m| {
             let variant = format_ident!("{}", snake_to_pascal(&m.name));
             let method_docs = object_doc_attrs(m.description.as_ref());
+
+            let returns_field = m.returns.as_deref().filter(|_| is_server).map(|returned| {
+                let returned_mod_ident = raw_ident(returned);
+                let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
+                let returned_field_ident = raw_ident(returned);
+                quote! { #returned_field_ident: super::#returned_mod_ident::#returned_obj_ident, }
+            });
+            let seq_field = m
+                .returns
+                .as_deref()
+                .filter(|_| !is_server)
+                .map(|_| quote! { seq: u32, });
+
             if m.args.is_empty() && m.returns.is_some() {
-                quote! { #method_docs #variant { seq: u32 }, }
+                let field = returns_field.or(seq_field).unwrap();
+                quote! { #method_docs #variant { #field }, }
             } else if m.args.is_empty() {
                 quote! { #method_docs #variant, }
             } else {
@@ -724,8 +762,8 @@ fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> Tok
                         quote! { #fname: #ftype, }
                     })
                     .collect();
-                if m.returns.is_some() {
-                    quote! { #method_docs #variant { seq: u32, #(#fields)* }, }
+                if let Some(extra) = returns_field.or(seq_field) {
+                    quote! { #method_docs #variant { #extra #(#fields)* }, }
                 } else {
                     quote! { #method_docs #variant { #(#fields)* }, }
                 }
@@ -820,25 +858,6 @@ fn write_send_method(idx: usize, m: &Method) -> TokenStream {
     }
 }
 
-fn write_server_create_helper(m: &Method) -> Option<TokenStream> {
-    let returned = m.returns.as_deref()?;
-    let helper_ident = raw_ident(&m.name);
-    let returned_mod_ident = raw_ident(returned);
-    let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
-    let returned_obj_path = quote! { super::#returned_mod_ident::#returned_obj_ident };
-    let docs = method_doc_attrs(m, true);
-    Some(quote! {
-        #docs
-        pub fn #helper_ident<D: hyprwire::Dispatch<#returned_obj_path> + 'static>(
-            &self,
-            seq: u32,
-        ) -> Option<#returned_obj_path> {
-            let obj = self.object.create_object(#returned, seq)?;
-            Some(<#returned_obj_path as hyprwire::Object>::from_object::<D>(obj))
-        }
-    })
-}
-
 fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> TokenStream {
     let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
 
@@ -879,16 +898,16 @@ fn build_call_body(idx: usize, args: &[super::parse::Arg], is_seq: bool) -> Toke
     }
 }
 
-fn write_new_fn(obj_name: &str) -> TokenStream {
+fn write_new_fn(obj_name: &str, extra_dispatch_bounds: &[TokenStream]) -> TokenStream {
     let data_ident = format_ident!("{}ObjectData", snake_to_pascal(obj_name));
     let raw_obj = raw_object_type();
 
     quote! {
-        pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
+        pub fn new<D: hyprwire::Dispatch<Self> #(#extra_dispatch_bounds)* + 'static>(
             object: #raw_obj,
         ) -> Self {
             let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(#data_ident::<D> {
-                object: rc::Rc::as_ptr(&object),
+                object: sync::Arc::as_ptr(&object),
                 _phantom: std::marker::PhantomData,
             });
             object.set_object_data(object_data);
@@ -911,17 +930,30 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
             "Incoming events for `{obj_mod_ident}::{}`.",
             snake_to_pascal(&obj.name)
         );
-        let event_ident = format_ident!("Event");
-        let event_enum = write_event_enum(&event_ident, &obj.c2s);
-        let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
-        let event_path = quote! { #obj_mod_ident::Event };
-        let object_data_impl = write_object_data_impl(&obj.name, &obj_path, &event_path, &obj.c2s);
-        let new_fn = write_new_fn(&obj.name);
-        let create_helpers: Vec<TokenStream> = obj
+        let extra_dispatch_bounds: Vec<TokenStream> = obj
             .c2s
             .iter()
-            .filter_map(write_server_create_helper)
+            .filter_map(|m| m.returns.as_deref())
+            .map(|returned| {
+                let returned_mod_ident = raw_ident(returned);
+                let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
+                quote! { + hyprwire::Dispatch<super::#returned_mod_ident::#returned_obj_ident> }
+            })
             .collect();
+
+        let event_ident = format_ident!("Event");
+        let event_enum = write_event_enum(&event_ident, &obj.c2s, true);
+        let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
+        let event_path = quote! { #obj_mod_ident::Event };
+        let object_data_impl = write_object_data_impl(
+            &obj.name,
+            &obj_path,
+            &event_path,
+            &obj.c2s,
+            true,
+            &extra_dispatch_bounds,
+        );
+        let new_fn = write_new_fn(&obj.name, &extra_dispatch_bounds);
         let send_methods: Vec<TokenStream> = obj
             .s2c
             .iter()
@@ -940,24 +972,24 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 
                 impl std::fmt::Debug for #obj_type_ident {
                     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        f.debug_struct("Object").field("object", &rc::Rc::as_ptr(&self.object)).finish()
+                        f.debug_struct("Object").field("object", &sync::Arc::as_ptr(&self.object)).finish()
                     }
                 }
 
                 impl Clone for #obj_type_ident {
                     fn clone(&self) -> Self {
-                        Self { object: rc::Rc::clone(&self.object) }
+                        Self { object: sync::Arc::clone(&self.object) }
                     }
                 }
 
                 impl PartialEq for #obj_type_ident {
-                    fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
+                    fn eq(&self, other: &Self) -> bool { sync::Arc::ptr_eq(&self.object, &other.object) }
                 }
 
                 impl Eq for #obj_type_ident {}
 
                 impl std::hash::Hash for #obj_type_ident {
-                    fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
+                    fn hash<H: std::hash::Hasher>(&self, state: &mut H) { sync::Arc::as_ptr(&self.object).hash(state); }
                 }
 
                 #[doc = #event_docs]
@@ -967,9 +999,10 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 
                 impl hyprwire::Object for #obj_type_ident {
                     type Event<'a> = Event;
+                    type ProtocolImpl = ();
                     const NAME: &str = #obj_name_str;
                     fn from_object<D: hyprwire::Dispatch<Self> + 'static>(object: #raw_obj) -> Self {
-                        Self::new::<D>(object)
+                        Self { object }
                     }
                 }
 
@@ -983,8 +1016,6 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
                     pub fn client(&self) -> Option<hyprwire::server::ServerClient> {
                         self.object.server_client()
                     }
-
-                    #(#create_helpers)*
 
                     #(#send_methods)*
                 }
@@ -1000,6 +1031,18 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     let first_obj_mod_ident = raw_ident(&protocol.objects[0].name);
     let first_obj_type_ident = format_ident!("{}", snake_to_pascal(&protocol.objects[0].name));
     let first_obj_path = quote! { #first_obj_mod_ident::#first_obj_type_ident };
+
+    let all_extra_dispatch_bounds: Vec<TokenStream> = protocol
+        .objects
+        .iter()
+        .flat_map(|obj| obj.c2s.iter())
+        .filter_map(|m| m.returns.as_deref())
+        .map(|returned| {
+            let returned_mod_ident = raw_ident(returned);
+            let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
+            quote! { + hyprwire::Dispatch<#returned_mod_ident::#returned_obj_ident> }
+        })
+        .collect();
 
     let obj_impls: Vec<TokenStream> = protocol
         .objects
@@ -1044,8 +1087,11 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
             impls: Vec<hyprwire::implementation::server::ObjectImplementation<'static>>,
         }
 
+        unsafe impl Send for #impl_ident {}
+        unsafe impl Sync for #impl_ident {}
+
         impl #impl_ident {
-            pub fn new<D: #handler_ident + hyprwire::Dispatch<#first_obj_path> + 'static>(version: u32, handler: &mut D) -> Self {
+            pub fn new<D: #handler_ident + hyprwire::Dispatch<#first_obj_path> #(#all_extra_dispatch_bounds)* + 'static>(version: u32, handler: &mut D) -> Self {
                 let handler = handler as *mut dyn #handler_ident;
                 Self {
                     version,
@@ -1067,7 +1113,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 
         impl<D> hyprwire::implementation::server::Construct<D> for #impl_ident
         where
-            D: #handler_ident + hyprwire::Dispatch<#first_obj_path> + 'static,
+            D: #handler_ident + hyprwire::Dispatch<#first_obj_path> #(#all_extra_dispatch_bounds)* + 'static,
         {
             fn new(version: u32, handler: &mut D) -> Self {
                 Self::new(version, handler)
@@ -1088,6 +1134,9 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 fn generate_client(protocol: &Protocol) -> TokenStream {
     let mut items: Vec<TokenStream> = Vec::new();
 
+    let proto_pascal = snake_to_pascal(&protocol.name);
+    let proto_impl_ident = format_ident!("{}Impl", proto_pascal);
+
     for obj in &protocol.objects {
         let obj_mod_ident = raw_ident(&obj.name);
         let obj_type_ident = format_ident!("{}", snake_to_pascal(&obj.name));
@@ -1098,12 +1147,13 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
             snake_to_pascal(&obj.name)
         );
         let event_ident = format_ident!("Event");
-        let event_enum = write_event_enum(&event_ident, &obj.s2c);
+        let event_enum = write_event_enum(&event_ident, &obj.s2c, false);
         let obj_name_str = &obj.name;
         let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
         let event_path = quote! { #obj_mod_ident::Event };
-        let object_data_impl = write_object_data_impl(&obj.name, &obj_path, &event_path, &obj.s2c);
-        let new_fn = write_new_fn(&obj.name);
+        let object_data_impl =
+            write_object_data_impl(&obj.name, &obj_path, &event_path, &obj.s2c, false, &[]);
+        let new_fn = write_new_fn(&obj.name, &[]);
         let send_methods: Vec<TokenStream> = obj
             .c2s
             .iter()
@@ -1116,6 +1166,8 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
             pub mod #obj_mod_ident {
                 use super::*;
 
+                pub type ProtocolImpl = super::#proto_impl_ident;
+
                 #docs
                 pub struct #obj_type_ident {
                     pub(super) object: #raw_obj,
@@ -1123,24 +1175,24 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 
                 impl std::fmt::Debug for #obj_type_ident {
                     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        f.debug_struct("Object").field("object", &rc::Rc::as_ptr(&self.object)).finish()
+                        f.debug_struct("Object").field("object", &sync::Arc::as_ptr(&self.object)).finish()
                     }
                 }
 
                 impl Clone for #obj_type_ident {
                     fn clone(&self) -> Self {
-                        Self { object: rc::Rc::clone(&self.object) }
+                        Self { object: sync::Arc::clone(&self.object) }
                     }
                 }
 
                 impl PartialEq for #obj_type_ident {
-                    fn eq(&self, other: &Self) -> bool { rc::Rc::ptr_eq(&self.object, &other.object) }
+                    fn eq(&self, other: &Self) -> bool { sync::Arc::ptr_eq(&self.object, &other.object) }
                 }
 
                 impl Eq for #obj_type_ident {}
 
                 impl std::hash::Hash for #obj_type_ident {
-                    fn hash<H: std::hash::Hasher>(&self, state: &mut H) { rc::Rc::as_ptr(&self.object).hash(state); }
+                    fn hash<H: std::hash::Hasher>(&self, state: &mut H) { sync::Arc::as_ptr(&self.object).hash(state); }
                 }
 
                 #[doc = #event_docs]
@@ -1150,6 +1202,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
 
                 impl hyprwire::Object for #obj_type_ident {
                     type Event<'a> = Event;
+                    type ProtocolImpl = super::#proto_impl_ident;
                     const NAME: &str = #obj_name_str;
                     fn from_object<D: hyprwire::Dispatch<Self> + 'static>(object: #raw_obj) -> Self {
                         Self::new::<D>(object)
@@ -1165,8 +1218,6 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
         });
     }
 
-    let proto_pascal = snake_to_pascal(&protocol.name);
-    let proto_impl_ident = format_ident!("{}Impl", proto_pascal);
     let proto_spec_ident = format_ident!("{}ProtocolSpec", proto_pascal);
     let protocol_name = &protocol.name;
 

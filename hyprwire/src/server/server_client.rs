@@ -7,13 +7,14 @@ use hyprwire_core::message::wire::{fatal_protocol_error, generic_protocol_messag
 use rustix::net;
 use rustix::net::sockopt;
 use std::os::fd::AsRawFd;
-use std::{cell, hash, ops, rc};
+use std::sync::atomic;
+use std::{hash, ops, sync};
 
 /// A handle to a connected client managed by a [`super::Server`].
 #[derive(Clone, Debug)]
 pub struct ServerClient {
     pub(crate) id: u32,
-    pub(crate) creds: rc::Rc<cell::OnceCell<net::UCred>>,
+    pub(crate) creds: sync::Arc<sync::OnceLock<net::UCred>>,
 }
 
 impl PartialEq for ServerClient {
@@ -39,12 +40,13 @@ impl ServerClient {
 
     /// Returns the peer process id reported by the Unix socket credentials.
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn creds(&self) -> &net::UCred {
-        // SAFETY: creds are set on first dispatch
+        // creds are set on first dispatch
         // objects can only be created by client and
         // servers can bind them only from callbacks
         // which are ran after dispatching
-        #[allow(clippy::missing_panics_doc)]
+        // in short creds are always set at this point
         self.creds.get().unwrap()
     }
 }
@@ -55,27 +57,27 @@ impl ServerClient {
 /// metadata about the peer connection.
 pub(crate) struct ServerClientState {
     pub(crate) id: u32,
-    pub(crate) creds: rc::Rc<cell::OnceCell<net::UCred>>,
-    pub(crate) first_poll_done: cell::Cell<bool>,
-    pub(crate) version: cell::Cell<u32>,
-    pub(crate) max_id: cell::Cell<u32>,
-    pub(crate) state: rc::Rc<ConnectionState>,
-    pub(crate) scheduled_roundtrip_seq: cell::Cell<u32>,
-    pub(crate) objects: cell::RefCell<Vec<rc::Rc<server_object::ServerObject>>>,
-    self_ref: rc::Weak<Self>,
+    pub(crate) creds: sync::Arc<sync::OnceLock<net::UCred>>,
+    pub(crate) first_poll_done: atomic::AtomicBool,
+    pub(crate) version: atomic::AtomicU32,
+    pub(crate) max_id: atomic::AtomicU32,
+    pub(crate) state: sync::Arc<ConnectionState>,
+    pub(crate) scheduled_roundtrip_seq: atomic::AtomicU32,
+    pub(crate) objects: sync::Mutex<Vec<sync::Arc<server_object::ServerObject>>>,
+    self_ref: sync::Weak<Self>,
 }
 
 impl ServerClientState {
-    pub(crate) fn new(id: u32, state: rc::Rc<ConnectionState>) -> rc::Rc<Self> {
-        rc::Rc::new_cyclic(|weak_self| Self {
+    pub(crate) fn new(id: u32, state: sync::Arc<ConnectionState>) -> sync::Arc<Self> {
+        sync::Arc::new_cyclic(|weak_self| Self {
             id,
-            creds: rc::Rc::new(cell::OnceCell::new()),
-            first_poll_done: cell::Cell::new(false),
-            version: cell::Cell::new(0),
-            max_id: cell::Cell::new(1),
+            creds: sync::Arc::new(sync::OnceLock::new()),
+            first_poll_done: atomic::AtomicBool::new(false),
+            version: atomic::AtomicU32::new(0),
+            max_id: atomic::AtomicU32::new(1),
             state,
-            scheduled_roundtrip_seq: cell::Cell::new(0),
-            objects: cell::RefCell::new(Vec::new()),
+            scheduled_roundtrip_seq: atomic::AtomicU32::new(0),
+            objects: sync::Mutex::new(Vec::new()),
             self_ref: weak_self.clone(),
         })
     }
@@ -83,15 +85,15 @@ impl ServerClientState {
     pub fn handle(&self) -> ServerClient {
         ServerClient {
             id: self.id,
-            creds: rc::Rc::clone(&self.creds),
+            creds: sync::Arc::clone(&self.creds),
         }
     }
 
     pub(crate) fn dispatch_first_poll(&self) {
-        if self.first_poll_done.get() {
+        if self.first_poll_done.load(atomic::Ordering::Relaxed) {
             return;
         }
-        self.first_poll_done.set(true);
+        self.first_poll_done.store(true, atomic::Ordering::Relaxed);
 
         match sockopt::socket_peercred(&self.state.stream) {
             Ok(cred) => {
@@ -120,16 +122,23 @@ impl ServerClientState {
         object_name: &str,
         version: u32,
         seq: u32,
-    ) -> rc::Rc<server_object::ServerObject> {
+    ) -> sync::Arc<server_object::ServerObject> {
         let mut server_obj =
-            server_object::ServerObject::new(self.self_ref.clone(), rc::Rc::clone(&self.state));
-        server_obj.id.set(self.max_id.get());
-        self.max_id.set(self.max_id.get() + 1);
-        server_obj.version.set(version);
+            server_object::ServerObject::new(self.self_ref.clone(), sync::Arc::clone(&self.state));
+        server_obj.id.store(
+            self.max_id.load(atomic::Ordering::Relaxed),
+            atomic::Ordering::Relaxed,
+        );
+        self.max_id.store(
+            self.max_id.load(atomic::Ordering::Relaxed) + 1,
+            atomic::Ordering::Relaxed,
+        );
+        server_obj.version.store(version, atomic::Ordering::Relaxed);
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();
 
-        for imp in self.state.impls.borrow().iter() {
+        let impls = sync::Arc::clone(&self.state.impls);
+        for imp in (*impls.read().unwrap()).iter() {
             if imp.protocol().spec_name() == protocol {
                 for spec in imp.protocol().objects() {
                     if object_name.is_empty() || spec.object_name() == object_name {
@@ -141,18 +150,17 @@ impl ServerClientState {
             }
         }
 
-        let obj = rc::Rc::new(server_obj);
-        self.objects.borrow_mut().push(rc::Rc::clone(&obj));
-
-        let new_obj_msg = new_object::NewObject::new(seq, obj.id.get());
+        let obj = sync::Arc::new(server_obj);
+        let new_obj_msg = new_object::NewObject::new(seq, obj.id.load(atomic::Ordering::Relaxed));
         self.state.send_message(&new_obj_msg);
 
-        self.on_bind(rc::Rc::clone(&obj));
+        self.objects.lock().unwrap().push(sync::Arc::clone(&obj));
+        self.on_bind(sync::Arc::clone(&obj));
 
         obj
     }
 
-    pub(crate) fn on_bind(&self, obj: rc::Rc<server_object::ServerObject>) {
+    pub(crate) fn on_bind(&self, obj: sync::Arc<server_object::ServerObject>) {
         let protocol_name = obj.protocol_name.clone();
         let object_name = obj
             .spec
@@ -160,14 +168,15 @@ impl ServerClientState {
             .map(|spec| spec.object_name().to_string())
             .unwrap_or_default();
 
-        for imp in self.state.impls.borrow().iter() {
+        let impls = sync::Arc::clone(&self.state.impls);
+        for imp in (*impls.read().unwrap()).iter() {
             if imp.protocol().spec_name() == protocol_name {
                 if let Some(obj_impl) = imp
                     .implementation()
                     .iter()
                     .find(|impl_obj| impl_obj.object_name == object_name)
                 {
-                    (obj_impl.on_bind)(obj as rc::Rc<dyn crate::implementation::object::Object>);
+                    (obj_impl.on_bind)(obj as sync::Arc<dyn crate::implementation::object::Object>);
                 }
                 return;
             }
@@ -175,7 +184,10 @@ impl ServerClientState {
     }
 
     pub(crate) fn destroy_object(&self, id: u32) {
-        self.objects.borrow_mut().retain(|obj| obj.id.get() != id);
+        self.objects
+            .lock()
+            .unwrap()
+            .retain(|obj| obj.id.load(atomic::Ordering::Relaxed) != id);
     }
 
     pub(crate) fn on_generic<D: 'static>(
@@ -183,12 +195,14 @@ impl ServerClientState {
         msg: &generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>,
         dispatch: &mut D,
     ) {
-        let obj = self
-            .objects
-            .borrow()
-            .iter()
-            .find(|obj| obj.id.get() == msg.object())
-            .map(rc::Rc::clone);
+        let obj = {
+            self.objects
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|obj| obj.id.load(atomic::Ordering::Relaxed) == msg.object())
+                .map(sync::Arc::clone)
+        };
 
         if let Some(obj) = obj {
             obj.dispatch(msg.method(), msg.data_span(), msg.fds(), dispatch);
@@ -198,8 +212,8 @@ impl ServerClientState {
                 && let Some(method) = spec.c2s().get(msg.method() as usize)
                 && method.destructor
             {
-                obj.destroyed.set(true);
-                let id = obj.id.get();
+                obj.destroyed.store(true, atomic::Ordering::Relaxed);
+                let id = obj.id.load(atomic::Ordering::Relaxed);
                 if id != 0
                     && let Some(client) = obj.client.upgrade()
                 {
@@ -217,23 +231,24 @@ impl ServerClientState {
             let fatal =
                 fatal_protocol_error::FatalProtocolError::new(msg.object(), u32::MAX, &error);
             self.state.send_message(&fatal);
-            self.state.error.set(true);
+            self.state.error.store(true, atomic::Ordering::Relaxed);
         }
     }
 
     pub(crate) fn destroy_objects_for_disconnect<D: 'static>(&self, dispatch: &mut D) {
         let objects = self
             .objects
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
-            .map(rc::Rc::clone)
+            .map(sync::Arc::clone)
             .collect::<Vec<_>>();
 
         for obj in objects.iter().rev() {
             obj.destroy_for_disconnect(dispatch);
         }
 
-        self.objects.borrow_mut().clear();
+        self.objects.lock().unwrap().clear();
     }
 }
 

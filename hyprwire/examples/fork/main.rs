@@ -28,7 +28,7 @@ mod server_socket {
     impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
         fn event(
             &mut self,
-            object: &my_manager_v1::MyManagerV1,
+            _object: &my_manager_v1::MyManagerV1,
             event: <my_manager_v1::MyManagerV1 as hyprwire::Object>::Event<'_>,
         ) {
             match event {
@@ -60,12 +60,9 @@ mod server_socket {
                     let conct: Vec<String> = message.iter().map(|v| v.to_string()).collect();
                     println!("Got uint array message: \"{}\"", conct.join(", "));
                 }
-                my_manager_v1::Event::MakeObject { seq } => {
-                    let object = object
-                        .make_object::<Self>(seq)
-                        .expect("failed to create object");
-                    object.send_send_message("Hello object");
-                    self.objects.push(object);
+                my_manager_v1::Event::MakeObject { my_object_v1 } => {
+                    my_object_v1.send_send_message("Hello object");
+                    self.objects.push(my_object_v1);
                 }
             }
         }
@@ -91,12 +88,9 @@ mod server_socket {
                         "Important error occurred!",
                     );
                 }
-                my_object_v1::Event::MakeObject { seq } => {
-                    let object = object
-                        .make_object::<Self>(seq)
-                        .expect("failed to create nested object");
-                    object.send_send_message("Hello object");
-                    self.objects.push(object);
+                my_object_v1::Event::MakeObject { my_object_v1 } => {
+                    my_object_v1.send_send_message("Hello object");
+                    self.objects.push(my_object_v1);
                 }
                 my_object_v1::Event::Destroy => {}
             }
@@ -115,8 +109,8 @@ mod server_socket {
         let mut socket = server::Server::detached()?;
         let mut app = App::default();
         socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(
-            TEST_PROTOCOL_VERSION,
             &mut app,
+            TEST_PROTOCOL_VERSION,
         );
 
         socket.add_client(client_fd)?;
@@ -184,9 +178,11 @@ mod client_socket {
 
     pub fn main(server_fd: net::UnixStream) -> hyprwire::Result<()> {
         let mut socket = client::Client::from_fd(server_fd)?;
+        let event_queue = socket.new_event_queue();
+        let qh = event_queue.handle();
         let mut app = App::default();
         socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
-        socket.wait_for_handshake(&mut app)?;
+        event_queue.wait_for_handshake(&mut app)?;
 
         println!("OK!");
 
@@ -202,7 +198,7 @@ mod client_socket {
         );
 
         let manager =
-            socket.bind::<my_manager_v1::MyManagerV1, App>(&spec, spec.spec_ver(), &mut app)?;
+            socket.bind::<my_manager_v1::MyManagerV1, App>(&qh, &mut app, spec.spec_ver())?;
 
         println!("Bound!");
 
@@ -241,13 +237,13 @@ mod client_socket {
         object2.send_send_message("Hello from object2");
 
         while !app.quit {
-            if let Err(err) = socket.dispatch_events(&mut app, true) {
+            if let Err(err) = event_queue.dispatch_events(&mut app, true) {
                 eprintln!("client dispatch error: {err}");
                 break;
             }
         }
 
-        let _ = socket.roundtrip(&mut app);
+        let _ = event_queue.roundtrip(&mut app);
 
         Ok(())
     }
