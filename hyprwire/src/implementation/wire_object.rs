@@ -51,17 +51,6 @@ pub trait WireObject: object::Object {
             return Ok(0);
         }
 
-        if !method.returns_type.is_empty() && self.server() {
-            let msg = format!(
-                "invalid method spec {} for object {} -> server cannot call returnsType methods",
-                id,
-                self.id()
-            );
-            crate::log_error!("core protocol error: {msg}");
-            self.error(self.id(), &msg);
-            return Ok(0);
-        }
-
         if method.destructor {
             self.mark_destroyed();
         }

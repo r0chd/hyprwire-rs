@@ -97,6 +97,10 @@ impl test_protocol_v1::TestProtocolV1Handler for App {
     fn bind(&mut self, object: my_manager_v1::MyManagerV1) {
         println!("Object bound XD");
         object.send_send_message("Hello manager");
+        if let Some(server_obj) = object.send_make_server_object::<App>() {
+            server_obj.send_send_message("Hello from server-created object");
+            self.object = Some(server_obj);
+        }
         self.manager = Some(object);
     }
 }

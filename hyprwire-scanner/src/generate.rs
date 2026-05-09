@@ -279,10 +279,10 @@ fn write_object_data_impl(
             };
 
             let seq_parse = if let Some(returned) = m.returns.as_deref() {
+                let returned_mod_ident = raw_ident(returned);
+                let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
+                let returned_field_ident = raw_ident(returned);
                 if is_server {
-                    let returned_mod_ident = raw_ident(returned);
-                    let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
-                    let returned_field_ident = raw_ident(returned);
                     quote! {
                         __needle += 1;
                         let __seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
@@ -293,8 +293,10 @@ fn write_object_data_impl(
                 } else {
                     quote! {
                         __needle += 1;
-                        let seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
+                        let __seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
                         __needle += 4;
+                        let Some(__raw_obj) = __proxy.object.client_sock().and_then(|sock| sock.object_for_seq(__seq)) else { return; };
+                        let #returned_field_ident = super::#returned_mod_ident::#returned_obj_ident::new::<D>(__raw_obj);
                     }
                 }
             } else {
@@ -312,12 +314,8 @@ fn write_object_data_impl(
 
             let mut event_fields: Vec<TokenStream> = Vec::new();
             if let Some(returned) = m.returns.as_deref() {
-                if is_server {
-                    let returned_field_ident = raw_ident(returned);
-                    event_fields.push(quote! { #returned_field_ident, });
-                } else {
-                    event_fields.push(quote! { seq, });
-                }
+                let returned_field_ident = raw_ident(returned);
+                event_fields.push(quote! { #returned_field_ident, });
             }
             for a in &m.args {
                 let aname = raw_ident(&a.name);
@@ -724,28 +722,20 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
     }
 }
 
-fn write_event_enum(
-    event_ident: &proc_macro2::Ident,
-    methods: &[Method],
-    is_server: bool,
-) -> TokenStream {
+fn write_event_enum(event_ident: &proc_macro2::Ident, methods: &[Method]) -> TokenStream {
     let variants: Vec<TokenStream> = methods
         .iter()
         .map(|m| {
             let variant = format_ident!("{}", snake_to_pascal(&m.name));
             let method_docs = object_doc_attrs(m.description.as_ref());
 
-            let returns_field = m.returns.as_deref().filter(|_| is_server).map(|returned| {
+            let returns_field = m.returns.as_deref().map(|returned| {
                 let returned_mod_ident = raw_ident(returned);
                 let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
                 let returned_field_ident = raw_ident(returned);
                 quote! { #returned_field_ident: super::#returned_mod_ident::#returned_obj_ident, }
             });
-            let seq_field = m
-                .returns
-                .as_deref()
-                .filter(|_| !is_server)
-                .map(|_| quote! { seq: u32, });
+            let seq_field: Option<TokenStream> = None;
 
             if m.args.is_empty() && m.returns.is_some() {
                 let field = returns_field.or(seq_field).unwrap();
@@ -942,7 +932,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
             .collect();
 
         let event_ident = format_ident!("Event");
-        let event_enum = write_event_enum(&event_ident, &obj.c2s, true);
+        let event_enum = write_event_enum(&event_ident, &obj.c2s);
         let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
         let event_path = quote! { #obj_mod_ident::Event };
         let object_data_impl = write_object_data_impl(
@@ -1147,13 +1137,29 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
             snake_to_pascal(&obj.name)
         );
         let event_ident = format_ident!("Event");
-        let event_enum = write_event_enum(&event_ident, &obj.s2c, false);
+        let event_enum = write_event_enum(&event_ident, &obj.s2c);
         let obj_name_str = &obj.name;
         let obj_path = quote! { #obj_mod_ident::#obj_type_ident };
         let event_path = quote! { #obj_mod_ident::Event };
-        let object_data_impl =
-            write_object_data_impl(&obj.name, &obj_path, &event_path, &obj.s2c, false, &[]);
-        let new_fn = write_new_fn(&obj.name, &[]);
+        let extra_dispatch_bounds: Vec<TokenStream> = obj
+            .s2c
+            .iter()
+            .filter_map(|m| m.returns.as_deref())
+            .map(|returned| {
+                let returned_mod_ident = raw_ident(returned);
+                let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
+                quote! { + hyprwire::Dispatch<super::#returned_mod_ident::#returned_obj_ident> }
+            })
+            .collect();
+        let object_data_impl = write_object_data_impl(
+            &obj.name,
+            &obj_path,
+            &event_path,
+            &obj.s2c,
+            false,
+            &extra_dispatch_bounds,
+        );
+        let new_fn = write_new_fn(&obj.name, &extra_dispatch_bounds);
         let send_methods: Vec<TokenStream> = obj
             .c2s
             .iter()
@@ -1205,7 +1211,7 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
                     type ProtocolImpl = super::#proto_impl_ident;
                     const NAME: &str = #obj_name_str;
                     fn from_object<D: hyprwire::Dispatch<Self> + 'static>(object: #raw_obj) -> Self {
-                        Self::new::<D>(object)
+                        Self { object }
                     }
                 }
 

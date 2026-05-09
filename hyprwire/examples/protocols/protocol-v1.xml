@@ -65,6 +65,12 @@
       <returns iface="my_object_v1"/>
     </c2s>
 
+    <s2c name="make_server_object">
+      <description summary="Make a server side test object">
+            Makes a server side test object from a test object
+      </description>
+      <returns iface="my_object_v1"/>
+    </s2c>
   </object>
 
   <enum name="my_enum">
@@ -115,6 +121,5 @@
       </description>
       <returns iface="my_object_v1"/>
     </c2s>
-
   </object>
 </protocol>

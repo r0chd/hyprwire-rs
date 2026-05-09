@@ -101,6 +101,10 @@ mod server_socket {
         fn bind(&mut self, object: my_manager_v1::MyManagerV1) {
             println!("Object bound XD");
             object.send_send_message("Hello manager");
+            if let Some(server_obj) = object.send_make_server_object::<App>() {
+                server_obj.send_send_message("Hello from server-created object");
+                self.objects.push(server_obj);
+            }
             self.manager = Some(object);
         }
     }
@@ -153,6 +157,10 @@ mod client_socket {
                 }
                 my_manager_v1::Event::RecvMessageArrayUint { message } => {
                     println!("Server sent uint array {:?}", message);
+                }
+                my_manager_v1::Event::MakeServerObject { my_object_v1 } => {
+                    println!("Server created object, replying");
+                    my_object_v1.send_send_message("Hello back on server object");
                 }
             }
         }

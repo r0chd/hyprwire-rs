@@ -37,6 +37,10 @@ impl hyprwire::Dispatch<my_manager_v1::MyManagerV1> for App {
             my_manager_v1::Event::RecvMessageArrayUint { message } => {
                 println!("Server sent uint array {:?}", message);
             }
+            my_manager_v1::Event::MakeServerObject { my_object_v1 } => {
+                println!("Server created object, replying");
+                my_object_v1.send_send_message("Hello back on server object");
+            }
         }
     }
 }
