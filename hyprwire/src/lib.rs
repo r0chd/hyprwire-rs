@@ -17,7 +17,7 @@ pub use error::Error;
 /// A `Result` type alias that uses [`Error`] as the error type.
 pub type Result<T> = std::result::Result<T, Error>;
 pub(crate) mod helpers;
-pub use client::event_queue::{EventQueue, QueueHandle};
+pub use client::event_queue::EventQueue;
 pub use helpers::reset_trace_cache;
 /// Traits and low-level types used by generated client/server protocol
 /// bindings.
@@ -47,21 +47,13 @@ use std::{io, sync, time};
 pub(crate) struct ConnectionState {
     pub(crate) error: atomic::AtomicBool,
     pub(crate) stream: net::UnixStream,
-    pub(crate) impls:
-        sync::Arc<sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
 }
 
 impl ConnectionState {
-    pub(crate) fn new(
-        stream: net::UnixStream,
-        impls: sync::Arc<
-            sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
-        >,
-    ) -> Self {
+    pub(crate) fn new(stream: net::UnixStream) -> Self {
         Self {
             error: atomic::AtomicBool::new(false),
             stream,
-            impls,
         }
     }
 

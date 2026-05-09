@@ -13,7 +13,7 @@ pub trait ObjectData: Send + Sync {
 pub trait Object: Send + Sync {
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32;
 
-    fn queue_handle(&self) -> Option<event_queue::QueueHandle> {
+    fn event_queue(&self) -> Option<event_queue::EventQueue> {
         None
     }
 

@@ -49,14 +49,13 @@ struct ClientApp;
 fn client_lifecycle(socket_path: &path::Path) -> hyprwire::Result<()> {
     let mut socket = client::Client::connect(socket_path)?;
     let event_queue = socket.new_event_queue();
-    let qh = event_queue.handle();
     let mut app = ClientApp;
 
     socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
     event_queue.wait_for_handshake(&mut app)?;
 
     let manager = socket.bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-        &qh,
+        &event_queue,
         &mut app,
         BENCH_PROTOCOL_VERSION,
     )?;

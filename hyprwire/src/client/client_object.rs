@@ -17,7 +17,7 @@ pub struct ClientObject {
     pub(crate) protocol_name: String,
     object_data: sync::RwLock<Option<Box<dyn object::ObjectData>>>,
     pub(crate) destroyed: atomic::AtomicBool,
-    queue_handle: event_queue::WeakQueueHandle,
+    event_queue: event_queue::WeakEventQueue,
 }
 
 impl Drop for ClientObject {
@@ -60,7 +60,7 @@ impl ClientObject {
     pub fn new(
         client_socket: sync::Weak<client_socket::ClientSocket>,
         state: sync::Arc<crate::ConnectionState>,
-        queue_handle: event_queue::WeakQueueHandle,
+        event_queue: event_queue::WeakEventQueue,
     ) -> Self {
         Self {
             destroyed: atomic::AtomicBool::default(),
@@ -72,7 +72,7 @@ impl ClientObject {
             seq: 0,
             protocol_name: String::new(),
             object_data: sync::RwLock::default(),
-            queue_handle,
+            event_queue,
         }
     }
 }
@@ -102,8 +102,8 @@ impl object::Object for ClientObject {
         }
     }
 
-    fn queue_handle(&self) -> Option<event_queue::QueueHandle> {
-        self.queue_handle.upgrade()
+    fn event_queue(&self) -> Option<event_queue::EventQueue> {
+        self.event_queue.upgrade()
     }
 
     fn client_sock(&self) -> Option<client::Client> {

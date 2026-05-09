@@ -59,7 +59,6 @@ fn main() {
     let path = socket_path();
     let mut socket = client::Client::connect(&path).unwrap();
     let event_queue = socket.new_event_queue();
-    let qh = event_queue.handle();
     let mut state = App::default();
 
     socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
@@ -75,7 +74,7 @@ fn main() {
     );
 
     let manager = socket
-        .bind::<my_manager_v1::MyManagerV1, _>(&qh, &mut state, server_spec.spec_ver())
+        .bind::<my_manager_v1::MyManagerV1, _>(&event_queue, &mut state, server_spec.spec_ver())
         .unwrap();
 
     println!("Bound!");

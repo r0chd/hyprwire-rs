@@ -179,7 +179,6 @@ mod client_socket {
     pub fn main(server_fd: net::UnixStream) -> hyprwire::Result<()> {
         let mut socket = client::Client::from_fd(server_fd)?;
         let event_queue = socket.new_event_queue();
-        let qh = event_queue.handle();
         let mut app = App::default();
         socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
         event_queue.wait_for_handshake(&mut app)?;
@@ -197,8 +196,11 @@ mod client_socket {
             spec.spec_ver()
         );
 
-        let manager =
-            socket.bind::<my_manager_v1::MyManagerV1, App>(&qh, &mut app, spec.spec_ver())?;
+        let manager = socket.bind::<my_manager_v1::MyManagerV1, App>(
+            &event_queue,
+            &mut app,
+            spec.spec_ver(),
+        )?;
 
         println!("Bound!");
 

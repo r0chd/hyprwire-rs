@@ -83,13 +83,13 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
     // Register the generated client-side implementation so incoming events
     // can be decoded into typed callbacks.
-    client.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
+    socket.add_implementation::<test_protocol_v1::TestProtocolV1Impl>();
 
     // Finish protocol negotiation.
-    client.wait_for_handshake(&mut app)?;
+    event_queue.wait_for_handshake(&mut app)?;
 
     let manager = socket
-        .bind::<my_manager_v1::MyManagerV1, _>(&qh, &mut app, 1)?;
+        .bind::<my_manager_v1::MyManagerV1, _>(&event_queue, &mut app, 1)?;
 
     manager.send_send_message("hello");
 
@@ -146,7 +146,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let mut server = Server::bind(path::Path::new("/tmp/test-hw.sock"))?;
 
     // Register the generated server-side implementation.
-    server.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(1, &mut app);
+    server.add_implementation::<test_protocol_v1::TestProtocolV1Impl, _>(&mut app, 1);
 
     // Block and dispatch client requests forever.
     loop {

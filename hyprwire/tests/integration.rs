@@ -221,14 +221,13 @@ mod client_main {
     pub fn main(client_stream: net::UnixStream) -> hyprwire::Result<()> {
         let mut socket = client::Client::from_fd(client_stream)?;
         let event_queue = socket.new_event_queue();
-        let qh = event_queue.handle();
         let mut app = ClientApp::default();
 
         socket.add_implementation::<integration_tests_v1::IntegrationTestProtocolV1Impl>();
         event_queue.wait_for_handshake(&mut app)?;
 
         let manager = socket.bind::<integration_manager_v1::IntegrationManagerV1, ClientApp>(
-            &qh,
+            &event_queue,
             &mut app,
             INTEGRATION_TESTS_PROTOCOL_VERSION,
         )?;

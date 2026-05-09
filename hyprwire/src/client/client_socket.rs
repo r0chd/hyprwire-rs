@@ -5,9 +5,7 @@ use crate::implementation::wire_object::WireObject;
 use crate::{implementation, steady_millis, trace};
 use hyprwire_core::message;
 use hyprwire_core::message::Message;
-use hyprwire_core::message::wire::{
-    bind_protocol, generic_protocol_message, hello, roundtrip_request,
-};
+use hyprwire_core::message::wire::{bind_protocol, generic_protocol_message, hello};
 use hyprwire_core::types::ProtocolSpec;
 use polling::AsSource;
 use std::os::fd;
@@ -24,8 +22,6 @@ pub struct ClientSocket {
     pub(crate) handshake_begin: time::Instant,
     pub(crate) state: sync::Arc<crate::ConnectionState>,
     pub(crate) handshake_done: atomic::AtomicBool,
-    pub(crate) last_ackd_roundtrip_seq: atomic::AtomicU32,
-    last_sent_roundtrip_seq: atomic::AtomicU32,
     pub(crate) seq: atomic::AtomicU32,
     self_ref: sync::Weak<Self>,
 }
@@ -35,12 +31,10 @@ impl ClientSocket {
         let poller = polling::Poller::new()?;
         unsafe { poller.add(&stream, polling::Event::readable(0))? };
 
-        let state = sync::Arc::new(crate::ConnectionState::new(stream, sync::Arc::default()));
+        let state = sync::Arc::new(crate::ConnectionState::new(stream));
 
         let client_socket = sync::Arc::new_cyclic(|weak_self| Self {
             poller,
-            last_ackd_roundtrip_seq: atomic::AtomicU32::default(),
-            last_sent_roundtrip_seq: atomic::AtomicU32::default(),
             seq: atomic::AtomicU32::default(),
             impls: sync::RwLock::default(),
             server_specs: sync::RwLock::default(),
@@ -80,24 +74,6 @@ impl ClientSocket {
         self.impls.write().unwrap().push(p_impl);
     }
 
-    pub fn wait_for_handshake<D: 'static>(
-        &self,
-        qh: &event_queue::QueueHandle,
-        dispatch: &mut D,
-    ) -> crate::Result<()> {
-        while !self.state.error.load(atomic::Ordering::Relaxed)
-            && !self.handshake_done.load(atomic::Ordering::Relaxed)
-        {
-            qh.dispatch_events(dispatch, true)?;
-        }
-
-        if self.state.error.load(atomic::Ordering::Relaxed) {
-            return Err(crate::Error::ConnectionClosed);
-        }
-
-        Ok(())
-    }
-
     pub fn get_spec(&self, name: &str) -> Option<server_spec::AdvertisedSpec> {
         self.server_specs
             .read()
@@ -109,7 +85,7 @@ impl ClientSocket {
 
     pub fn bind_protocol(
         &self,
-        qh: &event_queue::QueueHandle,
+        event_queue: &event_queue::EventQueue,
         spec: &dyn ProtocolSpec,
         version: u32,
     ) -> crate::Result<sync::Arc<client_object::ClientObject>> {
@@ -128,7 +104,7 @@ impl ClientSocket {
         let mut object = client_object::ClientObject::new(
             self.self_ref.clone(),
             sync::Arc::clone(&self.state),
-            qh.downgrade(),
+            event_queue.downgrade(),
         );
         let objects = spec.objects();
         if objects.is_empty() {
@@ -157,14 +133,14 @@ impl ClientSocket {
 
     pub(crate) fn wait_for_object<D: 'static>(
         &self,
-        qh: &event_queue::QueueHandle,
+        event_queue: &event_queue::EventQueue,
         object: &sync::Arc<client_object::ClientObject>,
         dispatch: &mut D,
     ) -> crate::Result<()> {
         while object.id.load(atomic::Ordering::Relaxed) == 0
             && !self.state.error.load(atomic::Ordering::Relaxed)
         {
-            qh.dispatch_events(dispatch, true)?;
+            event_queue.dispatch_events(dispatch, true)?;
         }
 
         if self.state.error.load(atomic::Ordering::Relaxed) {
@@ -179,12 +155,12 @@ impl ClientSocket {
         protocol_name: &str,
         object_name: &str,
         seq: u32,
-        qh: &event_queue::QueueHandle,
+        event_queue: &event_queue::EventQueue,
     ) -> Result<sync::Arc<client_object::ClientObject>, message::Error> {
         let mut object = client_object::ClientObject::new(
             self.self_ref.clone(),
             sync::Arc::clone(&self.state),
-            qh.downgrade(),
+            event_queue.downgrade(),
         );
         object.protocol_name = protocol_name.to_string();
 
@@ -239,28 +215,6 @@ impl ClientSocket {
     pub fn disconnect_on_error(&self) {
         self.state.error.store(true, atomic::Ordering::Relaxed);
         let _ = self.state.stream.shutdown(std::net::Shutdown::Both);
-    }
-
-    pub fn roundtrip<D: 'static>(
-        &self,
-        qh: &event_queue::QueueHandle,
-        dispatch: &mut D,
-    ) -> crate::Result<()> {
-        if self.state.error.load(atomic::Ordering::Relaxed) {
-            return Err(crate::Error::ConnectionClosed);
-        }
-
-        let next_seq = self.last_sent_roundtrip_seq.load(atomic::Ordering::Relaxed) + 1;
-        self.last_sent_roundtrip_seq
-            .store(next_seq, atomic::Ordering::Relaxed);
-        self.state
-            .send_message(&roundtrip_request::RoundtripRequest::new(next_seq));
-
-        while self.last_ackd_roundtrip_seq.load(atomic::Ordering::Relaxed) < next_seq {
-            qh.dispatch_events(dispatch, true)?;
-        }
-
-        Ok(())
     }
 
     pub fn on_seq(&self, seq: u32, id: u32) {

@@ -229,25 +229,24 @@ pub trait WireObject: object::Object {
 
             let protocol_name = self.protocol_name();
             msg.set_depends_on_seq(self.seq());
-            let qh = self.queue_handle();
-            if let Some(qh) = &qh {
-                qh.enqueue(msg);
-                if return_seq != 0 {
-                    if let Some(client) = self.client_sock() {
-                        client
-                            .0
-                            .make_object(protocol_name, method.returns_type, return_seq, qh)?;
-                    }
-                    return Ok(return_seq);
+            // always set for client
+            let qh = self.event_queue().unwrap();
+            qh.inner.lock().unwrap().queue.push(msg);
+            if return_seq != 0 {
+                if let Some(client) = self.client_sock() {
+                    client
+                        .0
+                        .make_object(protocol_name, method.returns_type, return_seq, &qh)?;
                 }
+                return Ok(return_seq);
             }
         } else {
             self.send_message(&msg);
             if return_seq != 0 {
                 let protocol_name = self.protocol_name();
                 if let Some(client) = self.client_sock() {
-                    // always some for client
-                    let qh = self.queue_handle().unwrap();
+                    // always set for client
+                    let qh = self.event_queue().unwrap();
                     client
                         .0
                         .make_object(protocol_name, method.returns_type, return_seq, &qh)?;

@@ -58,25 +58,22 @@ fn client_process_main(
 
     let mut clients = Vec::with_capacity(server_streams.len());
     let mut managers = Vec::with_capacity(server_streams.len());
-    let mut qhandles = Vec::with_capacity(server_streams.len());
     let mut event_queues = Vec::with_capacity(server_streams.len());
 
     for stream in server_streams {
         let mut socket = client::Client::from_fd(stream)?;
         let eq = socket.new_event_queue();
-        let qh = eq.handle();
 
         socket.add_implementation::<bench_protocol_v1::c::BenchProtocolV1Impl>();
         eq.wait_for_handshake(&mut app)?;
 
         let manager = socket.bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(
-            &qh,
+            &eq,
             &mut app,
             BENCH_PROTOCOL_VERSION,
         )?;
 
         managers.push(manager);
-        qhandles.push(qh);
         clients.push(socket);
         event_queues.push(eq);
     }
@@ -127,7 +124,7 @@ fn client_process_main(
 
     c.bench_function("multi_100_clients_bind_object", |b| {
         b.iter(|| {
-            for (socket, qh) in clients.iter().zip(&qhandles) {
+            for (socket, qh) in clients.iter().zip(&event_queues) {
                 let _ = black_box(
                     socket
                         .bind::<bench_protocol_v1::c::bench_v1::BenchV1, ClientApp>(

@@ -7,6 +7,7 @@ use hyprwire_core::message::wire::{fatal_protocol_error, generic_protocol_messag
 use rustix::net;
 use rustix::net::sockopt;
 use std::os::fd::AsRawFd;
+use crate::implementation;
 use std::sync::atomic;
 use std::{hash, ops, sync};
 
@@ -62,13 +63,18 @@ pub(crate) struct ServerClientState {
     pub(crate) version: atomic::AtomicU32,
     pub(crate) max_id: atomic::AtomicU32,
     pub(crate) state: sync::Arc<ConnectionState>,
+    pub(crate) impls: sync::Arc<sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
     pub(crate) scheduled_roundtrip_seq: atomic::AtomicU32,
     pub(crate) objects: sync::Mutex<Vec<sync::Arc<server_object::ServerObject>>>,
     self_ref: sync::Weak<Self>,
 }
 
 impl ServerClientState {
-    pub(crate) fn new(id: u32, state: sync::Arc<ConnectionState>) -> sync::Arc<Self> {
+    pub(crate) fn new(
+        id: u32,
+        state: sync::Arc<ConnectionState>,
+        impls: sync::Arc<sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+    ) -> sync::Arc<Self> {
         sync::Arc::new_cyclic(|weak_self| Self {
             id,
             creds: sync::Arc::new(sync::OnceLock::new()),
@@ -76,6 +82,7 @@ impl ServerClientState {
             version: atomic::AtomicU32::new(0),
             max_id: atomic::AtomicU32::new(1),
             state,
+            impls,
             scheduled_roundtrip_seq: atomic::AtomicU32::new(0),
             objects: sync::Mutex::new(Vec::new()),
             self_ref: weak_self.clone(),
@@ -137,7 +144,7 @@ impl ServerClientState {
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();
 
-        let impls = sync::Arc::clone(&self.state.impls);
+        let impls = sync::Arc::clone(&self.impls);
         for imp in (*impls.read().unwrap()).iter() {
             if imp.protocol().spec_name() == protocol {
                 for spec in imp.protocol().objects() {
@@ -168,7 +175,7 @@ impl ServerClientState {
             .map(|spec| spec.object_name().to_string())
             .unwrap_or_default();
 
-        let impls = sync::Arc::clone(&self.state.impls);
+        let impls = sync::Arc::clone(&self.impls);
         for imp in (*impls.read().unwrap()).iter() {
             if imp.protocol().spec_name() == protocol_name {
                 if let Some(obj_impl) = imp

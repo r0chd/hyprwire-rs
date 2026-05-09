@@ -1,7 +1,7 @@
 use crate::client::client_socket;
-use crate::{message, socket, trace};
+use crate::{socket, trace};
 use hyprwire_core::message::Message;
-use hyprwire_core::message::wire::generic_protocol_message;
+use hyprwire_core::message::wire::{generic_protocol_message, roundtrip_request};
 use std::os::fd::AsRawFd;
 use std::sync::atomic;
 use std::{mem, ops, sync, time};
@@ -14,41 +14,33 @@ const HANDSHAKE_MAX_MS: u64 = 5000;
 /// access to some common state `&mut State` to your event handlers.
 ///
 /// Event queues are created through [`Client::new_event_queue()`].
+#[derive(Clone)]
 pub struct EventQueue {
-    handle: QueueHandle,
-}
-
-/// A handle representing an [`EventQueue`], used to assign objects upon creation.
-#[derive(Clone)]
-pub struct QueueHandle {
-    inner: sync::Arc<sync::Mutex<EventQueueInner>>,
+    pub(crate) inner: sync::Arc<sync::Mutex<EventQueueInner>>,
 }
 
 #[derive(Clone)]
-pub(crate) struct WeakQueueHandle {
+pub(crate) struct WeakEventQueue {
     inner: sync::Weak<sync::Mutex<EventQueueInner>>,
 }
 
-struct EventQueueInner {
+pub(crate) struct EventQueueInner {
     socket: sync::Arc<client_socket::ClientSocket>,
-    queue: Vec<generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>>,
+    pub(crate) queue: Vec<generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>>,
+    last_sent_roundtrip_seq: u32,
+    pub(crate) last_ackd_roundtrip_seq: u32,
 }
 
 impl EventQueue {
     pub(crate) fn new(socket: sync::Arc<client_socket::ClientSocket>) -> Self {
         Self {
-            handle: QueueHandle {
-                inner: sync::Arc::new(sync::Mutex::new(EventQueueInner {
-                    socket,
-                    queue: Vec::new(),
-                })),
-            },
+            inner: sync::Arc::new(sync::Mutex::new(EventQueueInner {
+                socket,
+                queue: Vec::new(),
+                last_sent_roundtrip_seq: 0,
+                last_ackd_roundtrip_seq: 0,
+            })),
         }
-    }
-
-    /// Get a [`QueueHandle`] for this event queue
-    pub fn handle(&self) -> QueueHandle {
-        self.handle.clone()
     }
 
     /// Dispatches pending events from the server.
@@ -60,66 +52,25 @@ impl EventQueue {
     /// Returns an error if the connection closes, polling fails, or incoming
     /// protocol traffic is malformed.
     pub fn dispatch_events<D: 'static>(&self, dispatch: &mut D, block: bool) -> crate::Result<()> {
-        self.handle.dispatch_events(dispatch, block)
+        let mut inner = self.inner.lock().unwrap();
+        self.dispatch_events_inner(dispatch, block, &mut inner)
     }
 
-    /// Performs a roundtrip against the server.
-    ///
-    /// This sends a roundtrip request and blocks until the matching
-    /// acknowledgment is received, dispatching events into `state` while
-    /// waiting.
-    ///
-    /// # Errors
-    /// Returns an error if the connection closes or dispatching protocol
-    /// traffic fails while waiting for the roundtrip acknowledgment.
-    pub fn roundtrip<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
-        let socket = sync::Arc::clone(&self.handle.inner.lock().unwrap().socket);
-        socket.roundtrip(&self.handle, dispatch)
-    }
-
-    /// Blocks until the initial Hyprwire handshake completes.
-    ///
-    /// Returns an error if the connection closes or the handshake fails.
-    ///
-    /// # Errors
-    /// Returns an error if the connection closes, the handshake times out, or
-    /// the server sends invalid handshake traffic.
-    pub fn wait_for_handshake<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
-        let socket = sync::Arc::clone(&self.handle.inner.lock().unwrap().socket);
-        socket.wait_for_handshake(&self.handle, dispatch)
-    }
-}
-
-impl QueueHandle {
-    pub(crate) fn downgrade(&self) -> WeakQueueHandle {
-        WeakQueueHandle {
-            inner: sync::Arc::downgrade(&self.inner),
-        }
-    }
-
-    pub(crate) fn enqueue(
-        &self,
-        msg: generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>,
-    ) {
-        self.inner.lock().unwrap().queue.push(msg);
-    }
-
-    pub(crate) fn dispatch_events<D: 'static>(
+    fn dispatch_events_inner<D: 'static>(
         &self,
         dispatch: &mut D,
         block: bool,
+        inner: &mut EventQueueInner,
     ) -> crate::Result<()> {
-        let socket = sync::Arc::clone(&self.inner.lock().unwrap().socket);
-
-        if socket.state.error.load(atomic::Ordering::Relaxed) {
+        if inner.socket.state.error.load(atomic::Ordering::Relaxed) {
             return Err(crate::Error::ConnectionClosed);
         }
 
-        socket.collect_orphaned_objects();
+        inner.socket.collect_orphaned_objects();
 
-        if !socket.handshake_done.load(atomic::Ordering::Relaxed) {
+        if !inner.socket.handshake_done.load(atomic::Ordering::Relaxed) {
             #[allow(clippy::cast_possible_truncation)]
-            let elapsed_ms = socket.handshake_begin.elapsed().as_millis() as u64;
+            let elapsed_ms = inner.socket.handshake_begin.elapsed().as_millis() as u64;
             let max_ms = HANDSHAKE_MAX_MS.saturating_sub(elapsed_ms);
 
             let timeout = if block {
@@ -129,20 +80,21 @@ impl QueueHandle {
             };
 
             let mut events = polling::Events::new();
-            if socket.poller.wait(&mut events, Some(timeout))? == 0 {
+            if inner.socket.poller.wait(&mut events, Some(timeout))? == 0 {
                 if block {
-                    socket.disconnect_on_error();
+                    inner.socket.disconnect_on_error();
                     return Err(crate::Error::HandshakeTimeout);
                 }
                 return Ok(());
             }
 
-            socket
+            inner
+                .socket
                 .poller
-                .modify(&socket.state.stream, polling::Event::readable(0))?;
+                .modify(&inner.socket.state.stream, polling::Event::readable(0))?;
         }
 
-        if socket.handshake_done.load(atomic::Ordering::Relaxed) {
+        if inner.socket.handshake_done.load(atomic::Ordering::Relaxed) {
             let timeout = if block {
                 None
             } else {
@@ -150,24 +102,25 @@ impl QueueHandle {
             };
 
             let mut events = polling::Events::new();
-            if socket.poller.wait(&mut events, timeout)? == 0 {
+            if inner.socket.poller.wait(&mut events, timeout)? == 0 {
                 if block {
                     return Err(crate::Error::ConnectionClosed);
                 }
-                socket.collect_orphaned_objects();
+                inner.socket.collect_orphaned_objects();
                 return Ok(());
             }
 
-            socket
+            inner
+                .socket
                 .poller
-                .modify(&socket.state.stream, polling::Event::readable(0))?;
+                .modify(&inner.socket.state.stream, polling::Event::readable(0))?;
         }
 
         let mut data = {
-            match socket::SocketRawParsedMessage::read_from_socket(&socket.state.stream) {
+            match socket::SocketRawParsedMessage::read_from_socket(&inner.socket.state.stream) {
                 Err(_) => {
                     crate::log_error!("fatal: received malformed message from server");
-                    socket.disconnect_on_error();
+                    inner.socket.disconnect_on_error();
                     return Err(crate::Error::ConnectionClosed);
                 }
                 Ok(data) => data,
@@ -178,19 +131,18 @@ impl QueueHandle {
             return Err(crate::Error::ConnectionClosed);
         }
 
-        if let Err(e) =
-            message::handle_message(&mut data, &message::Role::Client(&socket), dispatch)
-        {
+        let socket = sync::Arc::clone(&inner.socket);
+        if let Err(e) = socket.handle_message(&mut data, dispatch, inner) {
             crate::log_error!("fatal: failed to handle message on wire");
-            socket.disconnect_on_error();
+            inner.socket.disconnect_on_error();
             return Err(crate::Error::from(e));
         }
 
-        let mut inner = self.inner.lock().unwrap();
         let pending = mem::take(&mut inner.queue);
         for mut msg in pending {
             let seq = msg.depends_on_seq();
-            let obj_id = socket
+            let obj_id = inner
+                .socket
                 .object_for_seq(seq)
                 .map(|obj| obj.id.load(atomic::Ordering::Relaxed));
 
@@ -203,17 +155,68 @@ impl QueueHandle {
                 Some(id) => {
                     msg.resolve_seq(id);
                     trace! {
-                        crate::log_debug!("[hw] trace: [{} @ {:.3}] -> Handle deferred {}", socket.state.stream.as_raw_fd(), crate::steady_millis(), msg.parse_data())
+                        crate::log_debug!("[hw] trace: [{} @ {:.3}] -> Handle deferred {}", inner.socket.state.stream.as_raw_fd(), crate::steady_millis(), msg.parse_data())
                     }
                 }
             }
 
-            socket.state.send_message(&msg);
+            inner.socket.state.send_message(&msg);
         }
 
-        drop(inner);
+        inner.socket.collect_orphaned_objects();
 
-        socket.collect_orphaned_objects();
+        if inner.socket.state.error.load(atomic::Ordering::Relaxed) {
+            return Err(crate::Error::ConnectionClosed);
+        }
+
+        Ok(())
+    }
+
+    /// Performs a roundtrip against the server.
+    ///
+    /// This sends a roundtrip request and blocks until the matching
+    /// acknowledgment is received, dispatching events into `state` while
+    /// waiting.
+    ///
+    /// # Errors
+    /// Returns an error if the connection closes or dispatching protocol
+    /// traffic fails while waiting for the roundtrip acknowledgment.
+    pub fn roundtrip<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+
+        if inner.socket.state.error.load(atomic::Ordering::Relaxed) {
+            return Err(crate::Error::ConnectionClosed);
+        }
+
+        inner.last_sent_roundtrip_seq += 1;
+        inner
+            .socket
+            .state
+            .send_message(&roundtrip_request::RoundtripRequest::new(
+                inner.last_sent_roundtrip_seq,
+            ));
+
+        while inner.last_ackd_roundtrip_seq < inner.last_sent_roundtrip_seq {
+            self.dispatch_events_inner(dispatch, true, &mut inner)?;
+        }
+
+        Ok(())
+    }
+
+    /// Blocks until the initial Hyprwire handshake completes.
+    ///
+    /// Returns an error if the connection closes or the handshake fails.
+    ///
+    /// # Errors
+    /// Returns an error if the connection closes, the handshake times out, or
+    /// the server sends invalid handshake traffic.
+    pub fn wait_for_handshake<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
+        let socket = sync::Arc::clone(&self.inner.lock().unwrap().socket);
+        while !socket.state.error.load(atomic::Ordering::Relaxed)
+            && !socket.handshake_done.load(atomic::Ordering::Relaxed)
+        {
+            self.dispatch_events(dispatch, true)?;
+        }
 
         if socket.state.error.load(atomic::Ordering::Relaxed) {
             return Err(crate::Error::ConnectionClosed);
@@ -221,10 +224,16 @@ impl QueueHandle {
 
         Ok(())
     }
+
+    pub(crate) fn downgrade(&self) -> WeakEventQueue {
+        WeakEventQueue {
+            inner: sync::Arc::downgrade(&self.inner),
+        }
+    }
 }
 
-impl WeakQueueHandle {
-    pub fn upgrade(&self) -> Option<QueueHandle> {
-        self.inner.upgrade().map(|inner| QueueHandle { inner })
+impl WeakEventQueue {
+    pub fn upgrade(&self) -> Option<EventQueue> {
+        self.inner.upgrade().map(|inner| EventQueue { inner })
     }
 }

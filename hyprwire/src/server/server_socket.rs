@@ -1,6 +1,6 @@
 use super::server_client;
 use crate::implementation::server;
-use crate::{message, socket, steady_millis, trace};
+use crate::{socket, steady_millis, trace};
 use hyprwire_core::message::wire::{fatal_protocol_error, roundtrip_done};
 use polling::AsSource;
 use std::os::fd;
@@ -124,7 +124,7 @@ impl ServerSocket {
             return;
         }
 
-        if message::handle_message(&mut data, &message::Role::Server(client), dispatch).is_err() {
+        if client.handle_message(&mut data, dispatch).is_err() {
             state.send_message(&fatal_protocol_error::FatalProtocolError::new(
                 0,
                 u32::MAX,
@@ -163,12 +163,13 @@ impl ServerSocket {
             return Ok(false);
         }
 
-        let state = sync::Arc::new(crate::ConnectionState::new(
-            stream,
-            sync::Arc::clone(&self.impls),
-        ));
+        let state = sync::Arc::new(crate::ConnectionState::new(stream));
         let client_id = self.next_client_id;
-        let client = server_client::ServerClientState::new(client_id, state);
+        let client = server_client::ServerClientState::new(
+            client_id,
+            state,
+            sync::Arc::clone(&self.impls),
+        );
 
         unsafe {
             self.poller.add(
@@ -279,12 +280,13 @@ impl ServerSocket {
     {
         let stream = net::UnixStream::from(fd.into());
         _ = stream.set_nonblocking(true);
-        let state = sync::Arc::new(crate::ConnectionState::new(
-            stream,
-            sync::Arc::clone(&self.impls),
-        ));
+        let state = sync::Arc::new(crate::ConnectionState::new(stream));
         let client_id = self.next_client_id;
-        let client = server_client::ServerClientState::new(client_id, state);
+        let client = server_client::ServerClientState::new(
+            client_id,
+            state,
+            sync::Arc::clone(&self.impls),
+        );
 
         // SAFETY: see `accept_one` — same drop-order argument.
         if let Err(e) = unsafe {

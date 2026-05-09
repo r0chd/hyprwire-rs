@@ -82,7 +82,7 @@ impl Client {
     /// version is invalid, the connection closes, or object creation fails.
     pub fn bind<O, D>(
         &self,
-        qh: &event_queue::QueueHandle,
+        event_queue: &event_queue::EventQueue,
         state: &mut D,
         version: u32,
     ) -> crate::Result<O>
@@ -96,11 +96,11 @@ impl Client {
             .get_spec(O::ProtocolImpl::spec_name())
             .ok_or(crate::Error::ProtocolNotFound)?;
         let spec = server_spec::ServerSpec::<O::ProtocolImpl>::new(advertised.version());
-        let obj = self.0.bind_protocol(qh, &spec, version)?;
+        let obj = self.0.bind_protocol(event_queue, &spec, version)?;
         // Install event handlers before waiting so events that arrive in the same
         // socket read with NewObject are dispatched rather than dropped.
         let typed = O::from_object::<D>(sync::Arc::clone(&obj) as sync::Arc<dyn object::Object>);
-        self.0.wait_for_object(qh, &obj, state)?;
+        self.0.wait_for_object(event_queue, &obj, state)?;
         Ok(typed)
     }
 
