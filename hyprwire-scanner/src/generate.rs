@@ -261,7 +261,6 @@ fn write_object_data_impl(
     obj_path: &TokenStream,
     event_path: &TokenStream,
     methods: &[Method],
-    is_server: bool,
     extra_dispatch_bounds: &[TokenStream],
 ) -> TokenStream {
     let data_ident = format_ident!("{}ObjectData", snake_to_pascal(obj_name));
@@ -282,22 +281,12 @@ fn write_object_data_impl(
                 let returned_mod_ident = raw_ident(returned);
                 let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
                 let returned_field_ident = raw_ident(returned);
-                if is_server {
-                    quote! {
-                        __needle += 1;
-                        let __seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
-                        __needle += 4;
-                        let Some(__raw_obj) = __proxy.object.create_object(#returned, __seq) else { return; };
-                        let #returned_field_ident = super::#returned_mod_ident::#returned_obj_ident::new::<D>(__raw_obj);
-                    }
-                } else {
-                    quote! {
-                        __needle += 1;
-                        let __seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
-                        __needle += 4;
-                        let Some(__raw_obj) = __proxy.object.client_sock().and_then(|sock| sock.object_for_seq(__seq)) else { return; };
-                        let #returned_field_ident = super::#returned_mod_ident::#returned_obj_ident::new::<D>(__raw_obj);
-                    }
+                quote! {
+                    __needle += 1;
+                    let __seq = u32::from_le_bytes(__data[__needle..__needle + 4].try_into().unwrap());
+                    __needle += 4;
+                    let Some(__raw_obj) = __proxy.object.create_object(#returned, __seq) else { return; };
+                    let #returned_field_ident = super::#returned_mod_ident::#returned_obj_ident::new::<D>(__raw_obj);
                 }
             } else {
                 quote! {}
@@ -799,6 +788,7 @@ fn write_send_method(idx: usize, m: &Method) -> TokenStream {
 
     if m.returns.is_some() {
         let call_body = build_call_body(idx, &m.args, true);
+        let returned_name = m.returns.as_deref().expect("checked above");
         let returned_mod_ident = raw_ident(m.returns.as_deref().expect("checked above"));
         let returned_obj_ident = format_ident!(
             "{}",
@@ -812,10 +802,7 @@ fn write_send_method(idx: usize, m: &Method) -> TokenStream {
                 #(#param_pairs,)*
             ) -> Option<#returned_obj_path> {
                 #call_body
-                let obj = self
-                    .object
-                    .client_sock()
-                    .and_then(|sock| sock.object_for_seq(seq));
+                let obj = self.object.create_object(#returned_name, seq);
                 Some(<#returned_obj_path as hyprwire::Object>::from_object::<D>(obj?))
             }
         }
@@ -940,7 +927,6 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
             &obj_path,
             &event_path,
             &obj.c2s,
-            true,
             &extra_dispatch_bounds,
         );
         let new_fn = write_new_fn(&obj.name, &extra_dispatch_bounds);
@@ -1156,7 +1142,6 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
             &obj_path,
             &event_path,
             &obj.s2c,
-            false,
             &extra_dispatch_bounds,
         );
         let new_fn = write_new_fn(&obj.name, &extra_dispatch_bounds);
