@@ -39,10 +39,11 @@ use std::{
 };
 
 use implementation::object as impl_object;
+use rustix::{event, fd};
 use std::os::fd::AsRawFd;
 use std::os::unix::net;
 use std::sync::atomic;
-use std::{io, sync, time};
+use std::{io, mem, sync, time};
 
 pub(crate) struct ConnectionState {
     pub(crate) error: atomic::AtomicBool,
@@ -63,12 +64,12 @@ impl ConnectionState {
         let buf = message.data();
         let iov = [io::IoSlice::new(buf)];
         let fds = message.fds();
-        let borrowed: Vec<rustix::fd::BorrowedFd<'_>> = fds
+        let borrowed: Vec<fd::BorrowedFd<'_>> = fds
             .iter()
-            .map(|&fd| unsafe { rustix::fd::BorrowedFd::borrow_raw(fd) })
+            .map(|&fd| unsafe { fd::BorrowedFd::borrow_raw(fd) })
             .collect();
         let mut space =
-            vec![std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(fds.len()))];
+            vec![mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(fds.len()))];
         let mut ancillary = rustix::net::SendAncillaryBuffer::new(&mut space);
         ancillary.push(rustix::net::SendAncillaryMessage::ScmRights(&borrowed));
 
@@ -81,11 +82,8 @@ impl ConnectionState {
             ) {
                 Ok(_) => break,
                 Err(e) if e == rustix::io::Errno::AGAIN => {
-                    let mut pfd = [rustix::event::PollFd::new(
-                        &self.stream,
-                        rustix::event::PollFlags::OUT,
-                    )];
-                    if let Err(e) = rustix::event::poll(&mut pfd, None) {
+                    let mut pfd = [event::PollFd::new(&self.stream, event::PollFlags::OUT)];
+                    if let Err(e) = event::poll(&mut pfd, None) {
                         crate::log_error!(
                             "[{} @ {:.3}] poll error during send_message: {e}",
                             self.stream.as_raw_fd(),

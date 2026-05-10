@@ -1,5 +1,6 @@
 use super::server_object;
 use crate::ConnectionState;
+use crate::implementation;
 use crate::implementation::object::Object;
 use crate::{steady_millis, trace};
 use hyprwire_core::message::Message;
@@ -7,7 +8,6 @@ use hyprwire_core::message::wire::{fatal_protocol_error, generic_protocol_messag
 use rustix::net;
 use rustix::net::sockopt;
 use std::os::fd::AsRawFd;
-use crate::implementation;
 use std::sync::atomic;
 use std::{hash, ops, sync};
 
@@ -63,7 +63,8 @@ pub(crate) struct ServerClientState {
     pub(crate) version: atomic::AtomicU32,
     pub(crate) max_id: atomic::AtomicU32,
     pub(crate) state: sync::Arc<ConnectionState>,
-    pub(crate) impls: sync::Arc<sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+    pub(crate) impls:
+        sync::Arc<sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
     pub(crate) scheduled_roundtrip_seq: atomic::AtomicU32,
     pub(crate) objects: sync::Mutex<Vec<sync::Arc<server_object::ServerObject>>>,
     self_ref: sync::Weak<Self>,
@@ -73,7 +74,9 @@ impl ServerClientState {
     pub(crate) fn new(
         id: u32,
         state: sync::Arc<ConnectionState>,
-        impls: sync::Arc<sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>>,
+        impls: sync::Arc<
+            sync::RwLock<Vec<Box<dyn implementation::server::ProtocolImplementations>>>,
+        >,
     ) -> sync::Arc<Self> {
         sync::Arc::new_cyclic(|weak_self| Self {
             id,
@@ -132,14 +135,8 @@ impl ServerClientState {
     ) -> sync::Arc<server_object::ServerObject> {
         let mut server_obj =
             server_object::ServerObject::new(self.self_ref.clone(), sync::Arc::clone(&self.state));
-        server_obj.id.store(
-            self.max_id.load(atomic::Ordering::Relaxed),
-            atomic::Ordering::Relaxed,
-        );
-        self.max_id.store(
-            self.max_id.load(atomic::Ordering::Relaxed) + 1,
-            atomic::Ordering::Relaxed,
-        );
+        let id = self.max_id.fetch_add(1, atomic::Ordering::Relaxed);
+        server_obj.id.store(id, atomic::Ordering::Relaxed);
         server_obj.version.store(version, atomic::Ordering::Relaxed);
         server_obj.seq = seq;
         server_obj.protocol_name = protocol.to_string();

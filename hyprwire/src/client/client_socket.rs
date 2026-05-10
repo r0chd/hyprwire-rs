@@ -113,8 +113,7 @@ impl ClientSocket {
             ));
         }
         object.spec = Some(std::sync::Arc::clone(&objects[0]));
-        let seq = self.seq.load(atomic::Ordering::Relaxed) + 1;
-        self.seq.store(seq, atomic::Ordering::Relaxed);
+        let seq = self.seq.fetch_add(1, atomic::Ordering::Relaxed) + 1;
         object.seq = seq;
         object.version.store(version, atomic::Ordering::Relaxed);
         object.protocol_name = spec.spec_name().to_string();

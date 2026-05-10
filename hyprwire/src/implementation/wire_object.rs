@@ -90,8 +90,7 @@ pub trait WireObject: object::Object {
 
             data.push(types::MessageMagic::TypeSeq as u8);
             if let Some(client) = self.client_sock() {
-                return_seq = client.0.seq.load(atomic::Ordering::Relaxed) + 1;
-                client.0.seq.store(return_seq, atomic::Ordering::Relaxed);
+                return_seq = client.0.seq.fetch_add(1, atomic::Ordering::Relaxed);
             }
             data.extend_from_slice(&return_seq.to_le_bytes());
         }
