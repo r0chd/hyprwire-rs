@@ -103,10 +103,10 @@ impl EventQueue {
 
             let mut events = polling::Events::new();
             if inner.socket.poller.wait(&mut events, timeout)? == 0 {
+                inner.socket.collect_orphaned_objects();
                 if block {
                     return Err(crate::Error::ConnectionClosed);
                 }
-                inner.socket.collect_orphaned_objects();
                 return Ok(());
             }
 
