@@ -165,11 +165,8 @@ impl ServerSocket {
 
         let state = sync::Arc::new(crate::ConnectionState::new(stream));
         let client_id = self.next_client_id;
-        let client = server_client::ServerClientState::new(
-            client_id,
-            state,
-            sync::Arc::clone(&self.impls),
-        );
+        let client =
+            server_client::ServerClientState::new(client_id, state, sync::Arc::clone(&self.impls));
 
         unsafe {
             self.poller.add(
@@ -282,11 +279,8 @@ impl ServerSocket {
         _ = stream.set_nonblocking(true);
         let state = sync::Arc::new(crate::ConnectionState::new(stream));
         let client_id = self.next_client_id;
-        let client = server_client::ServerClientState::new(
-            client_id,
-            state,
-            sync::Arc::clone(&self.impls),
-        );
+        let client =
+            server_client::ServerClientState::new(client_id, state, sync::Arc::clone(&self.impls));
 
         // SAFETY: see `accept_one` — same drop-order argument.
         if let Err(e) = unsafe {
