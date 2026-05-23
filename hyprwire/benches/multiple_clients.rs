@@ -38,12 +38,10 @@ fn make_lorem_ipsum(min_bytes: usize) -> String {
 
 struct ServerApp;
 
+impl bench_protocol_v1::s::BenchProtocolV1Handler for ServerApp {}
+
 hyprwire::delegate_noop!(ServerApp: ignore bench_protocol_v1::s::bench_v1::BenchV1);
 hyprwire::delegate_noop!(ClientApp: ignore bench_protocol_v1::c::bench_v1::BenchV1);
-
-impl bench_protocol_v1::s::BenchProtocolV1Handler for ServerApp {
-    fn bind(&mut self, _object: bench_protocol_v1::s::bench_v1::BenchV1) {}
-}
 
 struct ClientApp;
 

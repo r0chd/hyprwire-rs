@@ -2,7 +2,7 @@
 source: hyprwire-scanner/tests/scanner_snapshots.rs
 expression: code
 ---
-// Generated with hyprwire-scanner 0.4.0. Made with pure malice and hatred by r0chd.
+// Generated with hyprwire-scanner 0.4.1. Made with pure malice and hatred by r0chd.
 // test_protocol_v1
 /*
  This protocol's author copyright notice is:
@@ -576,7 +576,9 @@ pub mod server {
     pub trait TestProtocolV1Handler {
         /// Called whenever the server binds a new instance of the protocol's
         /// root object for a client.
-        fn bind(&mut self, object: my_manager_v1::MyManagerV1);
+        fn bind(&mut self, object: my_manager_v1::MyManagerV1) {
+            _ = object;
+        }
     }
     pub struct TestProtocolV1Impl {
         version: u32,

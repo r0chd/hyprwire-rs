@@ -85,7 +85,7 @@ fn main() {
     pipes.1.write_all(buf).unwrap();
     drop(pipes.1);
 
-    println!("Will send fd {}\n", pipes.0.as_raw_fd());
+    println!("Will send fd {}", pipes.0.as_raw_fd());
 
     let mut pipes2 = net::UnixStream::pair().unwrap();
     let mut pipes3 = net::UnixStream::pair().unwrap();

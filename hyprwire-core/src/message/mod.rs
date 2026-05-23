@@ -111,3 +111,56 @@ fn parse_var_int_span(data: &[u8]) -> (usize, usize) {
 
     (rolling, i)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // parse_var_int returns (value, bytes_consumed)
+
+    #[test]
+    fn parse_var_int_single_byte() {
+        // Any byte 0–127 is a complete varint in 1 byte
+        assert_eq!(parse_var_int(&[0x00], 0), (0, 1));
+        assert_eq!(parse_var_int(&[0x01], 0), (1, 1));
+        assert_eq!(parse_var_int(&[0x7F], 0), (127, 1));
+    }
+
+    #[test]
+    fn parse_var_int_two_bytes() {
+        // 128 = 0x80 encodes as [0x80, 0x01]: high bit set means "more bytes follow"
+        assert_eq!(parse_var_int(&[0x80, 0x01], 0), (128, 2));
+        // 300 = 0x12C encodes as [0xAC, 0x02]
+        assert_eq!(parse_var_int(&[0xAC, 0x02], 0), (300, 2));
+    }
+
+    #[test]
+    fn parse_var_int_with_offset() {
+        // The reported case: data[1] = 2, a single-byte varint for value 2
+        let data = [
+            19u8, 2, 0, 0, 0, 32, 8, 112, 97, 115, 115, 119, 111, 114, 100, 0,
+        ];
+        assert_eq!(parse_var_int(&data, 1), (2, 1));
+        // offset 0 gives value 19
+        assert_eq!(parse_var_int(&data, 0), (19, 1));
+    }
+
+    #[test]
+    fn parse_var_int_offset_out_of_bounds() {
+        let data = [0x01u8];
+        assert_eq!(parse_var_int(&data, 1), (0, 0));
+        assert_eq!(parse_var_int(&[], 0), (0, 0));
+    }
+
+    #[test]
+    fn parse_var_int_roundtrip() {
+        let cases = [0usize, 1, 127, 128, 300, 16383, 16384, usize::MAX >> 8];
+        let mut buf = [0u8; 10];
+        for &n in &cases {
+            let encoded = encode_var_int(n, &mut buf);
+            let (value, consumed) = parse_var_int(encoded, 0);
+            assert_eq!(value, n, "roundtrip failed for {n}");
+            assert_eq!(consumed, encoded.len(), "consumed != encoded len for {n}");
+        }
+    }
+}
