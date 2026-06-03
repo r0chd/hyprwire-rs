@@ -917,6 +917,40 @@ fn write_new_fn(obj_name: &str, extra_dispatch_bounds: &[TokenStream]) -> TokenS
     }
 }
 
+fn collect_transitive_returns(obj_name: &str, protocol: &Protocol) -> Vec<String> {
+    use std::collections::{HashSet, VecDeque};
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<String> = VecDeque::new();
+    let mut result: Vec<String> = Vec::new();
+
+    if let Some(obj) = protocol.objects.iter().find(|o| o.name == obj_name) {
+        for m in &obj.c2s {
+            if let Some(returned) = m.returns.as_deref() {
+                if visited.insert(returned.to_string()) {
+                    queue.push_back(returned.to_string());
+                    result.push(returned.to_string());
+                }
+            }
+        }
+    }
+
+    while let Some(current) = queue.pop_front() {
+        if let Some(obj) = protocol.objects.iter().find(|o| o.name == current) {
+            for m in &obj.c2s {
+                if let Some(returned) = m.returns.as_deref() {
+                    if visited.insert(returned.to_string()) {
+                        queue.push_back(returned.to_string());
+                        result.push(returned.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    result
+}
+
 fn generate_server(protocol: &Protocol) -> TokenStream {
     let mut items: Vec<TokenStream> = Vec::new();
 
@@ -930,16 +964,15 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
             "Incoming events for `{obj_mod_ident}::{}`.",
             snake_to_pascal(&obj.name)
         );
-        let extra_dispatch_bounds: Vec<TokenStream> = obj
-            .c2s
-            .iter()
-            .filter_map(|m| m.returns.as_deref())
-            .map(|returned| {
-                let returned_mod_ident = raw_ident(returned);
-                let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
-                quote! { + hyprwire::Dispatch<super::#returned_mod_ident::#returned_obj_ident> }
-            })
-            .collect();
+        let extra_dispatch_bounds: Vec<TokenStream> =
+            collect_transitive_returns(&obj.name, protocol)
+                .iter()
+                .map(|returned| {
+                    let returned_mod_ident = raw_ident(returned);
+                    let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
+                    quote! { + hyprwire::Dispatch<super::#returned_mod_ident::#returned_obj_ident> }
+                })
+                .collect();
 
         let event_ident = format_ident!("Event");
         let event_enum = write_event_enum(&event_ident, &obj.c2s, true);
