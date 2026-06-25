@@ -19,6 +19,39 @@ use core::result;
 
 pub type Result<T> = result::Result<T, message::Error>;
 
+pub(crate) fn read_u32(data: &[u8], offset: usize) -> Result<u32> {
+    let bytes = data
+        .get(offset..offset + size_of::<u32>())
+        .ok_or(message::Error::UnexpectedEof)?;
+    Ok(u32::from_le_bytes(
+        bytes
+            .try_into()
+            .map_err(|_| message::Error::UnexpectedEof)?,
+    ))
+}
+
+fn read_i32(data: &[u8], offset: usize) -> Result<i32> {
+    let bytes = data
+        .get(offset..offset + size_of::<i32>())
+        .ok_or(message::Error::UnexpectedEof)?;
+    Ok(i32::from_le_bytes(
+        bytes
+            .try_into()
+            .map_err(|_| message::Error::UnexpectedEof)?,
+    ))
+}
+
+fn read_f32(data: &[u8], offset: usize) -> Result<f32> {
+    let bytes = data
+        .get(offset..offset + size_of::<f32>())
+        .ok_or(message::Error::UnexpectedEof)?;
+    Ok(f32::from_le_bytes(
+        bytes
+            .try_into()
+            .map_err(|_| message::Error::UnexpectedEof)?,
+    ))
+}
+
 pub trait Message {
     fn data(&self) -> &[u8];
 
@@ -37,7 +70,10 @@ pub trait Message {
         let mut first = true;
         let mut needle: usize = 1;
         while needle < data.len() {
-            let magic = types::MessageMagic::try_from(data[needle]).unwrap();
+            let Ok(magic) = types::MessageMagic::try_from(data[needle]) else {
+                result.push_str("<malformed>");
+                break;
+            };
             needle += 1;
 
             match magic {
@@ -46,8 +82,10 @@ pub trait Message {
                         result.push_str(", ");
                     }
                     first = false;
-                    let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
-                    let value = u32::from_le_bytes(bytes);
+                    let Ok(value) = read_u32(data, needle) else {
+                        result.push_str("<eof>");
+                        break;
+                    };
                     let _ = write!(result, "seq: {value}");
                     needle += 4;
                 }
@@ -56,8 +94,10 @@ pub trait Message {
                         result.push_str(", ");
                     }
                     first = false;
-                    let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
-                    let value = u32::from_le_bytes(bytes);
+                    let Ok(value) = read_u32(data, needle) else {
+                        result.push_str("<eof>");
+                        break;
+                    };
                     let _ = write!(result, "{value}");
                     needle += 4;
                 }
@@ -66,8 +106,10 @@ pub trait Message {
                         result.push_str(", ");
                     }
                     first = false;
-                    let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
-                    let value = i32::from_le_bytes(bytes);
+                    let Ok(value) = read_i32(data, needle) else {
+                        result.push_str("<eof>");
+                        break;
+                    };
                     let _ = write!(result, "{value}");
                     needle += 4;
                 }
@@ -76,8 +118,10 @@ pub trait Message {
                         result.push_str(", ");
                     }
                     first = false;
-                    let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
-                    let value = f32::from_le_bytes(bytes);
+                    let Ok(value) = read_f32(data, needle) else {
+                        result.push_str("<eof>");
+                        break;
+                    };
                     let _ = write!(result, "{value}");
                     needle += 4;
                 }
@@ -101,8 +145,14 @@ pub trait Message {
                         result.push_str(", ");
                     }
                     first = false;
-                    let type_byte = data[needle];
-                    let this_type = types::MessageMagic::try_from(type_byte).unwrap();
+                    let Some(&type_byte) = data.get(needle) else {
+                        result.push_str("<eof>");
+                        break;
+                    };
+                    let Ok(this_type) = types::MessageMagic::try_from(type_byte) else {
+                        result.push_str("<malformed>");
+                        break;
+                    };
                     needle += 1;
 
                     let (els, int_len) = message::parse_var_int(data, needle);
@@ -110,7 +160,10 @@ pub trait Message {
                     needle += int_len;
 
                     for i in 0..els {
-                        let (s, len) = format_primitive_type(&data[needle..], this_type).unwrap();
+                        let Ok((s, len)) = format_primitive_type(&data[needle..], this_type) else {
+                            result.push_str("<malformed>");
+                            break;
+                        };
 
                         needle += len;
                         result.push_str(&s);
@@ -126,8 +179,10 @@ pub trait Message {
                         result.push_str(", ");
                     }
                     first = false;
-                    let bytes: [u8; 4] = data[needle..needle + 4].try_into().unwrap();
-                    let id = u32::from_le_bytes(bytes);
+                    let Ok(id) = read_u32(data, needle) else {
+                        result.push_str("<eof>");
+                        break;
+                    };
                     let _ = write!(result, "object({id})");
                     needle += 4;
                 }
@@ -150,40 +205,20 @@ pub trait Message {
 fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(string::String, usize)> {
     match r#type {
         types::MessageMagic::TypeUint => {
-            let bytes: [u8; 4] = s
-                .get(0..4)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap();
-            let value = u32::from_le_bytes(bytes);
+            let value = read_u32(s, 0)?;
             Ok((value.to_string(), 4))
         }
         types::MessageMagic::TypeInt => {
-            let bytes: [u8; 4] = s
-                .get(0..4)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap();
-            let value = i32::from_le_bytes(bytes);
+            let value = read_i32(s, 0)?;
             Ok((value.to_string(), 4))
         }
         types::MessageMagic::TypeF32 => {
-            let bytes: [u8; 4] = s
-                .get(0..4)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap();
-            let value = f32::from_le_bytes(bytes);
+            let value = read_f32(s, 0)?;
             Ok((value.to_string(), 4))
         }
         types::MessageMagic::TypeFd => Ok(("<fd>".to_string(), 0)),
         types::MessageMagic::TypeObject => {
-            let bytes: [u8; 4] = s
-                .get(0..4)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap();
-            let id = u32::from_le_bytes(bytes);
+            let id = read_u32(s, 0)?;
             let obj_str = if id == 0 {
                 "null".to_string()
             } else {
@@ -205,6 +240,7 @@ fn format_primitive_type(s: &[u8], r#type: types::MessageMagic) -> Result<(strin
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::types;

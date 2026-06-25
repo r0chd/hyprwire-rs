@@ -8,7 +8,7 @@ use hyprwire_core::{message, types};
 use std::sync::atomic;
 use std::{any, sync};
 
-pub(crate) struct ServerObject {
+pub struct ServerObject {
     pub(crate) client: sync::Weak<server_client::ServerClientState>,
     pub(crate) state: sync::Arc<crate::ConnectionState>,
     pub(crate) spec: Option<sync::Arc<dyn types::ProtocolObjectSpec>>,
@@ -70,13 +70,21 @@ impl ServerObject {
 
 impl object::Object for ServerObject {
     fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any) {
-        if let Some(object_data) = self.object_data.read().unwrap().as_ref() {
+        if let Some(object_data) = self
+            .object_data
+            .read()
+            .unwrap_or_else(sync::PoisonError::into_inner)
+            .as_ref()
+        {
             object_data.dispatch(method, data, fds, state);
         }
     }
 
     fn set_object_data(&self, data: Box<dyn object::ObjectData>) {
-        *self.object_data.write().unwrap() = Some(data);
+        *self
+            .object_data
+            .write()
+            .unwrap_or_else(sync::PoisonError::into_inner) = Some(data);
     }
 
     fn call(&self, id: u32, args: &[types::CallArg]) -> u32 {

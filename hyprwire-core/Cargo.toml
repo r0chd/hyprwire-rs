@@ -8,3 +8,6 @@ repository.workspace = true
 readme.workspace = true
 keywords = ["ipc", "wire-protocol", "hyprwire", "serialization", "no-std"]
 categories = ["no-std", "encoding", "network-programming"]
+
+[lints]
+workspace = true

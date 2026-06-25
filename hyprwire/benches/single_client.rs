@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use criterion::Criterion;
 use hyprwire::{client, server};
 use nix::{libc, poll};

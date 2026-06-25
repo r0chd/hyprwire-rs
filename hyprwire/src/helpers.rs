@@ -5,9 +5,7 @@ use std::sync::atomic;
 static TRACE_STATE: atomic::AtomicU8 = atomic::AtomicU8::new(0);
 
 fn read_trace_env() -> bool {
-    env::var("HW_TRACE")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
+    env::var("HW_TRACE").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
 pub fn is_trace() -> bool {

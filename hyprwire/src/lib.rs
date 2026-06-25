@@ -51,7 +51,7 @@ pub(crate) struct ConnectionState {
 }
 
 impl ConnectionState {
-    pub(crate) fn new(stream: net::UnixStream) -> Self {
+    pub(crate) const fn new(stream: net::UnixStream) -> Self {
         Self {
             error: atomic::AtomicBool::new(false),
             stream,
@@ -80,7 +80,6 @@ impl ConnectionState {
                 &mut ancillary,
                 rustix::net::SendFlags::empty(),
             ) {
-                Ok(_) => break,
                 Err(e) if e == rustix::io::Errno::AGAIN => {
                     let mut pfd = [event::PollFd::new(&self.stream, event::PollFlags::OUT)];
                     if let Err(e) = event::poll(&mut pfd, None) {
@@ -92,7 +91,7 @@ impl ConnectionState {
                         break;
                     }
                 }
-                Err(_) => break,
+                _ => break,
             }
         }
     }
@@ -138,6 +137,7 @@ pub trait Object: Sized {
     fn from_object<D: Dispatch<Self> + 'static>(object: sync::Arc<dyn impl_object::Object>)
     -> Self;
 
+    #[must_use]
     fn protocol_impl() -> Self::ProtocolImpl {
         Default::default()
     }

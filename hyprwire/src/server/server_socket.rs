@@ -94,7 +94,10 @@ impl ServerSocket {
         I: server::Construct<H> + 'static,
     {
         let implementation = I::new(version, handler);
-        self.impls.write().unwrap().push(Box::new(implementation));
+        self.impls
+            .write()
+            .unwrap_or_else(sync::PoisonError::into_inner)
+            .push(Box::new(implementation));
     }
 
     fn dispatch_client<D: 'static>(

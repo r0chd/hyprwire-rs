@@ -66,12 +66,7 @@ impl<'a> BindProtocol<'a> {
             return Err(message::Error::InvalidFieldType);
         }
         needle += 1;
-        let seq = u32::from_le_bytes(
-            data.get(needle..needle + 4)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap(),
-        );
+        let seq = super::read_u32(data, needle)?;
         needle += 4;
 
         // protocol field (varchar)
@@ -99,12 +94,7 @@ impl<'a> BindProtocol<'a> {
             return Err(message::Error::InvalidFieldType);
         }
         needle += 1;
-        let version = u32::from_le_bytes(
-            data.get(needle..needle + 4)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap(),
-        );
+        let version = super::read_u32(data, needle)?;
         if version == 0 {
             return Err(message::Error::InvalidVersion);
         }
@@ -137,6 +127,7 @@ impl message::Message for BindProtocol<'_> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use message::Message;

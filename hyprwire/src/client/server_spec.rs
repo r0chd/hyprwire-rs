@@ -3,13 +3,13 @@ use hyprwire_core::types;
 use std::marker;
 
 #[derive(Clone)]
-pub(crate) struct AdvertisedSpec {
+pub struct AdvertisedSpec {
     name: String,
     version: u32,
 }
 
 impl AdvertisedSpec {
-    pub(crate) fn new(name: String, version: u32) -> Self {
+    pub(crate) const fn new(name: String, version: u32) -> Self {
         Self { name, version }
     }
 
@@ -17,7 +17,7 @@ impl AdvertisedSpec {
         &self.name
     }
 
-    pub(crate) fn version(&self) -> u32 {
+    pub(crate) const fn version(&self) -> u32 {
         self.version
     }
 }
@@ -54,7 +54,7 @@ impl<I> types::ProtocolSpec for ServerSpec<I>
 where
     I: client::ProtocolImplementations,
 {
-    fn spec_name(&self) -> &str {
+    fn spec_name(&self) -> &'static str {
         self.protocol.spec_name()
     }
 

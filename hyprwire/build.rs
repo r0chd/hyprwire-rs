@@ -1,4 +1,4 @@
-fn main() {
+fn main() -> std::io::Result<()> {
     hyprwire_scanner::configure()
         .with_targets(hyprwire_scanner::Targets::CLIENT | hyprwire_scanner::Targets::SERVER)
         .compile(&[
@@ -6,5 +6,4 @@ fn main() {
             "benches/protocols/bench-protocol-v1.xml",
             "tests/protocols/integration-test-protocol-v1.xml",
         ])
-        .unwrap();
 }

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use hyprwire_core::types::ProtocolSpec;
 use nix::libc;
 use std::io::{Read, Write};

@@ -62,12 +62,7 @@ impl<'a> FatalProtocolError<'a> {
             return Err(message::Error::InvalidFieldType);
         }
 
-        let object_id = u32::from_le_bytes(
-            data.get(offset + 2..offset + 2 + 4)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap(),
-        );
+        let object_id = super::read_u32(data, offset + 2)?;
 
         if *data.get(offset + 6).ok_or(message::Error::UnexpectedEof)?
             != types::MessageMagic::TypeUint as u8
@@ -75,12 +70,7 @@ impl<'a> FatalProtocolError<'a> {
             return Err(message::Error::InvalidFieldType);
         }
 
-        let error_id = u32::from_le_bytes(
-            data.get(offset + 7..offset + 11)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap(),
-        );
+        let error_id = super::read_u32(data, offset + 7)?;
 
         if *data.get(offset + 11).ok_or(message::Error::UnexpectedEof)?
             != types::MessageMagic::TypeVarchar as u8
@@ -130,6 +120,7 @@ impl message::Message for FatalProtocolError<'_> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use message::Message;

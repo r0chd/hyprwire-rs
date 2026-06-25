@@ -45,12 +45,7 @@ impl GenericProtocolMessage<ops::Range<usize>> {
             return Err(message::Error::InvalidFieldType);
         }
 
-        let object = u32::from_le_bytes(
-            data.get(offset + 2..offset + 6)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap(),
-        );
+        let object = super::read_u32(data, offset + 2)?;
 
         if *data.get(offset + 6).ok_or(message::Error::UnexpectedEof)?
             != types::MessageMagic::TypeUint as u8
@@ -58,12 +53,7 @@ impl GenericProtocolMessage<ops::Range<usize>> {
             return Err(message::Error::InvalidFieldType);
         }
 
-        let method = u32::from_le_bytes(
-            data.get(offset + 7..offset + 11)
-                .ok_or(message::Error::UnexpectedEof)?
-                .try_into()
-                .unwrap(),
-        );
+        let method = super::read_u32(data, offset + 7)?;
 
         let mut consumed_fds = vec::Vec::new();
 
@@ -214,6 +204,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::message::Message;

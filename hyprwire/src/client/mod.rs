@@ -42,6 +42,7 @@ impl Client {
     }
 
     /// Creates an [`EventQueue`][event_queue::EventQueue] backed by this client connection.
+    #[must_use]
     pub fn new_event_queue(&self) -> event_queue::EventQueue {
         event_queue::EventQueue::new(sync::Arc::clone(&self.0))
     }

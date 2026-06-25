@@ -4,7 +4,7 @@ use std::os::fd::OwnedFd;
 use std::os::{fd, unix};
 use std::{io, mem};
 
-pub(crate) struct SocketRawParsedMessage {
+pub struct SocketRawParsedMessage {
     pub(crate) data: Box<[u8]>,
     pub(crate) fds: Vec<i32>,
 }

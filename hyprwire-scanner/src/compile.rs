@@ -8,7 +8,7 @@ pub struct Builder {
 }
 
 #[must_use]
-pub fn configure() -> Builder {
+pub const fn configure() -> Builder {
     Builder {
         type_attributes: Vec::new(),
         out_dir: None,
@@ -24,7 +24,7 @@ impl Builder {
     }
 
     #[must_use]
-    pub fn with_targets(mut self, targets: generate::Targets) -> Self {
+    pub const fn with_targets(mut self, targets: generate::Targets) -> Self {
         self.targets = targets;
         self
     }
@@ -38,11 +38,19 @@ impl Builder {
     }
 
     pub fn compile(self, protos: &[impl AsRef<path::Path>]) -> Result<(), io::Error> {
-        let out_dir = self
-            .out_dir
-            .unwrap_or_else(|| path::PathBuf::from(env::var("OUT_DIR").unwrap()));
+        let out_dir = match self.out_dir {
+            Some(out_dir) => out_dir,
+            None => path::PathBuf::from(env::var("OUT_DIR").map_err(|e| {
+                io::Error::new(io::ErrorKind::NotFound, format!("OUT_DIR is not set: {e}"))
+            })?),
+        };
 
-        let manifest_dir = path::PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+        let manifest_dir = path::PathBuf::from(env::var("CARGO_MANIFEST_DIR").map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("CARGO_MANIFEST_DIR is not set: {e}"),
+            )
+        })?);
 
         for proto_path in protos {
             let proto_path = manifest_dir.join(proto_path.as_ref());

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use hyprwire_scanner::generate::{self, Targets};
 use hyprwire_scanner::parse::*;
 use proptest::prelude::*;

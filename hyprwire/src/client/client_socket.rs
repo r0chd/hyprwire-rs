@@ -71,13 +71,16 @@ impl ClientSocket {
         &self,
         p_impl: Box<dyn implementation::client::ProtocolImplementations>,
     ) {
-        self.impls.write().unwrap().push(p_impl);
+        self.impls
+            .write()
+            .unwrap_or_else(sync::PoisonError::into_inner)
+            .push(p_impl);
     }
 
     pub fn get_spec(&self, name: &str) -> Option<server_spec::AdvertisedSpec> {
         self.server_specs
             .read()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .iter()
             .find(|spec| spec.name() == name)
             .cloned()
@@ -121,7 +124,7 @@ impl ClientSocket {
         let object = sync::Arc::new(object);
         self.objects
             .write()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .push(sync::Arc::clone(&object));
 
         let bind_message = bind_protocol::BindProtocol::new(spec.spec_name(), seq, version);
@@ -166,7 +169,7 @@ impl ClientSocket {
         if let Some(obj) = self
             .impls
             .read()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .iter()
             .find(|imp| imp.protocol().spec_name() == protocol_name)
             .and_then(|imp| {
@@ -189,7 +192,7 @@ impl ClientSocket {
         let object = sync::Arc::new(object);
         self.objects
             .write()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .push(sync::Arc::clone(&object));
         Ok(object)
     }
@@ -199,14 +202,22 @@ impl ClientSocket {
     }
 
     pub fn server_specs(&self, specs: &[Box<str>]) {
-        let mut server_specs = self.server_specs.write().unwrap();
+        let mut server_specs = self
+            .server_specs
+            .write()
+            .unwrap_or_else(sync::PoisonError::into_inner);
         for spec in specs {
-            let at_pos = spec.rfind('@').unwrap();
+            let Some(at_pos) = spec.rfind('@') else {
+                crate::log_error!("ignoring malformed protocol spec '{spec}'");
+                continue;
+            };
 
-            let s = server_spec::AdvertisedSpec::new(
-                spec[0..at_pos].to_string(),
-                spec[at_pos + 1..].parse().unwrap(),
-            );
+            let Ok(version) = spec[at_pos + 1..].parse() else {
+                crate::log_error!("ignoring protocol spec with invalid version '{spec}'");
+                continue;
+            };
+
+            let s = server_spec::AdvertisedSpec::new(spec[0..at_pos].to_string(), version);
             server_specs.push(s);
         }
     }
@@ -217,7 +228,10 @@ impl ClientSocket {
     }
 
     pub fn on_seq(&self, seq: u32, id: u32) {
-        let objects = self.objects.read().unwrap();
+        let objects = self
+            .objects
+            .read()
+            .unwrap_or_else(sync::PoisonError::into_inner);
         if let Some(object) = objects.iter().find(|object| object.seq == seq) {
             object.id.store(id, atomic::Ordering::Relaxed);
         }
@@ -226,12 +240,12 @@ impl ClientSocket {
     pub fn destroy_object(&self, id: u32) {
         self.objects
             .write()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .retain(|obj| obj.id.load(atomic::Ordering::Relaxed) != id);
     }
 
     pub fn collect_orphaned_objects(&self) {
-        self.objects.write().unwrap().retain(|obj| {
+        self.objects.write().unwrap_or_else(sync::PoisonError::into_inner).retain(|obj| {
             if obj.id.load(atomic::Ordering::Relaxed) == 0 {
                 return true;
             }
@@ -256,7 +270,7 @@ impl ClientSocket {
         let obj = self
             .objects
             .read()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .iter()
             .find(|obj| obj.id.load(atomic::Ordering::Relaxed) == msg.object())
             .map(sync::Arc::clone);
@@ -289,7 +303,7 @@ impl ClientSocket {
     pub fn object_for_id(&self, id: u32) -> Option<sync::Arc<client_object::ClientObject>> {
         self.objects
             .read()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .iter()
             .find(|object| object.id.load(atomic::Ordering::Relaxed) == id)
             .map(sync::Arc::clone)
@@ -298,7 +312,7 @@ impl ClientSocket {
     pub fn object_for_seq(&self, seq: u32) -> Option<sync::Arc<client_object::ClientObject>> {
         self.objects
             .read()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .iter()
             .find(|object| object.seq == seq)
             .map(sync::Arc::clone)

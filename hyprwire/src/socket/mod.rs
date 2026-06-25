@@ -1,3 +1,3 @@
 mod socket_helpers;
 
-pub(crate) use socket_helpers::SocketRawParsedMessage;
+pub use socket_helpers::SocketRawParsedMessage;

@@ -46,7 +46,9 @@ impl Hello {
         }
 
         Ok(Self {
-            data: msg_data.try_into().unwrap(),
+            data: msg_data
+                .try_into()
+                .map_err(|_| message::Error::UnexpectedEof)?,
         })
     }
 }
@@ -62,6 +64,7 @@ impl message::Message for Hello {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use message::Message;

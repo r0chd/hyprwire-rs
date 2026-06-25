@@ -79,11 +79,19 @@ impl ClientObject {
 
 impl object::Object for ClientObject {
     fn set_object_data(&self, data: Box<dyn object::ObjectData>) {
-        *self.object_data.write().unwrap() = Some(data);
+        *self
+            .object_data
+            .write()
+            .unwrap_or_else(sync::PoisonError::into_inner) = Some(data);
     }
 
     fn dispatch(&self, method: u32, data: &[u8], fds: &[i32], state: &mut dyn any::Any) {
-        if let Some(object_data) = self.object_data.read().unwrap().as_ref() {
+        if let Some(object_data) = self
+            .object_data
+            .read()
+            .unwrap_or_else(sync::PoisonError::into_inner)
+            .as_ref()
+        {
             object_data.dispatch(method, data, fds, state);
         }
     }

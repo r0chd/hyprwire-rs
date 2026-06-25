@@ -45,18 +45,17 @@ impl HandshakeAck {
             return Err(message::Error::MalformedMessage);
         }
 
-        let bytes: [u8; 4] = data
-            .get(offset + 2..offset + 6)
-            .ok_or(message::Error::UnexpectedEof)?
-            .try_into()
-            .unwrap();
-        let version = u32::from_le_bytes(bytes);
+        let version = super::read_u32(data, offset + 2)?;
 
         needle += 4;
 
         Ok(Self {
             version,
-            data: data[offset..=(offset + needle)].try_into().unwrap(),
+            data: data
+                .get(offset..=(offset + needle))
+                .ok_or(message::Error::UnexpectedEof)?
+                .try_into()
+                .map_err(|_| message::Error::UnexpectedEof)?,
         })
     }
 }
@@ -72,6 +71,7 @@ impl message::Message for HandshakeAck {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use message::Message;

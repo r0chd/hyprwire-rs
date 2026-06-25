@@ -20,3 +20,6 @@ hyprwire-core = { version = "0.4.2", path = "../hyprwire-core" }
 [dev-dependencies]
 insta = "1"
 proptest = "1"
+
+[lints]
+workspace = true

@@ -73,14 +73,7 @@ impl<'a> HandshakeBegin<'a> {
         }
 
         let versions = (0..n_vars)
-            .map(|i| {
-                let bytes: [u8; 4] = data
-                    .get(needle + (i * 4)..needle + (i * 4) + 4)
-                    .ok_or(message::Error::UnexpectedEof)?
-                    .try_into()
-                    .unwrap();
-                Ok(u32::from_le_bytes(bytes))
-            })
+            .map(|i| super::read_u32(data, needle + (i * 4)))
             .collect::<super::Result<vec::Vec<_>>>()?;
 
         needle += n_vars * 4;
@@ -111,6 +104,7 @@ impl super::Message for HandshakeBegin<'_> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use message::Message;

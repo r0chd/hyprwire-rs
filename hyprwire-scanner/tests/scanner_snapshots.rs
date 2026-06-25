@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use hyprwire_scanner::{Targets, generate, parse};
 use insta::assert_snapshot;
 use std::fs;

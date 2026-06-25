@@ -20,11 +20,11 @@ pub struct EventQueue {
 }
 
 #[derive(Clone)]
-pub(crate) struct WeakEventQueue {
+pub struct WeakEventQueue {
     inner: sync::Weak<sync::Mutex<EventQueueInner>>,
 }
 
-pub(crate) struct EventQueueInner {
+pub struct EventQueueInner {
     socket: sync::Arc<client_socket::ClientSocket>,
     pub(crate) queue: Vec<generic_protocol_message::GenericProtocolMessage<ops::Range<usize>>>,
     last_sent_roundtrip_seq: u32,
@@ -52,7 +52,10 @@ impl EventQueue {
     /// Returns an error if the connection closes, polling fails, or incoming
     /// protocol traffic is malformed.
     pub fn dispatch_events<D: 'static>(&self, dispatch: &mut D, block: bool) -> crate::Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(sync::PoisonError::into_inner);
         self.dispatch_events_inner(dispatch, block, &mut inner)
     }
 
@@ -182,7 +185,10 @@ impl EventQueue {
     /// Returns an error if the connection closes or dispatching protocol
     /// traffic fails while waiting for the roundtrip acknowledgment.
     pub fn roundtrip<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(sync::PoisonError::into_inner);
 
         if inner.socket.state.error.load(atomic::Ordering::Relaxed) {
             return Err(crate::Error::ConnectionClosed);
@@ -211,7 +217,13 @@ impl EventQueue {
     /// Returns an error if the connection closes, the handshake times out, or
     /// the server sends invalid handshake traffic.
     pub fn wait_for_handshake<D: 'static>(&self, dispatch: &mut D) -> crate::Result<()> {
-        let socket = sync::Arc::clone(&self.inner.lock().unwrap().socket);
+        let socket = sync::Arc::clone(
+            &self
+                .inner
+                .lock()
+                .unwrap_or_else(sync::PoisonError::into_inner)
+                .socket,
+        );
         while !socket.state.error.load(atomic::Ordering::Relaxed)
             && !socket.handshake_done.load(atomic::Ordering::Relaxed)
         {

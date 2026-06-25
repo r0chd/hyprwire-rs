@@ -43,7 +43,7 @@ pub struct Description {
     pub body: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgType {
     Varchar,
     Fd,
@@ -71,8 +71,8 @@ pub struct EnumValue {
     pub description: Option<String>,
 }
 
-fn parse_arg_type(type_str: &str) -> ArgType {
-    match type_str {
+fn parse_arg_type(type_str: &str) -> Result<ArgType, Box<dyn Error>> {
+    let arg_type = match type_str {
         "varchar" => ArgType::Varchar,
         "fd" => ArgType::Fd,
         "uint" => ArgType::Uint,
@@ -84,8 +84,9 @@ fn parse_arg_type(type_str: &str) -> ArgType {
         "array uint" => ArgType::ArrayUint,
         "array int" => ArgType::ArrayInt,
         "array f32" => ArgType::ArrayF32,
-        other => panic!("unknown arg type: {other}"),
-    }
+        other => return Err(format!("unknown arg type: {other}").into()),
+    };
+    Ok(arg_type)
 }
 
 fn attr_str(e: &quick_xml::events::BytesStart<'_>, key: &[u8]) -> Option<String> {
@@ -119,11 +120,15 @@ fn parse_method(
                 b"arg" => {
                     let arg_name = attr_required(inner, b"name")?;
                     let arg_type_str = attr_required(inner, b"type")?;
+                    let arg_type = parse_arg_type(&arg_type_str)?;
                     let interface = attr_str(inner, b"interface");
+                    if arg_type == ArgType::Enum && interface.is_none() {
+                        return Err(format!("enum arg '{arg_name}' is missing interface").into());
+                    }
                     let summary = attr_str(inner, b"summary");
                     args.push(Arg {
                         name: arg_name,
-                        arg_type: parse_arg_type(&arg_type_str),
+                        arg_type,
                         interface,
                         summary,
                     });
@@ -140,12 +145,16 @@ fn parse_method(
                 b"arg" => {
                     let arg_name = attr_required(inner, b"name")?;
                     let arg_type_str = attr_required(inner, b"type")?;
+                    let arg_type = parse_arg_type(&arg_type_str)?;
                     let interface = attr_str(inner, b"interface");
+                    if arg_type == ArgType::Enum && interface.is_none() {
+                        return Err(format!("enum arg '{arg_name}' is missing interface").into());
+                    }
                     let summary = attr_str(inner, b"summary");
                     reader.read_to_end(inner.name())?;
                     args.push(Arg {
                         name: arg_name,
-                        arg_type: parse_arg_type(&arg_type_str),
+                        arg_type,
                         interface,
                         summary,
                     });

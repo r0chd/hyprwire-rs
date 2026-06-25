@@ -35,12 +35,7 @@ impl RoundtripRequest {
             return Err(message::Error::InvalidFieldType);
         }
 
-        let bytes: [u8; 4] = data
-            .get(offset + 2..offset + 2 + size_of::<u32>())
-            .ok_or(message::Error::UnexpectedEof)?
-            .try_into()
-            .unwrap();
-        let seq = u32::from_le_bytes(bytes);
+        let seq = super::read_u32(data, offset + 2)?;
 
         if *data.get(offset + 6).ok_or(message::Error::UnexpectedEof)?
             != types::MessageMagic::End as u8
@@ -50,7 +45,11 @@ impl RoundtripRequest {
 
         Ok(Self {
             seq,
-            data: data[offset..offset + 7].try_into().unwrap(),
+            data: data
+                .get(offset..offset + 7)
+                .ok_or(message::Error::UnexpectedEof)?
+                .try_into()
+                .map_err(|_| message::Error::UnexpectedEof)?,
         })
     }
 }
@@ -66,6 +65,7 @@ impl message::Message for RoundtripRequest {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use message::Message;

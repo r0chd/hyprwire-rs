@@ -1,5 +1,6 @@
 ---
 source: hyprwire-scanner/tests/scanner_snapshots.rs
+assertion_line: 16
 expression: code
 ---
 // Generated with hyprwire-scanner 0.4.2. Made with pure malice and hatred by r0chd.
@@ -11,7 +12,14 @@ expression: code
 
 */
 
-#[allow(clippy::all, dead_code, unused_imports)]
+#[allow(
+    clippy::doc_markdown,
+    clippy::non_send_fields_in_send_ty,
+    clippy::unwrap_used,
+    clippy::wildcard_imports,
+    dead_code,
+    unused_imports
+)]
 pub mod server {
     use std::{os::fd::*, rc, sync};
     pub mod my_manager_v1 {
@@ -107,7 +115,6 @@ pub mod server {
                 match __method {
                     0u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 1;
                         let (__len, __vl) = hyprwire::core::message::parse_var_int(
                             __data,
@@ -129,12 +136,11 @@ pub mod server {
                     }
                     1u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
+                        let mut __fds_iter = __fds.iter();
                         __needle += 1;
                         let message = unsafe {
-                            OwnedFd::from_raw_fd(__fds[__fd_cursor])
+                            OwnedFd::from_raw_fd(*__fds_iter.next().unwrap())
                         };
-                        __fd_cursor += 1;
                         __dispatch
                             .event(
                                 &__proxy,
@@ -145,7 +151,7 @@ pub mod server {
                     }
                     2u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
+                        let mut __fds_iter = __fds.iter();
                         __needle += 2;
                         let (__count, __cl) = hyprwire::core::message::parse_var_int(
                             __data,
@@ -153,10 +159,8 @@ pub mod server {
                         );
                         __needle += __cl;
                         let mut message = Vec::with_capacity(__count);
-                        for _ in 0..__count {
-                            message
-                                .push(unsafe { OwnedFd::from_raw_fd(__fds[__fd_cursor]) });
-                            __fd_cursor += 1;
+                        for &__fd in __fds_iter.by_ref().take(__count) {
+                            message.push(unsafe { OwnedFd::from_raw_fd(__fd) });
                         }
                         __dispatch
                             .event(
@@ -168,7 +172,6 @@ pub mod server {
                     }
                     3u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 2;
                         let (__count, __cl) = hyprwire::core::message::parse_var_int(
                             __data,
@@ -201,7 +204,6 @@ pub mod server {
                     }
                     4u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 2;
                         let (__count, __cl) = hyprwire::core::message::parse_var_int(
                             __data,
@@ -255,7 +257,6 @@ pub mod server {
                     }
                     5u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 2;
                         let (__count, __cl) = hyprwire::core::message::parse_var_int(
                             __data,
@@ -282,7 +283,6 @@ pub mod server {
                     }
                     6u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 1;
                         let __seq = u32::from_le_bytes(
                             __data[__needle..__needle + 4].try_into().unwrap(),
@@ -428,8 +428,7 @@ pub mod server {
         unsafe impl<D> Send for MyObjectV1ObjectData<D> {}
         unsafe impl<D> Sync for MyObjectV1ObjectData<D> {}
         impl<
-            D: hyprwire::Dispatch<my_object_v1::MyObjectV1>
-                + hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
+            D: hyprwire::Dispatch<my_object_v1::MyObjectV1> + 'static,
         > hyprwire::implementation::object::ObjectData for MyObjectV1ObjectData<D> {
             fn dispatch(
                 &self,
@@ -448,7 +447,6 @@ pub mod server {
                 match __method {
                     0u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 1;
                         let (__len, __vl) = hyprwire::core::message::parse_var_int(
                             __data,
@@ -470,7 +468,6 @@ pub mod server {
                     }
                     1u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 1;
                         let message: super::super::spec::MyEnum = unsafe {
                             std::mem::transmute::<
@@ -492,13 +489,10 @@ pub mod server {
                             );
                     }
                     2u32 => {
-                        let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __dispatch.event(&__proxy, my_object_v1::Event::Destroy);
                     }
                     3u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 1;
                         let __seq = u32::from_le_bytes(
                             __data[__needle..__needle + 4].try_into().unwrap(),
@@ -535,10 +529,9 @@ pub mod server {
             }
         }
         impl MyObjectV1 {
-            pub fn new<
-                D: hyprwire::Dispatch<Self>
-                    + hyprwire::Dispatch<super::my_object_v1::MyObjectV1> + 'static,
-            >(object: sync::Arc<dyn hyprwire::implementation::object::Object>) -> Self {
+            pub fn new<D: hyprwire::Dispatch<Self> + 'static>(
+                object: sync::Arc<dyn hyprwire::implementation::object::Object>,
+            ) -> Self {
                 let object_data: Box<dyn hyprwire::implementation::object::ObjectData> = Box::new(MyObjectV1ObjectData::<
                     D,
                 > {
@@ -591,10 +584,9 @@ pub mod server {
     impl TestProtocolV1Impl {
         pub fn new<
             D: TestProtocolV1Handler + hyprwire::Dispatch<my_manager_v1::MyManagerV1>
-                + hyprwire::Dispatch<my_object_v1::MyObjectV1>
                 + hyprwire::Dispatch<my_object_v1::MyObjectV1> + 'static,
         >(version: u32, handler: &mut D) -> Self {
-            let handler = handler as *mut dyn TestProtocolV1Handler;
+            let handler = std::ptr::from_mut::<dyn TestProtocolV1Handler>(handler);
             Self {
                 version,
                 handler,
@@ -624,7 +616,6 @@ pub mod server {
     impl<D> hyprwire::implementation::server::Construct<D> for TestProtocolV1Impl
     where
         D: TestProtocolV1Handler + hyprwire::Dispatch<my_manager_v1::MyManagerV1>
-            + hyprwire::Dispatch<my_object_v1::MyObjectV1>
             + hyprwire::Dispatch<my_object_v1::MyObjectV1> + 'static,
     {
         fn new(version: u32, handler: &mut D) -> Self {
@@ -632,7 +623,13 @@ pub mod server {
         }
     }
 }
-#[allow(clippy::all, dead_code, unused_imports)]
+#[allow(
+    clippy::doc_markdown,
+    clippy::unwrap_used,
+    clippy::wildcard_imports,
+    dead_code,
+    unused_imports
+)]
 pub mod client {
     use std::{os::fd::*, rc, sync};
     pub mod my_manager_v1 {
@@ -708,7 +705,6 @@ pub mod client {
                 match __method {
                     0u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 1;
                         let (__len, __vl) = hyprwire::core::message::parse_var_int(
                             __data,
@@ -730,7 +726,6 @@ pub mod client {
                     }
                     1u32 => {
                         let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
                         __needle += 2;
                         let (__count, __cl) = hyprwire::core::message::parse_var_int(
                             __data,
@@ -977,30 +972,26 @@ pub mod client {
                 let __proxy = my_object_v1::MyObjectV1 {
                     object: unsafe { sync::Arc::from_raw(self.object) },
                 };
-                match __method {
-                    0u32 => {
-                        let mut __needle: usize = 0;
-                        let mut __fd_cursor: usize = 0;
-                        __needle += 1;
-                        let (__len, __vl) = hyprwire::core::message::parse_var_int(
-                            __data,
-                            __needle,
+                if __method == 0u32 {
+                    let mut __needle: usize = 0;
+                    __needle += 1;
+                    let (__len, __vl) = hyprwire::core::message::parse_var_int(
+                        __data,
+                        __needle,
+                    );
+                    __needle += __vl;
+                    let message = String::from_utf8_lossy(
+                            &__data[__needle..__needle + __len],
+                        )
+                        .into_owned();
+                    __needle += __len;
+                    __dispatch
+                        .event(
+                            &__proxy,
+                            my_object_v1::Event::SendMessage {
+                                message,
+                            },
                         );
-                        __needle += __vl;
-                        let message = String::from_utf8_lossy(
-                                &__data[__needle..__needle + __len],
-                            )
-                            .into_owned();
-                        __needle += __len;
-                        __dispatch
-                            .event(
-                                &__proxy,
-                                my_object_v1::Event::SendMessage {
-                                    message,
-                                },
-                            );
-                    }
-                    _ => {}
                 }
             }
         }
@@ -1100,7 +1091,7 @@ pub mod client {
         }
     }
 }
-#[allow(clippy::all, dead_code)]
+#[allow(clippy::doc_markdown, dead_code)]
 mod spec {
     #[non_exhaustive]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1209,7 +1200,7 @@ mod spec {
         ],
     }));
     impl hyprwire::core::types::ProtocolObjectSpec for MyManagerV1Spec {
-        fn object_name(&self) -> &str {
+        fn object_name(&self) -> &'static str {
             "my_manager_v1"
         }
         fn c2s(&self) -> &[hyprwire::core::types::Method] {
@@ -1267,7 +1258,7 @@ mod spec {
         ],
     }));
     impl hyprwire::core::types::ProtocolObjectSpec for MyObjectV1Spec {
-        fn object_name(&self) -> &str {
+        fn object_name(&self) -> &'static str {
             "my_object_v1"
         }
         fn c2s(&self) -> &[hyprwire::core::types::Method] {
@@ -1292,7 +1283,7 @@ mod spec {
         }
     }
     impl hyprwire::core::types::ProtocolSpec for TestProtocolV1ProtocolSpec {
-        fn spec_name(&self) -> &str {
+        fn spec_name(&self) -> &'static str {
             "test_protocol_v1"
         }
         fn spec_ver(&self) -> u32 {

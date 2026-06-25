@@ -35,13 +35,14 @@ impl hash::Hash for ServerClient {
 impl ServerClient {
     /// Returns the server-local client id for this handle.
     #[must_use]
-    pub fn id(&self) -> u32 {
+    pub const fn id(&self) -> u32 {
         self.id
     }
 
     /// Returns the peer process id reported by the Unix socket credentials.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::unwrap_used)]
     pub fn creds(&self) -> &net::UCred {
         // creds are set on first dispatch
         // objects can only be created by client and
@@ -108,7 +109,7 @@ impl ServerClientState {
         match sockopt::socket_peercred(&self.state.stream) {
             Ok(cred) => {
                 // SAFETY: dispatch_first_poll can only run once
-                self.creds.set(cred).unwrap();
+                let _ = self.creds.set(cred);
                 trace! {
                     crate::log_debug!(
                         "[hw] trace: [{} @ {:.3}] peer pid: {}",
@@ -142,7 +143,7 @@ impl ServerClientState {
         server_obj.protocol_name = protocol.to_string();
 
         let impls = sync::Arc::clone(&self.impls);
-        for imp in (*impls.read().unwrap()).iter() {
+        for imp in &(*impls.read().unwrap_or_else(sync::PoisonError::into_inner)) {
             if imp.protocol().spec_name() == protocol {
                 for spec in imp.protocol().objects() {
                     if object_name.is_empty() || spec.object_name() == object_name {
@@ -158,7 +159,10 @@ impl ServerClientState {
         let new_obj_msg = new_object::NewObject::new(seq, obj.id.load(atomic::Ordering::Relaxed));
         self.state.send_message(&new_obj_msg);
 
-        self.objects.lock().unwrap().push(sync::Arc::clone(&obj));
+        self.objects
+            .lock()
+            .unwrap_or_else(sync::PoisonError::into_inner)
+            .push(sync::Arc::clone(&obj));
         self.on_bind(sync::Arc::clone(&obj));
 
         obj
@@ -173,7 +177,7 @@ impl ServerClientState {
             .unwrap_or_default();
 
         let impls = sync::Arc::clone(&self.impls);
-        for imp in (*impls.read().unwrap()).iter() {
+        for imp in &(*impls.read().unwrap_or_else(sync::PoisonError::into_inner)) {
             if imp.protocol().spec_name() == protocol_name {
                 if let Some(obj_impl) = imp
                     .implementation()
@@ -190,7 +194,7 @@ impl ServerClientState {
     pub(crate) fn destroy_object(&self, id: u32) {
         self.objects
             .lock()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .retain(|obj| obj.id.load(atomic::Ordering::Relaxed) != id);
     }
 
@@ -202,7 +206,7 @@ impl ServerClientState {
         let obj = {
             self.objects
                 .lock()
-                .unwrap()
+                .unwrap_or_else(sync::PoisonError::into_inner)
                 .iter()
                 .find(|obj| obj.id.load(atomic::Ordering::Relaxed) == msg.object())
                 .map(sync::Arc::clone)
@@ -243,7 +247,7 @@ impl ServerClientState {
         let objects = self
             .objects
             .lock()
-            .unwrap()
+            .unwrap_or_else(sync::PoisonError::into_inner)
             .iter()
             .map(sync::Arc::clone)
             .collect::<Vec<_>>();
@@ -252,7 +256,10 @@ impl ServerClientState {
             obj.destroy_for_disconnect(dispatch);
         }
 
-        self.objects.lock().unwrap().clear();
+        self.objects
+            .lock()
+            .unwrap_or_else(sync::PoisonError::into_inner)
+            .clear();
     }
 }
 

@@ -4,6 +4,7 @@ use hyprwire_core::message;
 use hyprwire_core::message::wire::generic_protocol_message;
 use hyprwire_core::types;
 use std::os::fd::AsRawFd;
+use std::sync;
 use std::sync::atomic;
 
 pub trait WireObject: object::Object {
@@ -229,8 +230,14 @@ pub trait WireObject: object::Object {
             let protocol_name = self.protocol_name();
             msg.set_depends_on_seq(self.seq());
             // always set for client
-            let qh = self.event_queue().unwrap();
-            qh.inner.lock().unwrap().queue.push(msg);
+            let Some(qh) = self.event_queue() else {
+                return Err(message::Error::MalformedMessage);
+            };
+            qh.inner
+                .lock()
+                .unwrap_or_else(sync::PoisonError::into_inner)
+                .queue
+                .push(msg);
             if return_seq != 0 {
                 if let Some(client) = self.client_sock() {
                     client
@@ -245,7 +252,9 @@ pub trait WireObject: object::Object {
                 let protocol_name = self.protocol_name();
                 if let Some(client) = self.client_sock() {
                     // always set for client
-                    let qh = self.event_queue().unwrap();
+                    let Some(qh) = self.event_queue() else {
+                        return Err(message::Error::MalformedMessage);
+                    };
                     client
                         .0
                         .make_object(protocol_name, method.returns_type, return_seq, &qh)?;

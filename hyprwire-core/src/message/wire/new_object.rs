@@ -42,12 +42,7 @@ impl NewObject {
             return Err(message::Error::InvalidFieldType);
         }
 
-        let bytes: [u8; 4] = data
-            .get(offset + 2..offset + 2 + size_of::<u32>())
-            .ok_or(message::Error::UnexpectedEof)?
-            .try_into()
-            .unwrap();
-        let id = u32::from_le_bytes(bytes);
+        let id = super::read_u32(data, offset + 2)?;
 
         if *data.get(offset + 6).ok_or(message::Error::UnexpectedEof)?
             != types::MessageMagic::TypeUint as u8
@@ -55,12 +50,7 @@ impl NewObject {
             return Err(message::Error::InvalidFieldType);
         }
 
-        let bytes: [u8; 4] = data
-            .get(offset + 7..offset + 7 + size_of::<u32>())
-            .ok_or(message::Error::UnexpectedEof)?
-            .try_into()
-            .unwrap();
-        let seq = u32::from_le_bytes(bytes);
+        let seq = super::read_u32(data, offset + 7)?;
 
         if *data.get(offset + 11).ok_or(message::Error::UnexpectedEof)?
             != types::MessageMagic::End as u8
@@ -71,7 +61,11 @@ impl NewObject {
         Ok(Self {
             id,
             seq,
-            data: data[offset..offset + 12].try_into().unwrap(),
+            data: data
+                .get(offset..offset + 12)
+                .ok_or(message::Error::UnexpectedEof)?
+                .try_into()
+                .map_err(|_| message::Error::UnexpectedEof)?,
         })
     }
 }
@@ -87,6 +81,7 @@ impl message::Message for NewObject {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use message::Message;

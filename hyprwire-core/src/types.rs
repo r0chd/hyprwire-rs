@@ -75,7 +75,7 @@ pub struct Method {
 }
 
 pub trait ProtocolObjectSpec: Send + Sync {
-    fn object_name(&self) -> &str;
+    fn object_name(&self) -> &'static str;
 
     fn c2s(&self) -> &[Method];
 
@@ -83,7 +83,7 @@ pub trait ProtocolObjectSpec: Send + Sync {
 }
 
 pub trait ProtocolSpec {
-    fn spec_name(&self) -> &str;
+    fn spec_name(&self) -> &'static str;
 
     fn spec_ver(&self) -> u32;
 

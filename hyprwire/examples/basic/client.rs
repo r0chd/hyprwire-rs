@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 mod test_protocol_v1 {
     hyprwire::include_protocol!("test_protocol_v1");
     pub use client::*;

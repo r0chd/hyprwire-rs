@@ -13,7 +13,7 @@ impl Targets {
     pub const ALL: Self = Self(Self::CLIENT.0 | Self::SERVER.0);
 
     #[must_use]
-    pub fn contains(self, other: Self) -> bool {
+    pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
     }
 }
@@ -47,9 +47,13 @@ fn parse_type_attributes(attributes: &[(String, String)]) -> Vec<TypeAttribute> 
         .iter()
         .map(|(path, attribute)| {
             let path = path.trim().to_string();
-            let tokens = attribute
-                .parse::<TokenStream>()
-                .unwrap_or_else(|err| panic!("failed to parse type attribute for '{path}': {err}"));
+            let tokens = match attribute.parse::<TokenStream>() {
+                Ok(tokens) => tokens,
+                Err(err) => {
+                    let msg = format!("failed to parse type attribute for '{path}': {err}");
+                    quote! { compile_error!(#msg); }
+                }
+            };
             TypeAttribute { path, tokens }
         })
         .collect()
@@ -128,7 +132,10 @@ fn event_field_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream 
         ArgType::Int => quote! { i32 },
         ArgType::Uint => quote! { u32 },
         ArgType::Enum => {
-            let ident = format_ident!("{}", snake_to_pascal(interface.unwrap()));
+            let Some(interface) = interface else {
+                return quote! { () };
+            };
+            let ident = format_ident!("{}", snake_to_pascal(interface));
             quote! { super::super::spec::#ident }
         }
         ArgType::F32 => quote! { f32 },
@@ -173,7 +180,10 @@ fn write_parse_arg(name: &proc_macro2::Ident, arg: &Arg) -> TokenStream {
             }
         }
         ArgType::Enum => {
-            let ident = format_ident!("{}", snake_to_pascal(arg.interface.as_deref().unwrap()));
+            let Some(interface) = arg.interface.as_deref() else {
+                return quote! {};
+            };
+            let ident = format_ident!("{}", snake_to_pascal(interface));
             quote! {
                 __needle += 1;
                 let #name: super::super::spec::#ident = unsafe {
@@ -187,8 +197,7 @@ fn write_parse_arg(name: &proc_macro2::Ident, arg: &Arg) -> TokenStream {
         ArgType::Fd => {
             quote! {
                 __needle += 1;
-                let #name = unsafe { OwnedFd::from_raw_fd(__fds[__fd_cursor]) };
-                __fd_cursor += 1;
+                let #name = unsafe { OwnedFd::from_raw_fd(*__fds_iter.next().unwrap()) };
             }
         }
         ArgType::ArrayVarchar => {
@@ -211,9 +220,8 @@ fn write_parse_arg(name: &proc_macro2::Ident, arg: &Arg) -> TokenStream {
                 let (__count, __cl) = hyprwire::core::message::parse_var_int(__data, __needle);
                 __needle += __cl;
                 let mut #name = Vec::with_capacity(__count);
-                for _ in 0..__count {
-                    #name.push(unsafe { OwnedFd::from_raw_fd(__fds[__fd_cursor]) });
-                    __fd_cursor += 1;
+                for &__fd in __fds_iter.by_ref().take(__count) {
+                    #name.push(unsafe { OwnedFd::from_raw_fd(__fd) });
                 }
             }
         }
@@ -266,17 +274,21 @@ fn write_object_data_impl(
 ) -> TokenStream {
     let data_ident = format_ident!("{}ObjectData", snake_to_pascal(obj_name));
 
-    let match_arms: Vec<TokenStream> = methods
+    let method_dispatches: Vec<(TokenStream, TokenStream)> = methods
         .iter()
         .enumerate()
         .map(|(idx, m)| {
             let idx_lit = proc_macro2::Literal::u32_suffixed(idx as u32);
+            let idx_expr = quote! { #idx_lit };
             let variant_ident = format_ident!("{}", snake_to_pascal(&m.name));
 
-            let locals_init = quote! {
-                let mut __needle: usize = 0;
-                let mut __fd_cursor: usize = 0;
-            };
+            let needs_needle = m.returns.is_some() || !m.args.is_empty();
+            let needs_fd_cursor = m
+                .args
+                .iter()
+                .any(|arg| matches!(arg.arg_type, ArgType::Fd | ArgType::ArrayFd));
+            let needle_init = needs_needle.then(|| quote! { let mut __needle: usize = 0; });
+            let fds_iter_init = needs_fd_cursor.then(|| quote! { let mut __fds_iter = __fds.iter(); });
 
             let seq_parse = if let Some(returned) = m.returns.as_deref() {
                 if is_server {
@@ -330,16 +342,41 @@ fn write_object_data_impl(
                 quote! { #event_path::#variant_ident { #(#event_fields)* } }
             };
 
-            quote! {
-                #idx_lit => {
-                    #locals_init
+            let dispatch_body = quote! {
+                    #needle_init
+                    #fds_iter_init
                     #seq_parse
                     #(#parse_stmts)*
                     __dispatch.event(&__proxy, #event_construct);
-                }
-            }
+            };
+
+            (idx_expr, dispatch_body)
         })
         .collect();
+
+    let dispatch = match method_dispatches.as_slice() {
+        [] => quote! {},
+        [(idx, body)] => quote! {
+            if __method == #idx {
+                #body
+            }
+        },
+        _ => {
+            let match_arms = method_dispatches.iter().map(|(idx, body)| {
+                quote! {
+                    #idx => {
+                        #body
+                    }
+                }
+            });
+            quote! {
+                match __method {
+                    #(#match_arms)*
+                    _ => {}
+                }
+            }
+        }
+    };
 
     quote! {
         struct #data_ident<D> {
@@ -360,10 +397,7 @@ fn write_object_data_impl(
                     object: unsafe { sync::Arc::from_raw(self.object) },
                 };
 
-                match __method {
-                    #(#match_arms)*
-                    _ => {}
-                }
+                #dispatch
             }
         }
     }
@@ -377,7 +411,10 @@ fn send_param_type(arg_type: &ArgType, interface: Option<&str>) -> TokenStream {
         ArgType::Uint => quote! { u32 },
         ArgType::F32 => quote! { f32 },
         ArgType::Enum => {
-            let ident = format_ident!("{}", snake_to_pascal(interface.unwrap()));
+            let Some(interface) = interface else {
+                return quote! { () };
+            };
+            let ident = format_ident!("{}", snake_to_pascal(interface));
             quote! { super::super::spec::#ident }
         }
         ArgType::ArrayVarchar => quote! { &[S] },
@@ -561,15 +598,11 @@ fn method_doc_attrs(method: &Method, returns_named_object: bool) -> TokenStream 
         lines.extend(arg_lines);
     }
 
-    if returns_named_object {
+    if returns_named_object && let Some(returned) = method.returns.as_deref() {
         if !lines.is_empty() {
             lines.push(String::new());
         }
-        let returned = format!(
-            "Returns a new `{}` object.",
-            method.returns.as_deref().expect("checked above")
-        );
-        lines.push(returned);
+        lines.push(format!("Returns a new `{returned}` object."));
     }
 
     doc_attrs(&lines)
@@ -672,7 +705,7 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
                 }));
 
             impl hyprwire::core::types::ProtocolObjectSpec for #spec_ident {
-                fn object_name(&self) -> &str { #obj_name_str }
+                fn object_name(&self) -> &'static str { #obj_name_str }
                 fn c2s(&self) -> &[hyprwire::core::types::Method] { self.c2s_methods }
                 fn s2c(&self) -> &[hyprwire::core::types::Method] { self.s2c_methods }
             }
@@ -694,7 +727,10 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
         .collect();
 
     quote! {
-        #[allow(clippy::all, dead_code)]
+        #[allow(
+            clippy::doc_markdown,
+            dead_code
+        )]
         mod spec {
             #(#enum_items)*
 
@@ -714,7 +750,7 @@ fn generate_spec(protocol: &Protocol, type_attributes: &[TypeAttribute]) -> Toke
             }
 
             impl hyprwire::core::types::ProtocolSpec for #proto_spec_ident {
-                fn spec_name(&self) -> &str { #proto_name_str }
+                fn spec_name(&self) -> &'static str { #proto_name_str }
                 fn spec_ver(&self) -> u32 { #proto_ver }
                 fn objects(&self) -> &[std::sync::Arc<dyn hyprwire::core::types::ProtocolObjectSpec>] {
                     &self.objects
@@ -748,8 +784,11 @@ fn write_event_enum(
                 .map(|_| quote! { seq: u32, });
 
             if m.args.is_empty() && m.returns.is_some() {
-                let field = returns_field.or(seq_field).unwrap();
-                quote! { #method_docs #variant { #field }, }
+                if let Some(field) = returns_field.or(seq_field) {
+                    quote! { #method_docs #variant { #field }, }
+                } else {
+                    quote! { #method_docs #variant, }
+                }
             } else if m.args.is_empty() {
                 quote! { #method_docs #variant, }
             } else {
@@ -807,13 +846,10 @@ fn write_send_method(idx: usize, m: &Method) -> TokenStream {
         })
         .collect();
 
-    if m.returns.is_some() {
+    if let Some(returned) = m.returns.as_deref() {
         let call_body = build_call_body(idx, &m.args, true);
-        let returned_mod_ident = raw_ident(m.returns.as_deref().expect("checked above"));
-        let returned_obj_ident = format_ident!(
-            "{}",
-            snake_to_pascal(m.returns.as_deref().expect("checked above"))
-        );
+        let returned_mod_ident = raw_ident(returned);
+        let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
         let returned_obj_path = quote! { super::#returned_mod_ident::#returned_obj_ident };
         quote! {
             #docs
@@ -923,14 +959,15 @@ fn collect_transitive_returns(obj_name: &str, protocol: &Protocol) -> Vec<String
     let mut visited: HashSet<String> = HashSet::new();
     let mut queue: VecDeque<String> = VecDeque::new();
     let mut result: Vec<String> = Vec::new();
+    visited.insert(obj_name.to_string());
 
     if let Some(obj) = protocol.objects.iter().find(|o| o.name == obj_name) {
         for m in &obj.c2s {
-            if let Some(returned) = m.returns.as_deref() {
-                if visited.insert(returned.to_string()) {
-                    queue.push_back(returned.to_string());
-                    result.push(returned.to_string());
-                }
+            if let Some(returned) = m.returns.as_deref()
+                && visited.insert(returned.to_string())
+            {
+                queue.push_back(returned.to_string());
+                result.push(returned.to_string());
             }
         }
     }
@@ -938,12 +975,29 @@ fn collect_transitive_returns(obj_name: &str, protocol: &Protocol) -> Vec<String
     while let Some(current) = queue.pop_front() {
         if let Some(obj) = protocol.objects.iter().find(|o| o.name == current) {
             for m in &obj.c2s {
-                if let Some(returned) = m.returns.as_deref() {
-                    if visited.insert(returned.to_string()) {
-                        queue.push_back(returned.to_string());
-                        result.push(returned.to_string());
-                    }
+                if let Some(returned) = m.returns.as_deref()
+                    && visited.insert(returned.to_string())
+                {
+                    queue.push_back(returned.to_string());
+                    result.push(returned.to_string());
                 }
+            }
+        }
+    }
+
+    result
+}
+
+fn collect_all_transitive_returns(protocol: &Protocol) -> Vec<String> {
+    use std::collections::HashSet;
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut result: Vec<String> = Vec::new();
+
+    for obj in &protocol.objects {
+        for returned in collect_transitive_returns(&obj.name, protocol) {
+            if visited.insert(returned.clone()) {
+                result.push(returned);
             }
         }
     }
@@ -1065,11 +1119,8 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     let first_obj_type_ident = format_ident!("{}", snake_to_pascal(&protocol.objects[0].name));
     let first_obj_path = quote! { #first_obj_mod_ident::#first_obj_type_ident };
 
-    let all_extra_dispatch_bounds: Vec<TokenStream> = protocol
-        .objects
+    let all_extra_dispatch_bounds: Vec<TokenStream> = collect_all_transitive_returns(protocol)
         .iter()
-        .flat_map(|obj| obj.c2s.iter())
-        .filter_map(|m| m.returns.as_deref())
         .map(|returned| {
             let returned_mod_ident = raw_ident(returned);
             let returned_obj_ident = format_ident!("{}", snake_to_pascal(returned));
@@ -1127,7 +1178,7 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
 
         impl #impl_ident {
             pub fn new<D: #handler_ident + hyprwire::Dispatch<#first_obj_path> #(#all_extra_dispatch_bounds)* + 'static>(version: u32, handler: &mut D) -> Self {
-                let handler = handler as *mut dyn #handler_ident;
+                let handler = std::ptr::from_mut::<dyn #handler_ident>(handler);
                 Self {
                     version,
                     handler,
@@ -1157,7 +1208,14 @@ fn generate_server(protocol: &Protocol) -> TokenStream {
     });
 
     quote! {
-        #[allow(clippy::all, dead_code, unused_imports)]
+        #[allow(
+            clippy::doc_markdown,
+            clippy::non_send_fields_in_send_ty,
+            clippy::unwrap_used,
+            clippy::wildcard_imports,
+            dead_code,
+            unused_imports
+        )]
         pub mod server {
             use std::{os::fd::*, rc, sync};
 
@@ -1285,7 +1343,13 @@ fn generate_client(protocol: &Protocol) -> TokenStream {
     });
 
     quote! {
-        #[allow(clippy::all, dead_code, unused_imports)]
+        #[allow(
+            clippy::doc_markdown,
+            clippy::unwrap_used,
+            clippy::wildcard_imports,
+            dead_code,
+            unused_imports
+        )]
         pub mod client {
             use std::{os::fd::*, rc, sync};
 
@@ -1342,7 +1406,13 @@ pub fn generate(
         .then(|| generate_client(protocol));
 
     let ts = quote! { #server #client #spec };
-    let file = syn::parse_file(&ts.to_string()).expect("generated code is not valid Rust");
+    let file = match syn::parse_file(&ts.to_string()) {
+        Ok(file) => file,
+        Err(err) => {
+            let msg = format!("generated code is not valid Rust: {err}");
+            return format!("{header_comment}{copyright_block}compile_error!({msg:?});\n");
+        }
+    };
     let formatted = prettyplease::unparse(&file);
 
     format!("{header_comment}{copyright_block}{formatted}")
@@ -1380,6 +1450,16 @@ mod tests {
         }
     }
 
+    fn method_returning(name: &str, returned: &str) -> Method {
+        Method {
+            name: name.to_string(),
+            args: Vec::new(),
+            returns: Some(returned.to_string()),
+            destructor: false,
+            description: None,
+        }
+    }
+
     #[test]
     fn type_attribute_suffix_match() {
         let protocol = sample_protocol();
@@ -1410,5 +1490,98 @@ mod tests {
         let attributes = vec![(".other.my_enum".to_string(), "#[test_attr]".to_string())];
         let code = generate(&protocol, Targets::ALL, &attributes);
         assert!(!code.contains("#[test_attr]"));
+    }
+
+    #[test]
+    fn transitive_returns_exclude_origin_and_dedupe_cycles() {
+        let protocol = Protocol {
+            name: "simple".to_string(),
+            version: 1,
+            objects: vec![
+                Object {
+                    name: "root".to_string(),
+                    version: 1,
+                    c2s: vec![method_returning("make_child", "child")],
+                    s2c: Vec::new(),
+                    description: None,
+                },
+                Object {
+                    name: "child".to_string(),
+                    version: 1,
+                    c2s: vec![
+                        method_returning("make_leaf", "leaf"),
+                        method_returning("make_root", "root"),
+                    ],
+                    s2c: Vec::new(),
+                    description: None,
+                },
+                Object {
+                    name: "leaf".to_string(),
+                    version: 1,
+                    c2s: vec![method_returning("make_leaf", "leaf")],
+                    s2c: Vec::new(),
+                    description: None,
+                },
+            ],
+            enums: Vec::new(),
+            copyright: None,
+        };
+
+        assert_eq!(
+            collect_transitive_returns("root", &protocol),
+            vec!["child".to_string(), "leaf".to_string()]
+        );
+        assert_eq!(
+            collect_transitive_returns("leaf", &protocol),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn all_transitive_returns_are_deduped() {
+        let protocol = Protocol {
+            name: "simple".to_string(),
+            version: 1,
+            objects: vec![
+                Object {
+                    name: "root".to_string(),
+                    version: 1,
+                    c2s: vec![method_returning("make_child", "child")],
+                    s2c: Vec::new(),
+                    description: None,
+                },
+                Object {
+                    name: "child".to_string(),
+                    version: 1,
+                    c2s: vec![method_returning("make_leaf", "leaf")],
+                    s2c: Vec::new(),
+                    description: None,
+                },
+                Object {
+                    name: "other".to_string(),
+                    version: 1,
+                    c2s: vec![
+                        method_returning("make_child", "child"),
+                        method_returning("make_leaf", "leaf"),
+                    ],
+                    s2c: Vec::new(),
+                    description: None,
+                },
+                Object {
+                    name: "leaf".to_string(),
+                    version: 1,
+                    c2s: Vec::new(),
+                    s2c: Vec::new(),
+                    description: None,
+                },
+            ],
+            enums: Vec::new(),
+            copyright: None,
+        };
+
+        assert_eq!(
+            collect_all_transitive_returns(&protocol),
+            vec!["child".to_string(), "leaf".to_string()]
+        );
     }
 }

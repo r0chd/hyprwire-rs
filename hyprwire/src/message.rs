@@ -8,6 +8,7 @@ use hyprwire_core::message::wire::{
     handshake_protocols, hello, new_object, roundtrip_done, roundtrip_request,
 };
 use std::os::fd::AsRawFd;
+use std::sync;
 use std::sync::atomic;
 
 impl client_socket::ClientSocket {
@@ -236,7 +237,7 @@ impl server_client::ServerClientState {
                     let protocol_names = self
                         .impls
                         .read()
-                        .unwrap()
+                        .unwrap_or_else(sync::PoisonError::into_inner)
                         .iter()
                         .map(|imp| {
                             format!(
